@@ -16,6 +16,7 @@ public sealed class FinanceToolSource : IModuleToolSource
         var accounts = scopedServices.GetRequiredService<AccountTools>();
         var transactions = scopedServices.GetRequiredService<TransactionTools>();
         var affordability = scopedServices.GetRequiredService<AffordabilityTools>();
+        var imports = scopedServices.GetRequiredService<StatementImportTools>();
 
         return
         [
@@ -84,6 +85,29 @@ public sealed class FinanceToolSource : IModuleToolSource
                 Name = "can_i_afford",
                 Permission = Permissions.ForTool(ModuleId, "can_i_afford"),
                 Function = AIFunctionFactory.Create(affordability.CanIAfford, name: "can_i_afford"),
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "import_statement",
+                Permission = Permissions.ForTool(ModuleId, "import_statement"),
+                Function = AIFunctionFactory.Create(imports.ImportStatement, name: "import_statement"),
+                RequiresApproval = true,
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "review_import_batch",
+                Permission = Permissions.ForTool(ModuleId, "review_import_batch"),
+                Function = AIFunctionFactory.Create(imports.ReviewImportBatch, name: "review_import_batch"),
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "approve_import_batch",
+                Permission = Permissions.ForTool(ModuleId, "approve_import_batch"),
+                Function = AIFunctionFactory.Create(imports.ApproveImportBatch, name: "approve_import_batch"),
+                RequiresApproval = true,
             },
         ];
     }
