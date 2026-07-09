@@ -1,7 +1,7 @@
 {
   "name": "networthy",
   "industry": "personal-finance",
-  "stage": "architecture",
+  "stage": "development",
   "cloud": "azure",
   "connectors": [
     "plaid"
