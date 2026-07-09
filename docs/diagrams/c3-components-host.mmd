@@ -1,0 +1,39 @@
+%% C4 Component (L3) — inside Networthy.Host
+graph TB
+    subgraph host["Networthy.Host"]
+        subgraph platform["Cortex platform (NuGet packages)"]
+            auth["AuthN/RBAC/Multi-tenancy<br/>(Cortex.AspNetCore, Cortex.Infrastructure)"]
+            agentrunner["Authorized agent runner<br/>+ approval gate + audit log"]
+            jobqueue["Background job queue<br/>(IJobQueue/IJobHandler)"]
+            connectorsdk["Connector SDK<br/>(IConnector, IConnectorSettings)"]
+            domainui_host["UseCortexDomainUi /<br/>UseCortexAdminConsole"]
+        end
+
+        subgraph finance["Networthy.Finance module"]
+            accounttools["AccountTools<br/>(list/create accounts,<br/>net worth roll-up)"]
+            txntools["TransactionTools<br/>(categorize, search,<br/>LogOwn quick-capture)"]
+            importtools["StatementImportTools<br/>+ StatementParseJobHandler"]
+            budgettools["BudgetTools<br/>(targets, spent-vs-budget)"]
+            householdtools["HouseholdTools<br/>(member invite,<br/>visibility scoping)"]
+            approvaltools["ApprovalSurfaceTools<br/>(pending approvals,<br/>AI activity log)"]
+            financedb[("FinanceDbContext<br/>(EF Core, tenant-filtered)")]
+        end
+
+        plaidconnector["PlaidConnector<br/>(Cortex.Connectors — NOT<br/>part of Networthy.Finance)"]
+    end
+
+    auth --> finance
+    agentrunner --> accounttools
+    agentrunner --> txntools
+    agentrunner --> budgettools
+    agentrunner --> householdtools
+    agentrunner --> approvaltools
+    jobqueue --> importtools
+    connectorsdk --> plaidconnector
+    plaidconnector -->|synced transactions| txntools
+    importtools -->|approved lines| txntools
+    accounttools --> financedb
+    txntools --> financedb
+    budgettools --> financedb
+    householdtools --> financedb
+    domainui_host -->|GET reads, tab data endpoints| finance

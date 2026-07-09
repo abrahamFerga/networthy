@@ -1,0 +1,44 @@
+%% C4 Container (L2) — inside the Networthy system boundary
+graph TB
+    subgraph users[" "]
+        admin["Household admin"]
+        member["Household member"]
+    end
+
+    subgraph networthy["Networthy system"]
+        spa["Domain UI<br/>(container: React SPA)<br/>@cortex/ui app shell,<br/>Networthy-branded"]
+        adminui["Admin console<br/>(container: React SPA)<br/>@cortex/admin-ui, served at /admin"]
+        host["Networthy.Host<br/>(container: ASP.NET Core)<br/>Cortex platform + Networthy.Finance module<br/>REST reads, AG-UI/SignalR chat, webhooks"]
+        db[("Postgres<br/>(container: database)<br/>cortex-platform + cortex-audit")]
+        redis[("Redis<br/>(container: cache)<br/>SignalR backplane,<br/>rate-limit windows")]
+        blob[("Azure Blob Storage<br/>(container: file store)<br/>statement uploads,<br/>generated documents")]
+    end
+
+    apphost["Networthy.AppHost<br/>(dev-only: Aspire orchestration)"]
+
+    plaid["Plaid"]
+    ai["AI Provider"]
+    ocr["Azure Document Intelligence"]
+    smtp["SMTP relay"]
+
+    admin -->|HTTPS| spa
+    admin -->|HTTPS| adminui
+    member -->|HTTPS| spa
+
+    spa -->|/api/*, same origin| host
+    spa -->|SignalR / AG-UI| host
+    adminui -->|/api/admin/*| host
+
+    host --> db
+    host --> redis
+    host --> blob
+    host -->|Link, Transactions API,<br/>item webhooks| plaid
+    host -->|categorization,<br/>chat completions| ai
+    host -->|scanned-statement OCR| ocr
+    host -->|budget recaps| smtp
+
+    apphost -.->|orchestrates locally, dev only| host
+    apphost -.-> db
+    apphost -.-> redis
+    apphost -.-> spa
+    apphost -.-> adminui

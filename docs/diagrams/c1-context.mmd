@@ -1,0 +1,21 @@
+%% C4 Context (L1) — Networthy as a single box
+graph TB
+    admin["Household admin<br/>(person)"]
+    member["Household member<br/>(person)"]
+    selfhost["Self-hosting power user<br/>(person, own deployment)"]
+
+    networthy["Networthy<br/>(software system)<br/>AI-first household finance"]
+
+    plaid["Plaid<br/>(external system)<br/>bank account linking"]
+    ai["AI Provider<br/>(external system)<br/>OpenAI / Azure OpenAI / Anthropic<br/>tenant-configurable via Cortex"]
+    smtp["SMTP relay<br/>(external system)<br/>notifications"]
+    idp["Entra ID<br/>(external system)<br/>OIDC identity provider"]
+
+    admin -->|uploads statements, sets budgets,<br/>chats, approves AI actions| networthy
+    member -->|chats, views shared budgets,<br/>logs own spending| networthy
+    selfhost -->|deploys and administers<br/>their own instance| networthy
+
+    networthy -->|links accounts, pulls transactions| plaid
+    networthy -->|categorization, statement parsing,<br/>chat responses| ai
+    networthy -->|budget recaps, reminders| smtp
+    networthy -->|authenticates users| idp
