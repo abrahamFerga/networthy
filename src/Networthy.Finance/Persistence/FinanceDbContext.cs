@@ -18,10 +18,36 @@ public sealed class FinanceDbContext(
     public const string Schema = "finance";
 
     public DbSet<Category> Categories => Set<Category>();
+    public DbSet<Account> Accounts => Set<Account>();
+    public DbSet<NetWorthSnapshot> NetWorthSnapshots => Set<NetWorthSnapshot>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema(Schema);
+
+        modelBuilder.Entity<Account>(b =>
+        {
+            b.ToTable("accounts");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Type).HasMaxLength(16).IsRequired();
+            b.Property(x => x.InstitutionName).HasMaxLength(200);
+            b.Property(x => x.MaskedAccountNumber).HasMaxLength(24);
+            b.Property(x => x.CurrencyCode).HasMaxLength(3).IsRequired();
+            b.Property(x => x.CachedBalance).HasPrecision(18, 2);
+            b.HasIndex(x => new { x.TenantId, x.Name }).IsUnique();
+            b.HasQueryFilter(x => x.TenantId == tenantContext.TenantId);
+        });
+
+        modelBuilder.Entity<NetWorthSnapshot>(b =>
+        {
+            b.ToTable("net_worth_snapshots");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.CurrencyCode).HasMaxLength(3).IsRequired();
+            b.Property(x => x.NetWorth).HasPrecision(18, 2);
+            b.HasIndex(x => new { x.TenantId, x.TakenOn, x.CurrencyCode }).IsUnique();
+            b.HasQueryFilter(x => x.TenantId == tenantContext.TenantId);
+        });
 
         modelBuilder.Entity<Category>(b =>
         {
