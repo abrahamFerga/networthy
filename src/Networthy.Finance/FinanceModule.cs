@@ -47,7 +47,10 @@ public sealed class FinanceModule : IModule
             "user's approval - tell them so. 'How much did we spend on X' -> summarize_spending. " +
             "'Can I afford X' -> can_i_afford and give the verdict verbatim - never soften a 'no'. " +
             "Suggest a category when logging (match the Categories tab); if none fits, log uncategorized " +
-            "and offer categorize_transaction afterwards.",
+            "and offer categorize_transaction afterwards. STATEMENTS: when the user attaches a bank " +
+            "statement, import_statement (file id from the attachment block, plus the account); then " +
+            "review_import_batch to show the extracted lines, and only after the user confirms, " +
+            "approve_import_batch. Never post lines the user hasn't seen.",
         Tools =
         [
             new ToolDescriptor
@@ -106,6 +109,26 @@ public sealed class FinanceModule : IModule
                 Name = "can_i_afford",
                 Description = "Direct 'can I afford X?' verdict from liquid balances and this month's spending. Read-only.",
                 Permission = Permissions.ForTool(Id, "can_i_afford"),
+            },
+            new ToolDescriptor
+            {
+                Name = "import_statement",
+                Description = "Import an uploaded bank statement (CSV/OFX/QFX) for extraction and review. Side-effecting: brings external data in and requires human approval.",
+                Permission = Permissions.ForTool(Id, "import_statement"),
+                RequiresApproval = true,
+            },
+            new ToolDescriptor
+            {
+                Name = "review_import_batch",
+                Description = "Show an import batch's extracted lines for review before approval.",
+                Permission = Permissions.ForTool(Id, "review_import_batch"),
+            },
+            new ToolDescriptor
+            {
+                Name = "approve_import_batch",
+                Description = "Post a reviewed batch's lines as transactions. Side-effecting: writes data and requires human approval.",
+                Permission = Permissions.ForTool(Id, "approve_import_batch"),
+                RequiresApproval = true,
             },
         ],
         Tabs =
@@ -168,6 +191,9 @@ public sealed class FinanceModule : IModule
         services.AddScoped<AccountTools>();
         services.AddScoped<TransactionTools>();
         services.AddScoped<AffordabilityTools>();
+        services.AddScoped<StatementImportTools>();
+        services.AddSingleton<IStatementAiExtractor, NullStatementAiExtractor>();
+        services.AddSingleton<Cortex.Application.Jobs.IJobHandler, StatementParseJobHandler>();
         services.AddSingleton<IModuleToolSource, FinanceToolSource>();
         services.AddHostedService<NetWorthSnapshotService>();
     }

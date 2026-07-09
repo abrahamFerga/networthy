@@ -33,17 +33,18 @@ public sealed class FinanceCatalogTests
         Assert.Equal(
             ["create_account", "list_accounts", "get_net_worth", "log_own_transaction",
              "categorize_transaction", "edit_transaction", "search_transactions", "summarize_spending",
-             "can_i_afford"],
+             "can_i_afford", "import_statement", "review_import_batch", "approve_import_batch"],
             manifest.Tools.Select(t => t.Name));
 
         // Record-changing tools are approval-gated (ADR-0002); reads are not.
         Assert.All(
-            manifest.Tools.Where(t => t.Name is "create_account" or "categorize_transaction" or "edit_transaction"),
+            manifest.Tools.Where(t => t.Name is "create_account" or "categorize_transaction" or "edit_transaction"
+                or "import_statement" or "approve_import_batch"),
             t => Assert.True(t.RequiresApproval));
         // log_own_transaction is the module's ONE deliberately ungated write (ADR-0005); reads are never gated.
         Assert.All(
             manifest.Tools.Where(t => t.Name is "list_accounts" or "get_net_worth" or "log_own_transaction"
-                or "search_transactions" or "summarize_spending" or "can_i_afford"),
+                or "search_transactions" or "summarize_spending" or "can_i_afford" or "review_import_batch"),
             t => Assert.False(t.RequiresApproval));
     }
 

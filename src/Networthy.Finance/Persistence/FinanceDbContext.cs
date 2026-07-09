@@ -21,6 +21,7 @@ public sealed class FinanceDbContext(
     public DbSet<Account> Accounts => Set<Account>();
     public DbSet<NetWorthSnapshot> NetWorthSnapshots => Set<NetWorthSnapshot>();
     public DbSet<Transaction> Transactions => Set<Transaction>();
+    public DbSet<StatementImportBatch> ImportBatches => Set<StatementImportBatch>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -64,6 +65,18 @@ public sealed class FinanceDbContext(
             b.HasIndex(x => x.CategoryId);
             b.HasOne<Account>().WithMany().HasForeignKey(x => x.AccountId).OnDelete(DeleteBehavior.Cascade);
             b.HasOne<Category>().WithMany().HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.SetNull);
+            b.HasQueryFilter(x => x.TenantId == tenantContext.TenantId);
+        });
+
+        modelBuilder.Entity<StatementImportBatch>(b =>
+        {
+            b.ToTable("statement_import_batches");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.FileName).HasMaxLength(300).IsRequired();
+            b.Property(x => x.Status).HasMaxLength(12).IsRequired();
+            b.Property(x => x.FailureReason).HasMaxLength(1000);
+            b.HasIndex(x => new { x.TenantId, x.Status });
+            b.HasOne<Account>().WithMany().HasForeignKey(x => x.AccountId).OnDelete(DeleteBehavior.Cascade);
             b.HasQueryFilter(x => x.TenantId == tenantContext.TenantId);
         });
 
