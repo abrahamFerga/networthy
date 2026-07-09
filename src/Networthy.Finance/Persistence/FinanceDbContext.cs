@@ -20,6 +20,7 @@ public sealed class FinanceDbContext(
     public DbSet<Category> Categories => Set<Category>();
     public DbSet<Account> Accounts => Set<Account>();
     public DbSet<NetWorthSnapshot> NetWorthSnapshots => Set<NetWorthSnapshot>();
+    public DbSet<Transaction> Transactions => Set<Transaction>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -46,6 +47,23 @@ public sealed class FinanceDbContext(
             b.Property(x => x.CurrencyCode).HasMaxLength(3).IsRequired();
             b.Property(x => x.NetWorth).HasPrecision(18, 2);
             b.HasIndex(x => new { x.TenantId, x.TakenOn, x.CurrencyCode }).IsUnique();
+            b.HasQueryFilter(x => x.TenantId == tenantContext.TenantId);
+        });
+
+        modelBuilder.Entity<Transaction>(b =>
+        {
+            b.ToTable("transactions");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Amount).HasPrecision(18, 2);
+            b.Property(x => x.CurrencyCode).HasMaxLength(3).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(500).IsRequired();
+            b.Property(x => x.Direction).HasMaxLength(8).IsRequired();
+            b.Property(x => x.Source).HasMaxLength(8).IsRequired();
+            b.HasIndex(x => new { x.TenantId, x.OccurredOn });
+            b.HasIndex(x => x.AccountId);
+            b.HasIndex(x => x.CategoryId);
+            b.HasOne<Account>().WithMany().HasForeignKey(x => x.AccountId).OnDelete(DeleteBehavior.Cascade);
+            b.HasOne<Category>().WithMany().HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.SetNull);
             b.HasQueryFilter(x => x.TenantId == tenantContext.TenantId);
         });
 
