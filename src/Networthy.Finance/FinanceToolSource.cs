@@ -15,6 +15,7 @@ public sealed class FinanceToolSource : IModuleToolSource
     {
         var accounts = scopedServices.GetRequiredService<AccountTools>();
         var transactions = scopedServices.GetRequiredService<TransactionTools>();
+        var affordability = scopedServices.GetRequiredService<AffordabilityTools>();
 
         return
         [
@@ -76,6 +77,13 @@ public sealed class FinanceToolSource : IModuleToolSource
                 Name = "summarize_spending",
                 Permission = Permissions.ForTool(ModuleId, "summarize_spending"),
                 Function = AIFunctionFactory.Create(transactions.SummarizeSpending, name: "summarize_spending"),
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "can_i_afford",
+                Permission = Permissions.ForTool(ModuleId, "can_i_afford"),
+                Function = AIFunctionFactory.Create(affordability.CanIAfford, name: "can_i_afford"),
             },
         ];
     }
