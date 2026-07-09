@@ -50,7 +50,9 @@ public sealed class FinanceModule : IModule
             "and offer categorize_transaction afterwards. STATEMENTS: when the user attaches a bank " +
             "statement, import_statement (file id from the attachment block, plus the account); then " +
             "review_import_batch to show the extracted lines, and only after the user confirms, " +
-            "approve_import_batch. Never post lines the user hasn't seen.",
+            "approve_import_batch. Never post lines the user hasn't seen. HOUSEHOLD: members and " +
+            "roles are managed by admins under Admin -> Users (household-admin / household-member); " +
+            "set_account_visibility makes an account private to its owner or shared again.",
         Tools =
         [
             new ToolDescriptor
@@ -109,6 +111,13 @@ public sealed class FinanceModule : IModule
                 Name = "can_i_afford",
                 Description = "Direct 'can I afford X?' verdict from liquid balances and this month's spending. Read-only.",
                 Permission = Permissions.ForTool(Id, "can_i_afford"),
+            },
+            new ToolDescriptor
+            {
+                Name = "set_account_visibility",
+                Description = "Make an account private to the caller or shared with the household. Side-effecting: writes data and requires human approval.",
+                Permission = Permissions.ForTool(Id, "set_account_visibility"),
+                RequiresApproval = true,
             },
             new ToolDescriptor
             {
@@ -192,6 +201,7 @@ public sealed class FinanceModule : IModule
         services.AddScoped<TransactionTools>();
         services.AddScoped<AffordabilityTools>();
         services.AddScoped<StatementImportTools>();
+        services.AddScoped<HouseholdTools>();
         services.AddSingleton<IStatementAiExtractor, NullStatementAiExtractor>();
         services.AddSingleton<Cortex.Application.Jobs.IJobHandler, StatementParseJobHandler>();
         services.AddSingleton<IModuleToolSource, FinanceToolSource>();
