@@ -19,6 +19,7 @@ public sealed class FinanceToolSource : IModuleToolSource
         var imports = scopedServices.GetRequiredService<StatementImportTools>();
         var household = scopedServices.GetRequiredService<HouseholdTools>();
         var budgets = scopedServices.GetRequiredService<BudgetTools>();
+        var approvals = scopedServices.GetRequiredService<ApprovalSurfaceTools>();
 
         return
         [
@@ -87,6 +88,20 @@ public sealed class FinanceToolSource : IModuleToolSource
                 Name = "can_i_afford",
                 Permission = Permissions.ForTool(ModuleId, "can_i_afford"),
                 Function = AIFunctionFactory.Create(affordability.CanIAfford, name: "can_i_afford"),
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "list_pending_approvals",
+                Permission = Permissions.ForTool(ModuleId, "list_pending_approvals"),
+                Function = AIFunctionFactory.Create(approvals.ListPendingApprovals, name: "list_pending_approvals"),
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "get_activity_log",
+                Permission = Permissions.ForTool(ModuleId, "get_activity_log"),
+                Function = AIFunctionFactory.Create(approvals.GetActivityLog, name: "get_activity_log"),
             },
             new ModuleTool
             {

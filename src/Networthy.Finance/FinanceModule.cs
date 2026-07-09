@@ -54,7 +54,9 @@ public sealed class FinanceModule : IModule
             "roles are managed by admins under Admin -> Users (household-admin / household-member); " +
             "set_account_visibility makes an account private to its owner or shared again. BUDGETS: " +
             "set_budget for targets ('set the grocery budget to $400'); get_budget_status answers " +
-            "'how are we doing this month' and flags OVER categories - report those honestly.",
+            "'how are we doing this month' and flags OVER categories - report those honestly. " +
+            "TRANSPARENCY: list_pending_approvals shows what you are waiting on; get_activity_log shows " +
+            "what changed and where it came from - offer these whenever the user asks what the AI did.",
         Tools =
         [
             new ToolDescriptor
@@ -113,6 +115,18 @@ public sealed class FinanceModule : IModule
                 Name = "can_i_afford",
                 Description = "Direct 'can I afford X?' verdict from liquid balances and this month's spending. Read-only.",
                 Permission = Permissions.ForTool(Id, "can_i_afford"),
+            },
+            new ToolDescriptor
+            {
+                Name = "list_pending_approvals",
+                Description = "Everything the AI is waiting on: this household's pending approval requests.",
+                Permission = Permissions.ForTool(Id, "list_pending_approvals"),
+            },
+            new ToolDescriptor
+            {
+                Name = "get_activity_log",
+                Description = "Recent changes to the household's books - what, when, by whom, from which source.",
+                Permission = Permissions.ForTool(Id, "get_activity_log"),
             },
             new ToolDescriptor
             {
@@ -230,6 +244,7 @@ public sealed class FinanceModule : IModule
         services.AddScoped<StatementImportTools>();
         services.AddScoped<HouseholdTools>();
         services.AddScoped<BudgetTools>();
+        services.AddScoped<ApprovalSurfaceTools>();
         services.AddHostedService<BudgetRolloverService>();
         services.AddSingleton<IStatementAiExtractor, NullStatementAiExtractor>();
         services.AddSingleton<Cortex.Application.Jobs.IJobHandler, StatementParseJobHandler>();
