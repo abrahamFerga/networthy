@@ -23,6 +23,7 @@ public sealed class FinanceDbContext(
     public DbSet<Transaction> Transactions => Set<Transaction>();
     public DbSet<StatementImportBatch> ImportBatches => Set<StatementImportBatch>();
     public DbSet<Budget> Budgets => Set<Budget>();
+    public DbSet<PlaidLinkedAccount> PlaidLinks => Set<PlaidLinkedAccount>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -89,6 +90,16 @@ public sealed class FinanceDbContext(
             b.Property(x => x.CurrencyCode).HasMaxLength(3).IsRequired();
             b.HasIndex(x => new { x.TenantId, x.CategoryId, x.PeriodMonth, x.CurrencyCode }).IsUnique();
             b.HasOne<Category>().WithMany().HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.Cascade);
+            b.HasQueryFilter(x => x.TenantId == tenantContext.TenantId);
+        });
+
+        modelBuilder.Entity<PlaidLinkedAccount>(b =>
+        {
+            b.ToTable("plaid_linked_accounts");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.PlaidAccountId).HasMaxLength(64).IsRequired();
+            b.HasIndex(x => new { x.TenantId, x.PlaidAccountId }).IsUnique();
+            b.HasOne<Account>().WithMany().HasForeignKey(x => x.AccountId).OnDelete(DeleteBehavior.Cascade);
             b.HasQueryFilter(x => x.TenantId == tenantContext.TenantId);
         });
 

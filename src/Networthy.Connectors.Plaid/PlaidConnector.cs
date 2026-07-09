@@ -1,4 +1,5 @@
 using Cortex.Connectors.Sdk;
+using Cortex.Modules.Sdk;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -54,13 +55,36 @@ public sealed class PlaidConnector : IConnector
                 IsSecret = true,
             },
         ],
-        // Tools land with the bank-linking feature (issue #13): list_plaid_accounts,
-        // sync_plaid_transactions (approval-gated — imports external data).
-        Tools = [],
+        Tools =
+        [
+            new ToolDescriptor
+            {
+                Name = "list_plaid_accounts",
+                Description = "List the linked Plaid item's accounts and their Networthy mapping status.",
+                Permission = Cortex.Application.Authorization.Permissions.ForConnectorTool(ConnectorId, "list_plaid_accounts"),
+            },
+            new ToolDescriptor
+            {
+                Name = "link_plaid_account",
+                Description = "Bind a Plaid account to a Networthy account (created if absent). Side-effecting: writes data and requires human approval.",
+                Permission = Cortex.Application.Authorization.Permissions.ForConnectorTool(ConnectorId, "link_plaid_account"),
+                RequiresApproval = true,
+            },
+            new ToolDescriptor
+            {
+                Name = "sync_plaid_transactions",
+                Description = "Pull recent transactions from linked Plaid accounts (deduplicated). Side-effecting: imports external data and requires human approval.",
+                Permission = Cortex.Application.Authorization.Permissions.ForConnectorTool(ConnectorId, "sync_plaid_transactions"),
+                RequiresApproval = true,
+            },
+        ],
     };
 
     public void RegisterServices(IServiceCollection services, IConfiguration configuration)
     {
-        // Client seam + tools register with the bank-linking feature (issue #13).
+        services.AddHttpClient(PlaidApiClient.HttpClientName);
+        services.AddSingleton<IPlaidClient, PlaidApiClient>();
+        services.AddScoped<PlaidTools>();
+        services.AddSingleton<IConnectorToolSource, PlaidToolSource>();
     }
 }
