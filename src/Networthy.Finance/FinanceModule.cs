@@ -246,7 +246,7 @@ public sealed class FinanceModule : IModule
         services.AddScoped<BudgetTools>();
         services.AddScoped<ApprovalSurfaceTools>();
         services.AddHostedService<BudgetRolloverService>();
-        services.AddSingleton<IStatementAiExtractor, NullStatementAiExtractor>();
+        services.AddScoped<IStatementAiExtractor, PlatformDocumentStatementExtractor>();
         services.AddSingleton<Cortex.Application.Jobs.IJobHandler, StatementParseJobHandler>();
         services.AddSingleton<IModuleToolSource, FinanceToolSource>();
         services.AddHostedService<NetWorthSnapshotService>();

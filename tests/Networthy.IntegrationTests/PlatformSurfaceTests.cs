@@ -1,0 +1,106 @@
+using System.Net;
+using System.Net.Http.Json;
+using System.Text.Json;
+using Xunit;
+
+namespace Networthy.IntegrationTests;
+
+/// <summary>
+/// The product surface a browser (or channel) actually hits: the module catalog that drives the
+/// UI shell, the seeded taxonomy, RBAC enforcement on the household roles, and a real AG-UI chat
+/// turn streaming through the Mock provider — the keyless posture every deployment starts in.
+/// </summary>
+[Collection("api")]
+public sealed class PlatformSurfaceTests(IntegrationFixture fixture)
+{
+    [Fact]
+    public async Task Platform_ServesTheFinanceModule_WithItsTabs()
+    {
+        using var client = fixture.AdminClient();
+        var modules = await client.GetFromJsonAsync<JsonElement>("/api/platform/modules");
+
+        var finance = modules.EnumerateArray().Single(m => m.GetProperty("id").GetString() == "finance");
+        var tabs = finance.GetProperty("tabs").EnumerateArray().Select(t => t.GetProperty("id").GetString()).ToList();
+        Assert.Equal(["chat", "accounts", "transactions", "budgets", "categories"], tabs);
+    }
+
+    [Fact]
+    public async Task StarterTaxonomy_SeedsTwentyCategories()
+    {
+        using var client = fixture.AdminClient();
+        var categories = await client.GetFromJsonAsync<JsonElement>("/api/finance/categories");
+
+        var names = categories.EnumerateArray().Select(c => c.GetProperty("name").GetString()).ToList();
+        Assert.True(names.Count >= 20, $"expected the 20 starter categories, got {names.Count}");
+        Assert.Contains("Groceries", names);
+        Assert.Contains("Salary", names);
+    }
+
+    [Fact]
+    public async Task HouseholdMember_CanReadFinance_ButCannotManageCategories()
+    {
+        using var member = ClientFor("household-member");
+
+        var accounts = await member.GetAsync("/api/finance/accounts");
+        Assert.Equal(HttpStatusCode.OK, accounts.StatusCode);
+
+        var upsert = await member.PostAsJsonAsync("/api/finance/categories", new { name = "Sneaky" });
+        Assert.Equal(HttpStatusCode.Forbidden, upsert.StatusCode);
+    }
+
+    [Fact]
+    public async Task HouseholdAdmin_CanManageCategories()
+    {
+        using var admin = ClientFor("household-admin");
+        var upsert = await admin.PostAsJsonAsync("/api/finance/categories", new { name = "Pets" });
+        Assert.Equal(HttpStatusCode.OK, upsert.StatusCode);
+
+        var categories = await admin.GetFromJsonAsync<JsonElement>("/api/finance/categories");
+        Assert.Contains("Pets", categories.EnumerateArray().Select(c => c.GetProperty("name").GetString()));
+    }
+
+    [Fact]
+    public async Task AgUiChatTurn_StreamsAFullRun_AgainstTheRealPipeline()
+    {
+        using var client = fixture.AdminClient();
+        var response = await client.PostAsJsonAsync("/api/agui/finance", new
+        {
+            messages = new[] { new { id = "m1", role = "user", content = "List our accounts" } },
+        });
+        response.EnsureSuccessStatusCode();
+
+        var sse = await response.Content.ReadAsStringAsync();
+        Assert.Contains("RUN_STARTED", sse);
+        Assert.Contains("RUN_FINISHED", sse);
+        Assert.DoesNotContain("RUN_ERROR", sse);
+    }
+
+    [Fact]
+    public async Task PlaidConnector_AppearsInTheAdminCatalog()
+    {
+        using var client = fixture.AdminClient();
+        var connectors = await client.GetFromJsonAsync<JsonElement>("/api/admin/connectors");
+
+        Assert.Contains("plaid",
+            connectors.EnumerateArray().Select(c => c.GetProperty("id").GetString()));
+    }
+
+    [Fact]
+    public async Task BrandedDomainUi_IsServedAtTheRoot()
+    {
+        // The embedded SPA (scripts/build-ui.ps1) serves from the host itself — same origin as
+        // the API, no registry, branded at build time.
+        using var client = fixture.Factory.CreateClient();
+        var html = await client.GetStringAsync("/");
+        Assert.Contains("<title>Networthy</title>", html);
+    }
+
+    private HttpClient ClientFor(string role)
+    {
+        var client = fixture.Factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Dev-Subject", $"it-{role}");
+        client.DefaultRequestHeaders.Add("X-Dev-Tenant", "dev");
+        client.DefaultRequestHeaders.Add("X-Dev-Roles", role);
+        return client;
+    }
+}

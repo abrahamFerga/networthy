@@ -53,6 +53,21 @@ dotnet run --project src/Networthy.AppHost   # Aspire: Postgres + Redis + API + 
 
 Zero configuration required — the assistant runs on the built-in Mock provider until you add a
 real AI key (`dotnet user-secrets --project src/Networthy.AppHost set "Parameters:ai-provider" "OpenAI"` …).
+The web UI is embedded in the host (built by `scripts/build-ui.ps1`, committed like `.packages/`),
+so the API serves the branded app at `/` and the admin console at `/admin` — no npm registry, no CORS.
+
+## Statement formats
+
+- **CSV and OFX/QFX** — parsed directly by deterministic template extractors. Every US bank
+  exports at least one of these.
+- **Digital PDFs** — text is extracted through the Cortex document reader (pure managed code,
+  no keys, works offline) and run through the same line parser.
+- **Scanned PDFs** — need OCR: configure the platform's `ocr` capability (Azure Document
+  Intelligence) on the deployment and the exact same import flow handles them; nothing in this
+  repo changes.
+
+Whatever the format, **nothing posts until a human reviews the extracted lines and approves the
+batch** — the review gate is the product, not a safety valve.
 
 ## Repo layout
 
@@ -61,7 +76,10 @@ src/Networthy.Host/             the product: a thin host on Cortex platform pack
 src/Networthy.Finance/          the finance domain module (accounts, transactions, budgets, …)
 src/Networthy.Connectors.Plaid/ the product-owned Plaid connector (ADR-0007)
 src/Networthy.AppHost/          Aspire local orchestration
-tests/                          module guard + domain-logic tests
+tests/Networthy.Finance.Tests/  module guard + domain-logic tests
+tests/Networthy.IntegrationTests/  the whole journey E2E: real Postgres (Testcontainers), real
+                                job processor, statement import (CSV + PDF), budgets, approvals,
+                                RBAC, AG-UI chat, and the embedded branded UI
 ```
 
 Design history: [SPEC.md](SPEC.md) · [PLAN.md](PLAN.md) · [ARCH.md](ARCH.md) ·

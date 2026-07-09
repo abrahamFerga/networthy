@@ -58,15 +58,16 @@ public sealed class StatementParseJobHandler : IJobHandler
         // Template legs first (deterministic), AI leg as fallback (ADR-0004).
         var lines = StatementExtraction.TryExtractCsv(text, categories)
             ?? StatementExtraction.TryExtractOfx(text, categories)
-            ?? await aiExtractor.ExtractAsync(batch.FileName, bytes, categories, cancellationToken);
+            ?? await aiExtractor.ExtractAsync(batch.SourceFileId, batch.FileName, bytes, categories, cancellationToken);
 
         if (lines is null || lines.Count == 0)
         {
             batch.Status = "failed";
             batch.FailureReason =
-                "No extractor could read this file. Supported today: CSV and OFX/QFX exports " +
-                "(every US bank offers at least one). PDF statements need the AI extraction leg, " +
-                "which this deployment hasn't enabled yet.";
+                "No extractor could read this file. CSV and OFX/QFX parse directly; PDF statements " +
+                "parse through the platform document reader (scanned PDFs additionally need the " +
+                "platform OCR capability, e.g. Azure Document Intelligence, configured). This file " +
+                "produced no readable transaction lines.";
             await db.SaveChangesAsync(cancellationToken);
             return null;
         }
