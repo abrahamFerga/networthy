@@ -41,10 +41,43 @@ public sealed class FinanceModule : IModule
             "you report and organize the household's own data; you do not recommend investments. " +
             "When the user mentions spending or income, offer to record it. Amounts are in the " +
             "account's currency; never guess a currency.",
-        Tools = [],
+        Tools =
+        [
+            new ToolDescriptor
+            {
+                Name = "create_account",
+                Description = "Create a financial account (checking, savings, credit, or cash). Side-effecting: writes data and requires human approval.",
+                Permission = Permissions.ForTool(Id, "create_account"),
+                RequiresApproval = true,
+            },
+            new ToolDescriptor
+            {
+                Name = "list_accounts",
+                Description = "List the household's accounts with types and current balances (visibility-scoped).",
+                Permission = Permissions.ForTool(Id, "list_accounts"),
+            },
+            new ToolDescriptor
+            {
+                Name = "get_net_worth",
+                Description = "The household's net worth per currency, with the recent trend when snapshots exist.",
+                Permission = Permissions.ForTool(Id, "get_net_worth"),
+            },
+        ],
         Tabs =
         [
             new TabDescriptor { Id = "chat", Label = "Chat", Route = "/finance/chat", Icon = "message-circle", Order = 0 },
+            new TabDescriptor
+            {
+                Id = "accounts", Label = "Accounts", Route = "/finance/accounts", Icon = "landmark", Order = 1,
+                Permission = ViewFinance,
+                DataEndpoint = "/api/finance/accounts",
+                Columns =
+                [
+                    new("name", "Account"), new("type", "Type"), new("institutionName", "Institution"),
+                    new("cachedBalance", "Balance"), new("currencyCode", "Currency"),
+                ],
+                Placeholder = "No accounts yet. Accounts are created in Chat - try: 'Create a checking account called Chase Checking in USD with balance 2500'. The assistant asks for your approval before anything is created.",
+            },
             new TabDescriptor
             {
                 Id = "categories", Label = "Categories", Route = "/finance/categories", Icon = "tags", Order = 5,
@@ -74,11 +107,29 @@ public sealed class FinanceModule : IModule
     {
         services.AddDbContext<FinanceDbContext>(options =>
             options.UseNpgsql(configuration.GetConnectionString(FinanceDbContext.ConnectionName)));
+        services.AddScoped<AccountTools>();
+        services.AddSingleton<IModuleToolSource, FinanceToolSource>();
+        services.AddHostedService<NetWorthSnapshotService>();
     }
 
     public void MapEndpoints(IEndpointRouteBuilder endpoints)
     {
         var group = endpoints.MapGroup("/api/finance").WithTags("Finance").RequireAuthorization();
+
+        group.MapGet("/accounts", async (
+                FinanceDbContext db, Cortex.Core.Identity.ICurrentUser currentUser,
+                CancellationToken cancellationToken) =>
+            {
+                var accounts = (await db.Accounts.OrderBy(a => a.Name).Take(200).ToListAsync(cancellationToken))
+                    .Where(a => a.IsVisibleTo(currentUser.UserId));
+                return Results.Ok(accounts.Select(a => new
+                {
+                    id = a.Id, name = a.Name, type = a.Type, institutionName = a.InstitutionName,
+                    cachedBalance = a.CachedBalance, currencyCode = a.CurrencyCode,
+                }));
+            })
+            .RequireAuthorization(PermissionRequirement.PolicyName(ViewFinance))
+            .WithName("Finance_Accounts");
 
         group.MapGet("/categories", async (FinanceDbContext db, CancellationToken cancellationToken) =>
             {

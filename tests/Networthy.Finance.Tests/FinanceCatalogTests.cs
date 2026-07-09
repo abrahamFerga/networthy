@@ -30,8 +30,17 @@ public sealed class FinanceCatalogTests
     {
         var manifest = new FinanceModule().Manifest;
 
-        // Foundations ships no tools; features add theirs here as they land.
-        Assert.Equal([], manifest.Tools.Select(t => t.Name));
+        Assert.Equal(
+            ["create_account", "list_accounts", "get_net_worth"],
+            manifest.Tools.Select(t => t.Name));
+
+        // Record-changing tools are approval-gated (ADR-0002); reads are not.
+        Assert.All(
+            manifest.Tools.Where(t => t.Name is "create_account"),
+            t => Assert.True(t.RequiresApproval));
+        Assert.All(
+            manifest.Tools.Where(t => t.Name is "list_accounts" or "get_net_worth"),
+            t => Assert.False(t.RequiresApproval));
     }
 
     [Fact]
