@@ -93,7 +93,7 @@ endpoints per bounded context.
 
 ## ADR-0003: The Plaid connector lives in Cortex core, not the Networthy repo
 
-- **Status**: accepted
+- **Status**: superseded by ADR-0007
 - **Date**: 2026-07-09
 - **Deciders**: Architecture phase (this document)
 
@@ -248,6 +248,59 @@ architecture requirement — it changes nothing structurally when it ships.
   billing pattern) — deferred, not rejected: genuinely valuable for the hosted tier, but adds
   scope v1 doesn't need when the existing per-tenant settings pattern already unblocks the
   bank-linking feature end to end.
+
+---
+
+## ADR-0007: The Plaid connector is a domain-specific connector in the Networthy repo
+
+- **Status**: accepted
+- **Date**: 2026-07-09
+- **Deciders**: Product owner directive; supersedes ADR-0003
+
+### Context
+
+ADR-0003 placed the Plaid connector in Cortex core, reasoning that bank-account linking is a
+generic data-source integration like Google Drive / S3 / Documenso. The product owner overrode
+that: Plaid is *specific to the financial domain*, not a generic platform data source the way a
+file store is — a legal or healthcare vertical would never reach for it. Cortex should instead
+let a domain system add its **own** connector, keeping Cortex core free of one product's
+domain-specific integrations. This turned out to require no new platform mechanism: the
+connector SDK's registration, catalog, per-tenant enable/settings, permission gating, and
+agent-tool exposure are all DI-driven and never keyed to a connector's assembly — a connector
+defined in a product's own assembly is already a first-class connector. Cortex core gained only
+a *proof + documentation* of this (a host-defined sample connector, keyless tests, and the
+BUILDING_A_PRODUCT.md seam #2 update) — no product-specific code entered the platform.
+
+### Decision
+
+`PlaidConnector` is implemented in the **Networthy repo** (a `Networthy.Connectors.Plaid`
+project, or alongside `Networthy.Finance` — a build-time detail), referencing
+`Cortex.Connectors.Sdk` + `Cortex.Modules.Sdk`, and registered in `Networthy.Host` with the same
+`AddCortexConnector<PlaidConnector>()` call a built-in uses. It follows the same
+`IConnectorSettings`/service-auth pattern (ADR-0006 unchanged) as the built-in connectors.
+
+### Consequences
+
+- **Positive**: Cortex core carries no finance-specific integration; the platform stays a clean
+  base for every vertical, satisfying the "only core things for Cortex" directive precisely —
+  the *generic* capability (host-defined connectors) is core; the *specific* connector (Plaid)
+  is not.
+- **Positive**: Networthy owns its Plaid connector's release cadence and any finance-specific
+  behavior outright — a Plaid change is a Networthy-only change, no Cortex round-trip.
+- **Positive**: The proof/documentation added to Cortex benefits every future vertical that
+  needs a domain-specific connector, not just Networthy.
+- **Negative**: If a second Cortex product ever genuinely needs Plaid, it would either depend on
+  Networthy's connector package or re-implement it — acceptable, and a good problem to have
+  (it would then be evidence Plaid is generic after all, and could graduate to core).
+
+### Alternatives considered
+
+- **Keep Plaid in Cortex core (ADR-0003)** — rejected by the product owner: it puts a
+  finance-domain-specific integration in a platform meant to serve many unrelated verticals.
+- **A new plugin/marketplace mechanism for connectors** — rejected: unnecessary, since the
+  existing `AddCortexConnector<T>()` + DI-driven discovery already makes any assembly's
+  `IConnector` first-class. Building a heavier mechanism would be solving a problem that doesn't
+  exist.
 
 ---
 

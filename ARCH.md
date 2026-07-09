@@ -40,7 +40,9 @@ agent runner with its approval gate and audit log, the background job queue, the
 and the domain-UI/admin-console static hosting) alongside `Networthy.Finance`'s tools —
 `AccountTools`, `TransactionTools`, `StatementImportTools` (plus its job handler),
 `BudgetTools`, `HouseholdTools`, and `ApprovalSurfaceTools`. `PlaidConnector` is drawn
-separately: it lives in Cortex core (ADR-0003), not in `Networthy.Finance`.
+separately: it is a **Networthy-repo connector** (ADR-0007, superseding ADR-0003) — defined in
+this repo against `Cortex.Connectors.Sdk`, registered like a built-in, but not part of
+`Networthy.Finance`'s domain logic.
 
 Diagram: [`docs/diagrams/c3-components-host.mmd`](docs/diagrams/c3-components-host.mmd)
 
@@ -68,11 +70,16 @@ src/
                                 Account.cs, Transaction.cs, Category.cs, Budget.cs,
                                 StatementImportBatch.cs, PlaidLinkedAccount.cs
                                 Migrations/
+  Networthy.Connectors.Plaid/ ← the domain-specific Plaid connector (ADR-0007):
+                              IConnector + IConnectorToolSource against Cortex.Connectors.Sdk,
+                              in THIS repo — not Cortex core, not Networthy.Finance's domain logic
 
 tests/
   Networthy.Finance.Tests/  ← unit tests + module-composition guard tests
                                (mirrors Casewell.Legal.Tests: manifest tool-list pinning,
                                approval-gating assertions, persona/role guard tests)
+  Networthy.Connectors.Plaid.Tests/ ← keyless connector tests (fake Plaid client behind a seam,
+                               the shape of Cortex's S3/Documenso connector tests)
 ```
 
 No `Domain`/`Application`/`Infrastructure`/`Api` split, and no `Networthy.Infrastructure.Azure`
@@ -97,8 +104,9 @@ reimplemented) would live there if it ever arises.
   audit log automatically; `Transactions.LogOwn` (ADR-0005) is still logged as a tool
   invocation, just not held for approval first.
 - **Resilience** — `PlaidConnector`'s outbound calls use the same `HttpClientFactory` +
-  resilience-handler registration pattern as the S3/Documenso connectors (Cortex core, per
-  ADR-0003) — no Networthy-specific Polly configuration.
+  resilience-handler registration pattern the built-in S3/Documenso connectors use (ADR-0007) —
+  the connector lives in this repo but reuses the platform's established resilience wiring, no
+  Networthy-specific Polly configuration.
 - **Caching** — Redis, inherited from Cortex (SignalR backplane, rate limiting). No
   Networthy-specific cache usage identified for v1.
 - **Background work** — the `StatementImportTools` parse job runs on Cortex's existing

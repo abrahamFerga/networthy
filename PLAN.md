@@ -58,11 +58,14 @@ part of one tightly-coupled finance domain (a budget references transactions whi
 accounts which belong to a household), the same judgment call Casewell made for
 matters/calendar/clauses/tasks/time.
 
-The Plaid connector itself is **not** a Networthy module — per the platform-vs-product
-boundary, it is generically useful to any future Cortex vertical needing linked financial
-accounts (the same reasoning that put Google Drive, S3, and Documenso in Cortex core), so it
-belongs in `Cortex.Connectors` and Networthy only consumes it (`AddCortexConnector<PlaidConnector>()`
-in `Networthy.Host`, same pattern as Casewell's Google Drive/S3/Documenso registrations).
+The Plaid connector is **not** a Networthy *module* — it's a **connector**, a separate
+`Networthy.Connectors.Plaid` project in this repo (ADR-0007, which superseded the original
+plan of putting it in Cortex core). Plaid is specific to the financial domain — a legal or
+healthcare vertical would never reach for it — so it stays out of Cortex core; Cortex only
+provides the generic *ability* for a product to define its own connector (`IConnector` against
+`Cortex.Connectors.Sdk`, registered with `AddCortexConnector<PlaidConnector>()` in
+`Networthy.Host` exactly like a built-in). This keeps the platform clean of one product's
+domain-specific integrations while `Networthy.Finance` stays scoped to pure domain logic.
 
 ## Data model sketch
 
