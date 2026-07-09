@@ -1,0 +1,21 @@
+{
+  "name": "networthy",
+  "industry": "personal-finance",
+  "stage": "system-definition",
+  "cloud": "none",
+  "connectors": [],
+  "capabilities": [],
+  "github": {
+    "repo": "abrahamFerga/networthy",
+    "project": null,
+    "visibility": "public"
+  },
+  "skills": {
+    "self": {
+      "marketplace": "my-skills",
+      "repo": "abrahamFerga/my-skills",
+      "plugins": ["workflow-core", "system-definition", "architecture", "development"]
+    },
+    "external": []
+  }
+}
