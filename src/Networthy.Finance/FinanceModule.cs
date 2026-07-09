@@ -62,6 +62,38 @@ public sealed class FinanceModule : IModule
                 Description = "The household's net worth per currency, with the recent trend when snapshots exist.",
                 Permission = Permissions.ForTool(Id, "get_net_worth"),
             },
+            new ToolDescriptor
+            {
+                Name = "log_own_transaction",
+                Description = "Log the caller's own transaction. Quick capture - the module's ONE ungated write (ADR-0005); correctable with edit_transaction.",
+                Permission = Permissions.ForTool(Id, "log_own_transaction"),
+            },
+            new ToolDescriptor
+            {
+                Name = "categorize_transaction",
+                Description = "Set or change a transaction's category (AI suggestions land through this). Side-effecting: writes data and requires human approval.",
+                Permission = Permissions.ForTool(Id, "categorize_transaction"),
+                RequiresApproval = true,
+            },
+            new ToolDescriptor
+            {
+                Name = "edit_transaction",
+                Description = "Correct a transaction's amount, description, or date; balances adjust. Side-effecting: writes data and requires human approval.",
+                Permission = Permissions.ForTool(Id, "edit_transaction"),
+                RequiresApproval = true,
+            },
+            new ToolDescriptor
+            {
+                Name = "search_transactions",
+                Description = "Search transactions by text, category, and/or date range.",
+                Permission = Permissions.ForTool(Id, "search_transactions"),
+            },
+            new ToolDescriptor
+            {
+                Name = "summarize_spending",
+                Description = "Spending or income summed by category over a period - 'how much did we spend on X'.",
+                Permission = Permissions.ForTool(Id, "summarize_spending"),
+            },
         ],
         Tabs =
         [
@@ -77,6 +109,19 @@ public sealed class FinanceModule : IModule
                     new("cachedBalance", "Balance"), new("currencyCode", "Currency"),
                 ],
                 Placeholder = "No accounts yet. Accounts are created in Chat - try: 'Create a checking account called Chase Checking in USD with balance 2500'. The assistant asks for your approval before anything is created.",
+            },
+            new TabDescriptor
+            {
+                Id = "transactions", Label = "Transactions", Route = "/finance/transactions", Icon = "receipt", Order = 2,
+                Permission = ViewFinance,
+                DataEndpoint = "/api/finance/transactions",
+                Columns =
+                [
+                    new("occurredOn", "Date"), new("description", "Description"), new("amount", "Amount"),
+                    new("currencyCode", "Currency"), new("direction", "Direction"),
+                    new("categoryName", "Category"), new("accountName", "Account"),
+                ],
+                Placeholder = "No transactions yet. Capture them in Chat - try: 'Log $6.50 coffee on Chase Checking' - or upload a bank statement and review the extracted lines.",
             },
             new TabDescriptor
             {
@@ -108,6 +153,7 @@ public sealed class FinanceModule : IModule
         services.AddDbContext<FinanceDbContext>(options =>
             options.UseNpgsql(configuration.GetConnectionString(FinanceDbContext.ConnectionName)));
         services.AddScoped<AccountTools>();
+        services.AddScoped<TransactionTools>();
         services.AddSingleton<IModuleToolSource, FinanceToolSource>();
         services.AddHostedService<NetWorthSnapshotService>();
     }
@@ -130,6 +176,32 @@ public sealed class FinanceModule : IModule
             })
             .RequireAuthorization(PermissionRequirement.PolicyName(ViewFinance))
             .WithName("Finance_Accounts");
+
+        group.MapGet("/transactions", async (
+                FinanceDbContext db, Cortex.Core.Identity.ICurrentUser currentUser,
+                CancellationToken cancellationToken) =>
+            {
+                var visibleAccounts = (await db.Accounts.ToListAsync(cancellationToken))
+                    .Where(a => a.IsVisibleTo(currentUser.UserId))
+                    .ToDictionary(a => a.Id, a => a.Name);
+                var categoryNames = await db.Categories.ToDictionaryAsync(c => c.Id, c => c.Name, cancellationToken);
+                var rows = (await db.Transactions.OrderByDescending(t => t.OccurredOn).Take(500).ToListAsync(cancellationToken))
+                    .Where(t => visibleAccounts.ContainsKey(t.AccountId))
+                    .Take(200);
+                return Results.Ok(rows.Select(t => new
+                {
+                    id = t.Id,
+                    occurredOn = t.OccurredOn.ToString("yyyy-MM-dd"),
+                    description = t.Description,
+                    amount = t.Amount,
+                    currencyCode = t.CurrencyCode,
+                    direction = t.Direction,
+                    categoryName = t.CategoryId is { } c && categoryNames.TryGetValue(c, out var name) ? name : null,
+                    accountName = visibleAccounts[t.AccountId],
+                }));
+            })
+            .RequireAuthorization(PermissionRequirement.PolicyName(ViewFinance))
+            .WithName("Finance_Transactions");
 
         group.MapGet("/categories", async (FinanceDbContext db, CancellationToken cancellationToken) =>
             {
