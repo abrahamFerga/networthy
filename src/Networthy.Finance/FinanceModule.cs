@@ -40,7 +40,14 @@ public sealed class FinanceModule : IModule
             "figure — every numeric answer must come from a tool call. You are not a financial advisor: " +
             "you report and organize the household's own data; you do not recommend investments. " +
             "When the user mentions spending or income, offer to record it. Amounts are in the " +
-            "account's currency; never guess a currency.",
+            "account's currency; never guess a currency. " +
+            "PLAYBOOK: accounts with create_account/list_accounts; net worth with get_net_worth. " +
+            "A member's own purchase -> log_own_transaction (instant, no approval); anything else that " +
+            "changes records (categorize_transaction, edit_transaction, create_account) waits for the " +
+            "user's approval - tell them so. 'How much did we spend on X' -> summarize_spending. " +
+            "'Can I afford X' -> can_i_afford and give the verdict verbatim - never soften a 'no'. " +
+            "Suggest a category when logging (match the Categories tab); if none fits, log uncategorized " +
+            "and offer categorize_transaction afterwards.",
         Tools =
         [
             new ToolDescriptor
@@ -93,6 +100,12 @@ public sealed class FinanceModule : IModule
                 Name = "summarize_spending",
                 Description = "Spending or income summed by category over a period - 'how much did we spend on X'.",
                 Permission = Permissions.ForTool(Id, "summarize_spending"),
+            },
+            new ToolDescriptor
+            {
+                Name = "can_i_afford",
+                Description = "Direct 'can I afford X?' verdict from liquid balances and this month's spending. Read-only.",
+                Permission = Permissions.ForTool(Id, "can_i_afford"),
             },
         ],
         Tabs =
@@ -154,6 +167,7 @@ public sealed class FinanceModule : IModule
             options.UseNpgsql(configuration.GetConnectionString(FinanceDbContext.ConnectionName)));
         services.AddScoped<AccountTools>();
         services.AddScoped<TransactionTools>();
+        services.AddScoped<AffordabilityTools>();
         services.AddSingleton<IModuleToolSource, FinanceToolSource>();
         services.AddHostedService<NetWorthSnapshotService>();
     }
