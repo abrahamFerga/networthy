@@ -52,7 +52,9 @@ public sealed class FinanceModule : IModule
             "review_import_batch to show the extracted lines, and only after the user confirms, " +
             "approve_import_batch. Never post lines the user hasn't seen. HOUSEHOLD: members and " +
             "roles are managed by admins under Admin -> Users (household-admin / household-member); " +
-            "set_account_visibility makes an account private to its owner or shared again.",
+            "set_account_visibility makes an account private to its owner or shared again. BUDGETS: " +
+            "set_budget for targets ('set the grocery budget to $400'); get_budget_status answers " +
+            "'how are we doing this month' and flags OVER categories - report those honestly.",
         Tools =
         [
             new ToolDescriptor
@@ -114,6 +116,19 @@ public sealed class FinanceModule : IModule
             },
             new ToolDescriptor
             {
+                Name = "set_budget",
+                Description = "Set or change a category's monthly budget target. Side-effecting: writes data and requires human approval.",
+                Permission = Permissions.ForTool(Id, "set_budget"),
+                RequiresApproval = true,
+            },
+            new ToolDescriptor
+            {
+                Name = "get_budget_status",
+                Description = "Spent vs target per category for a month, with over-budget flags.",
+                Permission = Permissions.ForTool(Id, "get_budget_status"),
+            },
+            new ToolDescriptor
+            {
                 Name = "set_account_visibility",
                 Description = "Make an account private to the caller or shared with the household. Side-effecting: writes data and requires human approval.",
                 Permission = Permissions.ForTool(Id, "set_account_visibility"),
@@ -170,6 +185,18 @@ public sealed class FinanceModule : IModule
             },
             new TabDescriptor
             {
+                Id = "budgets", Label = "Budgets", Route = "/finance/budgets", Icon = "target", Order = 3,
+                Permission = ViewFinance,
+                DataEndpoint = "/api/finance/budgets",
+                Columns =
+                [
+                    new("categoryName", "Category"), new("spent", "Spent"), new("target", "Target"),
+                    new("remaining", "Remaining"), new("currencyCode", "Currency"), new("status", "Status"),
+                ],
+                Placeholder = "No budgets for this month. Set them in Chat - try: 'Set the grocery budget to $400'. Last month's targets roll forward automatically once you have some.",
+            },
+            new TabDescriptor
+            {
                 Id = "categories", Label = "Categories", Route = "/finance/categories", Icon = "tags", Order = 5,
                 Permission = ViewFinance,
                 DataEndpoint = "/api/finance/categories",
@@ -202,6 +229,8 @@ public sealed class FinanceModule : IModule
         services.AddScoped<AffordabilityTools>();
         services.AddScoped<StatementImportTools>();
         services.AddScoped<HouseholdTools>();
+        services.AddScoped<BudgetTools>();
+        services.AddHostedService<BudgetRolloverService>();
         services.AddSingleton<IStatementAiExtractor, NullStatementAiExtractor>();
         services.AddSingleton<Cortex.Application.Jobs.IJobHandler, StatementParseJobHandler>();
         services.AddSingleton<IModuleToolSource, FinanceToolSource>();
@@ -252,6 +281,50 @@ public sealed class FinanceModule : IModule
             })
             .RequireAuthorization(PermissionRequirement.PolicyName(ViewFinance))
             .WithName("Finance_Transactions");
+
+        group.MapGet("/budgets", async (
+                FinanceDbContext db, Cortex.Core.Identity.ICurrentUser currentUser,
+                CancellationToken cancellationToken) =>
+            {
+                if (!BudgetMath.TryParseMonth(null, out var period))
+                {
+                    return Results.Problem("month resolution failed");
+                }
+
+                var budgets = await db.Budgets.Where(b => b.PeriodMonth == period).ToListAsync(cancellationToken);
+                var categoryNames = await db.Categories.ToDictionaryAsync(c => c.Id, c => c.Name, cancellationToken);
+                var monthEnd = period.AddMonths(1).AddDays(-1);
+                var visibleIds = (await db.Accounts.ToListAsync(cancellationToken))
+                    .Where(a => a.IsVisibleTo(currentUser.UserId))
+                    .Select(a => a.Id)
+                    .ToHashSet();
+                var spentRows = (await db.Transactions
+                        .Where(t => t.Direction == "expense" && t.OccurredOn >= period && t.OccurredOn <= monthEnd)
+                        .ToListAsync(cancellationToken))
+                    .Where(t => visibleIds.Contains(t.AccountId))
+                    .ToList();
+
+                return Results.Ok(budgets.Select(b =>
+                {
+                    var spent = spentRows
+                        .Where(t => t.CategoryId == b.CategoryId &&
+                                    t.CurrencyCode.Equals(b.CurrencyCode, StringComparison.OrdinalIgnoreCase))
+                        .Sum(t => t.Amount);
+                    var status = BudgetMath.Status(b.TargetAmount, spent);
+                    return new
+                    {
+                        id = b.Id,
+                        categoryName = categoryNames.GetValueOrDefault(b.CategoryId, "(deleted)"),
+                        spent,
+                        target = b.TargetAmount,
+                        remaining = status.Remaining,
+                        currencyCode = b.CurrencyCode,
+                        status = status.Over ? "OVER" : "on track",
+                    };
+                }).OrderBy(x => x.categoryName));
+            })
+            .RequireAuthorization(PermissionRequirement.PolicyName(ViewFinance))
+            .WithName("Finance_Budgets");
 
         group.MapGet("/categories", async (FinanceDbContext db, CancellationToken cancellationToken) =>
             {

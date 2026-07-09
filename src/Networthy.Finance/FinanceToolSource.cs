@@ -18,6 +18,7 @@ public sealed class FinanceToolSource : IModuleToolSource
         var affordability = scopedServices.GetRequiredService<AffordabilityTools>();
         var imports = scopedServices.GetRequiredService<StatementImportTools>();
         var household = scopedServices.GetRequiredService<HouseholdTools>();
+        var budgets = scopedServices.GetRequiredService<BudgetTools>();
 
         return
         [
@@ -86,6 +87,21 @@ public sealed class FinanceToolSource : IModuleToolSource
                 Name = "can_i_afford",
                 Permission = Permissions.ForTool(ModuleId, "can_i_afford"),
                 Function = AIFunctionFactory.Create(affordability.CanIAfford, name: "can_i_afford"),
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "set_budget",
+                Permission = Permissions.ForTool(ModuleId, "set_budget"),
+                Function = AIFunctionFactory.Create(budgets.SetBudget, name: "set_budget"),
+                RequiresApproval = true,
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "get_budget_status",
+                Permission = Permissions.ForTool(ModuleId, "get_budget_status"),
+                Function = AIFunctionFactory.Create(budgets.GetBudgetStatus, name: "get_budget_status"),
             },
             new ModuleTool
             {
