@@ -22,6 +22,7 @@ public sealed class FinanceDbContext(
     public DbSet<NetWorthSnapshot> NetWorthSnapshots => Set<NetWorthSnapshot>();
     public DbSet<Transaction> Transactions => Set<Transaction>();
     public DbSet<StatementImportBatch> ImportBatches => Set<StatementImportBatch>();
+    public DbSet<Budget> Budgets => Set<Budget>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -77,6 +78,17 @@ public sealed class FinanceDbContext(
             b.Property(x => x.FailureReason).HasMaxLength(1000);
             b.HasIndex(x => new { x.TenantId, x.Status });
             b.HasOne<Account>().WithMany().HasForeignKey(x => x.AccountId).OnDelete(DeleteBehavior.Cascade);
+            b.HasQueryFilter(x => x.TenantId == tenantContext.TenantId);
+        });
+
+        modelBuilder.Entity<Budget>(b =>
+        {
+            b.ToTable("budgets");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.TargetAmount).HasPrecision(18, 2);
+            b.Property(x => x.CurrencyCode).HasMaxLength(3).IsRequired();
+            b.HasIndex(x => new { x.TenantId, x.CategoryId, x.PeriodMonth, x.CurrencyCode }).IsUnique();
+            b.HasOne<Category>().WithMany().HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.Cascade);
             b.HasQueryFilter(x => x.TenantId == tenantContext.TenantId);
         });
 
