@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Networthy is a thin host + finance module on Cortex platform packages, restored from the
+# committed .packages feed (current version only) — CI is hermetic until the platform
+# publishes to a real feed. The UI ships from the Cortex packages, so there is no SPA to
+# build here, and dedicated-environment Terraform lives in the Cortex repo.
+jobs:
+  build:
+    name: Build & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore Networthy.slnx
+
+      - name: Build (Release)
+        run: dotnet build Networthy.slnx -c Release --no-restore
+
+      - name: Test
+        run: dotnet test Networthy.slnx -c Release --no-build --verbosity normal

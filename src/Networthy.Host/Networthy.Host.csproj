@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!-- THE PRODUCT: a thin host on the Cortex platform packages (ADR-0001). One
+       AddCortexPlatform() call brings RBAC, multi-tenancy, audit, chat (AG-UI + SignalR),
+       document tools, jobs, and the admin API; then the finance module and the connectors
+       this product ships with. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>networthy-host</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Cortex.AspNetCore" Version="0.1.0-alpha.11" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Networthy.Finance\Networthy.Finance.csproj" />
+    <ProjectReference Include="..\Networthy.Connectors.Plaid\Networthy.Connectors.Plaid.csproj" />
+  </ItemGroup>
+
+</Project>

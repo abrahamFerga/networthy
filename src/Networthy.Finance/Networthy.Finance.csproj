@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Networthy's domain module — the household-finance vertical, implemented as a Cortex
+       module (IModule + manifest). The Cortex platform (packages below) supplies auth,
+       multi-tenancy, RBAC, audit, chat/agents, document tools, jobs, and connectors; this
+       project owns ONLY the finance domain: accounts, transactions, categories, budgets,
+       statement import, household visibility. (ADR-0001) -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Networthy.Finance.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.7.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.9" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.9" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.2" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.9" PrivateAssets="all" />
+    <PackageReference Include="Cortex.Core" Version="0.1.0-alpha.11" />
+    <PackageReference Include="Cortex.Application" Version="0.1.0-alpha.11" />
+    <PackageReference Include="Cortex.Modules.Sdk" Version="0.1.0-alpha.11" />
+  </ItemGroup>
+
+</Project>
