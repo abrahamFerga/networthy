@@ -101,6 +101,36 @@ public sealed class StatementExtractionTests
     }
 
     [Fact]
+    public void Text_PdfStyleLines_ParseWithDatesAmountsAndDirections()
+    {
+        const string text = """
+            FIRST NATIONAL BANK  Statement Period 06/01/2026 - 06/30/2026
+            Beginning balance                                  4,200.00
+            2026-06-03  WHOLE FOODS MARKET #123                  -82.45
+            2026-06-05  ACME PAYROLL DIRECT DEP               2,500.00
+            06/10/2026  UBER TRIP HELP.UBER.COM                 (23.10)
+            2026-06-15  NETFLIX.COM                              -15.49
+            Ending balance                                     6,578.96
+            Page 1 of 2
+            """;
+
+        var lines = StatementExtraction.TryExtractText(text, Categories);
+
+        Assert.NotNull(lines);
+        Assert.Equal(4, lines!.Count); // balance/page noise skipped
+        Assert.Equal(("expense", 82.45m, "Groceries"), (lines[0].Direction, lines[0].Amount, lines[0].SuggestedCategory));
+        Assert.Equal(("income", 2500m, "Salary"), (lines[1].Direction, lines[1].Amount, lines[1].SuggestedCategory));
+        Assert.Equal(("expense", 23.10m, new DateOnly(2026, 6, 10)), (lines[2].Direction, lines[2].Amount, lines[2].Date));
+        Assert.Equal("Subscriptions", lines[3].SuggestedCategory);
+    }
+
+    [Fact]
+    public void Text_WithoutTransactionLines_ReturnsNull()
+    {
+        Assert.Null(StatementExtraction.TryExtractText("Dear customer, thank you for banking with us.", Categories));
+    }
+
+    [Fact]
     public void SplitCsvLine_HonorsQuotedFieldsAndDoubledQuotes()
     {
         var fields = StatementExtraction.SplitCsvLine("a,\"b, with comma\",\"he said \"\"hi\"\"\",d");

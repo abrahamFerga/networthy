@@ -25,6 +25,39 @@ public sealed class FinanceDbContext(
     public DbSet<Budget> Budgets => Set<Budget>();
     public DbSet<PlaidLinkedAccount> PlaidLinks => Set<PlaidLinkedAccount>();
 
+    // The audit stamps the product relies on (get_activity_log, "most recent batch" ordering)
+    // are the module's own responsibility — the platform's interceptor only covers the platform
+    // context. Every save path stamps here, so a forgotten CreatedAt can't silently zero out.
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        StampAuditFields();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    public override Task<int> SaveChangesAsync(
+        bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    {
+        StampAuditFields();
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
+    private void StampAuditFields()
+    {
+        var now = DateTimeOffset.UtcNow;
+        foreach (var entry in ChangeTracker.Entries<Cortex.Core.Entities.EntityBase>())
+        {
+            switch (entry.State)
+            {
+                case EntityState.Added when entry.Entity.CreatedAt == default:
+                    entry.Entity.CreatedAt = now;
+                    break;
+                case EntityState.Modified:
+                    entry.Entity.UpdatedAt = now;
+                    break;
+            }
+        }
+    }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema(Schema);

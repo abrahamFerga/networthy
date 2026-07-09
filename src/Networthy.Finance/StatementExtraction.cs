@@ -12,24 +12,25 @@ public sealed record ExtractedLine(
     string? SuggestedCategory);
 
 /// <summary>
-/// The AI leg of ADR-0004's hybrid extraction: given raw statement bytes a template can't parse
-/// (a scanned or novel-layout PDF), produce lines via vision/LLM extraction. The default
-/// registration is <see cref="NullStatementAiExtractor"/> (honest "not supported yet"); a host
-/// swaps in a real implementation with one DI registration — the seam is the architecture,
-/// the model behind it is a deployment choice.
+/// The document/AI leg of ADR-0004's hybrid extraction: statements the CSV/OFX templates can't
+/// read (PDFs above all). The default registration is
+/// <see cref="PlatformDocumentStatementExtractor"/> — the platform's document reader extracts
+/// the text (digital PDFs keylessly; scanned ones through the platform's OCR capability, e.g.
+/// Azure Document Intelligence, when the deployment configures it), then the deterministic
+/// line parser takes over. A host can swap the whole leg with one DI registration.
 /// </summary>
 public interface IStatementAiExtractor
 {
     /// <summary>Extracted lines, or null when this extractor can't handle the content.</summary>
     public Task<IReadOnlyList<ExtractedLine>?> ExtractAsync(
-        string fileName, byte[] content, IReadOnlyList<string> categories, CancellationToken cancellationToken = default);
+        Guid fileId, string fileName, byte[] content, IReadOnlyList<string> categories, CancellationToken cancellationToken = default);
 }
 
-/// <summary>The default AI leg: none. Template extraction (CSV/OFX/QFX) still covers the common formats.</summary>
+/// <summary>An explicit "no document leg" registration for hosts that want CSV/OFX only.</summary>
 public sealed class NullStatementAiExtractor : IStatementAiExtractor
 {
     public Task<IReadOnlyList<ExtractedLine>?> ExtractAsync(
-        string fileName, byte[] content, IReadOnlyList<string> categories, CancellationToken cancellationToken = default) =>
+        Guid fileId, string fileName, byte[] content, IReadOnlyList<string> categories, CancellationToken cancellationToken = default) =>
         Task.FromResult<IReadOnlyList<ExtractedLine>?>(null);
 }
 
@@ -154,6 +155,74 @@ public static partial class StatementExtraction
 
         return result.Count > 0 ? result : null;
     }
+
+    /// <summary>
+    /// Extracts from free text (a PDF statement's extracted text): one transaction per line that
+    /// carries both a parseable date and a trailing money amount. Sign convention matches the
+    /// CSV leg (negative/parentheses = money out); unsigned amounts default to expense — the
+    /// human review gate exists precisely to correct layout heuristics. Header/summary lines
+    /// (balance, total, page …) are skipped. Null when nothing parses.
+    /// </summary>
+    public static IReadOnlyList<ExtractedLine>? TryExtractText(string text, IReadOnlyList<string> categories)
+    {
+        var result = new List<ExtractedLine>();
+        foreach (var raw in text.Replace("\r\n", "\n").Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var line = raw.Trim();
+            if (line.Length < 8 || SkipTextLine(line))
+            {
+                continue;
+            }
+
+            var dateMatch = TextDatePattern().Match(line);
+            if (!dateMatch.Success || !TryParseDate(dateMatch.Value, out var date))
+            {
+                continue;
+            }
+
+            var amountMatch = TextAmountPattern().Matches(line).LastOrDefault();
+            if (amountMatch is null || !TryParseAmount(amountMatch.Value, out var signed) || signed == 0)
+            {
+                continue;
+            }
+
+            var description = line
+                .Remove(amountMatch.Index, amountMatch.Length)
+                .Replace(dateMatch.Value, "")
+                .Trim(' ', '\t', '-', '·', '|', '*');
+            if (description.Length == 0)
+            {
+                continue;
+            }
+
+            var direction = signed < 0 ? "expense"
+                : LooksLikeIncome(description) ? "income"
+                : "expense";
+            result.Add(new ExtractedLine(
+                date, description, Math.Abs(signed), direction,
+                SuggestCategory(description, categories)));
+        }
+
+        return result.Count > 0 ? result : null;
+    }
+
+    private static bool LooksLikeIncome(string description)
+    {
+        string[] hints = ["deposit", "payroll", "salary", "direct dep", "interest", "payment received", "refund"];
+        return hints.Any(h => description.Contains(h, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool SkipTextLine(string line)
+    {
+        string[] noise = ["balance", "total", "statement", "page ", "account number", "beginning", "ending", "summary"];
+        return noise.Any(n => line.Contains(n, StringComparison.OrdinalIgnoreCase));
+    }
+
+    [GeneratedRegex(@"\b(\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/\d{4})\b")]
+    private static partial Regex TextDatePattern();
+
+    [GeneratedRegex(@"\(?-?\$?\d{1,3}(,\d{3})*\.\d{2}\)?-?(\s?(CR|DR))?$", RegexOptions.IgnoreCase)]
+    private static partial Regex TextAmountPattern();
 
     /// <summary>
     /// Deterministic category suggestion: the household category whose name appears in the
