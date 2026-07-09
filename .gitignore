@@ -47,6 +47,9 @@ build/
 *.pem
 *.key
 appsettings.Development.json
+# The host dev settings are keyless by policy (Mock provider; real keys go to user-secrets) —
+# committed so Development runs and the integration suite work on a bare clone.
+!src/Networthy.Host/appsettings.Development.json
 appsettings.Local.json
 secrets.json
 local.settings.json
