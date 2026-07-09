@@ -33,7 +33,7 @@ public sealed class FinanceCatalogTests
         Assert.Equal(
             ["create_account", "list_accounts", "get_net_worth", "log_own_transaction",
              "categorize_transaction", "edit_transaction", "search_transactions", "summarize_spending",
-             "can_i_afford", "set_budget", "get_budget_status", "set_account_visibility", "import_statement", "review_import_batch", "approve_import_batch"],
+             "can_i_afford", "list_pending_approvals", "get_activity_log", "set_budget", "get_budget_status", "set_account_visibility", "import_statement", "review_import_batch", "approve_import_batch"],
             manifest.Tools.Select(t => t.Name));
 
         // Record-changing tools are approval-gated (ADR-0002); reads are not.
@@ -45,7 +45,7 @@ public sealed class FinanceCatalogTests
         Assert.All(
             manifest.Tools.Where(t => t.Name is "list_accounts" or "get_net_worth" or "log_own_transaction"
                 or "search_transactions" or "summarize_spending" or "can_i_afford" or "review_import_batch"
-                or "get_budget_status"),
+                or "get_budget_status" or "list_pending_approvals" or "get_activity_log"),
             t => Assert.False(t.RequiresApproval));
     }
 
