@@ -63,7 +63,7 @@ builder.Services.AddCortexRole("household-member",
     "tools.finance.list_goals", "tools.finance.contribute_to_goal",
     // Everyone in the household may ask how the household is doing, and how to reach the goals.
     "tools.finance.get_financial_health",
-    "tools.finance.list_income_sources", "tools.finance.get_goal_plan",
+    "tools.finance.list_income_sources", "tools.finance.get_goal_plan", "tools.finance.list_recurring",
     FinanceModule.ViewFinance,
 ]);
 

@@ -26,6 +26,7 @@ public sealed class FinanceDbContext(
     public DbSet<PlaidLinkedAccount> PlaidLinks => Set<PlaidLinkedAccount>();
     public DbSet<Goal> Goals => Set<Goal>();
     public DbSet<IncomeSource> IncomeSources => Set<IncomeSource>();
+    public DbSet<BillReminder> BillReminders => Set<BillReminder>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -131,6 +132,15 @@ public sealed class FinanceDbContext(
             b.Property(x => x.Amount).HasPrecision(18, 2);
             b.HasIndex(x => new { x.TenantId, x.Name }).IsUnique();
             b.HasOne<Account>().WithMany().HasForeignKey(x => x.AccountId).OnDelete(DeleteBehavior.SetNull);
+            b.HasQueryFilter(x => x.TenantId == tenantContext.TenantId);
+        });
+
+        modelBuilder.Entity<BillReminder>(b =>
+        {
+            b.ToTable("bill_reminders");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.MerchantKey).HasMaxLength(40).IsRequired();
+            b.HasIndex(x => new { x.TenantId, x.MerchantKey, x.ExpectedOn }).IsUnique();
             b.HasQueryFilter(x => x.TenantId == tenantContext.TenantId);
         });
 
