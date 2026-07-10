@@ -29,6 +29,8 @@ internal static class ManualCrudEndpoints
 
     internal sealed record BudgetUpsert(string CategoryName, decimal Target, string? CurrencyCode);
 
+    internal sealed record ImportRequest(string FileId, string AccountName);
+
     internal sealed record GoalUpsert(
         string Name, decimal Target, string? CurrencyCode, string? TargetDate, string? AccountName);
 
@@ -227,6 +229,16 @@ internal static class ManualCrudEndpoints
             })
             .RequireAuthorization(manage)
             .WithName("Finance_DeleteTransaction");
+
+        // ── Statement imports (the setup wizard's upload step posts here) ───────────
+        group.MapPost("/imports", async (
+                ImportRequest body, StatementImportTools imports, CancellationToken ct) =>
+            {
+                var message = await imports.ImportStatement(body.FileId, body.AccountName, ct);
+                return Results.Ok(new { message });
+            })
+            .RequireAuthorization(manage)
+            .WithName("Finance_QueueImport");
 
         // ── Budgets (current month) ─────────────────────────────────────────────────
         group.MapPost("/budgets", async (

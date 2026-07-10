@@ -221,6 +221,100 @@ public sealed class FinanceModule : IModule
                 Permission = Permissions.ForTool(Id, "get_financial_health"),
             },
         ],
+        Onboarding = new OnboardingDescriptor
+        {
+            ProbeEndpoint = "/api/finance/accounts",
+            Permission = ManageFinance,
+            Title = "Set up your household finances",
+            Steps =
+            [
+                new OnboardingStep
+                {
+                    Id = "welcome", Kind = "info", Title = "Welcome to Networthy",
+                    Blurb = "A few guided minutes: your accounts, your income, your past expenses, your loans. " +
+                            "Everything here is skippable and everything can be done later — from the tabs or by " +
+                            "asking the assistant in Chat (it always asks your approval before changing anything).",
+                },
+                new OnboardingStep
+                {
+                    Id = "accounts", Kind = "form", Title = "Where does your money live?",
+                    Blurb = "Add your everyday accounts — checking, savings, credit cards, cash. Balances can be " +
+                            "estimates; statement imports and adjustments true them up later.",
+                    Endpoint = "/api/finance/accounts",
+                    Fields =
+                    [
+                        new("name", "Account name"),
+                        new("type", "Type (checking, savings, credit, cash)"),
+                        new("currencyCode", "Currency (ISO, e.g. USD)"),
+                        new("cachedBalance", "Current balance (negative = owed)", Numeric: true),
+                        new("institutionName", "Institution", Required: false),
+                    ],
+                },
+                new OnboardingStep
+                {
+                    Id = "income", Kind = "form", Title = "Your regular income",
+                    Blurb = "Record your most recent paycheck (or other income) so spending summaries, savings " +
+                            "rate, and the financial-health check have something to measure against.",
+                    Endpoint = "/api/finance/transactions",
+                    Preset = new Dictionary<string, string> { ["direction"] = "income", ["categoryName"] = "Salary" },
+                    Fields =
+                    [
+                        new("accountName", "Which account does it land in?"),
+                        new("amount", "Amount", Numeric: true),
+                        new("description", "Description (e.g. 'ACME payroll')"),
+                        new("occurredOn", "Date (yyyy-MM-dd, optional = today)", Required: false),
+                    ],
+                },
+                new OnboardingStep
+                {
+                    Id = "statements", Kind = "upload", Title = "Your past expenses",
+                    Blurb = "Attach recent bank statements (CSV, OFX/QFX, or PDF). Networthy extracts every line " +
+                            "in the background and NOTHING posts until you review and approve it — the Statement " +
+                            "review tab is where that happens.",
+                    Endpoint = "/api/finance/imports",
+                    FileIdField = "fileId",
+                    Accept = ".csv,.ofx,.qfx,.pdf",
+                    Fields = [new("accountName", "Which account are these statements from?")],
+                },
+                new OnboardingStep
+                {
+                    Id = "loans", Kind = "form", Title = "Loans and debts",
+                    Blurb = "Mortgage, car, student, personal — with the interest rate, Networthy can tell you " +
+                            "what each debt actually costs per month and which to pay down first.",
+                    Endpoint = "/api/finance/accounts",
+                    Preset = new Dictionary<string, string> { ["type"] = "loan" },
+                    Fields =
+                    [
+                        new("name", "Loan name (e.g. 'House mortgage')"),
+                        new("currencyCode", "Currency (ISO, e.g. USD)"),
+                        new("cachedBalance", "Amount owed", Numeric: true),
+                        new("interestRateApr", "Interest rate (APR %)", Required: false, Numeric: true),
+                        new("minimumMonthlyPayment", "Minimum monthly payment", Required: false, Numeric: true),
+                        new("institutionName", "Lender", Required: false),
+                    ],
+                },
+                new OnboardingStep
+                {
+                    Id = "budget", Kind = "form", Title = "A first budget",
+                    Blurb = "Pick one category you care about (Groceries and Dining are popular first picks) and " +
+                            "give it a monthly target. Over-budget flags show up in Chat and on the Budgets tab.",
+                    Endpoint = "/api/finance/budgets",
+                    Fields =
+                    [
+                        new("categoryName", "Category (e.g. Groceries)"),
+                        new("target", "Monthly target", Numeric: true),
+                    ],
+                },
+                new OnboardingStep
+                {
+                    Id = "done", Kind = "info", Title = "What to try first",
+                    Blurb = "Ask the assistant: 'How is our financial health?' for a computed check of net worth, " +
+                            "debt cost, and savings rate. If you uploaded statements, visit Statement review to " +
+                            "approve the extracted lines. And the Net worth tab starts charting from today.",
+                },
+            ],
+        },
+
         Tabs =
         [
             new TabDescriptor { Id = "chat", Label = "Chat", Route = "/finance/chat", Icon = "message-circle", Order = 0 },
