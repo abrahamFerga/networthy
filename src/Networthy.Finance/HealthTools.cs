@@ -14,14 +14,15 @@ namespace Networthy.Finance;
 /// </summary>
 public sealed class HealthTools(
     FinanceDbContext db,
-    ICurrentUser currentUser)
+    ICurrentUser currentUser,
+    HouseholdContext household)
 {
     [Description("A computed financial-health check: net worth, what debts cost per month, emergency-fund coverage, savings rate, budget status — plus standard, data-triggered ways to improve. Read-only; not investment advice.")]
     public async Task<string> GetFinancialHealth(
-        [Description("ISO currency to assess (default USD; other currencies are reported separately).")] string currency = "USD",
+        [Description("ISO currency to assess (omit for the household default; other currencies are reported separately).")] string? currency = null,
         CancellationToken cancellationToken = default)
     {
-        var currencyCode = currency.Trim().ToUpperInvariant();
+        var currencyCode = await household.ResolveCurrencyAsync(currency, cancellationToken);
         var accounts = (await db.Accounts.ToListAsync(cancellationToken))
             .Where(a => a.IsVisibleTo(currentUser.UserId) &&
                         a.CurrencyCode.Equals(currencyCode, StringComparison.OrdinalIgnoreCase))
@@ -33,7 +34,7 @@ public sealed class HealthTools(
         }
 
         // Cash flow over the last 90 days, from the household's own transactions.
-        var today = DateOnly.FromDateTime(DateTimeOffset.UtcNow.UtcDateTime);
+        var today = await household.TodayAsync(cancellationToken);
         var since = today.AddDays(-90);
         var visibleIds = accounts.Select(a => a.Id).ToHashSet();
         var recent = (await db.Transactions

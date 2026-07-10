@@ -15,14 +15,15 @@ namespace Networthy.Finance;
 public sealed class IncomeSourceTools(
     FinanceDbContext db,
     ITenantContext tenant,
-    ICurrentUser currentUser)
+    ICurrentUser currentUser,
+    HouseholdContext household)
 {
     [Description("Declare or update a recurring income ('I get 2,500 every two weeks from ACME'). Cadences: weekly, biweekly, semimonthly (twice a month), monthly. Side-effecting and requires approval.")]
     public async Task<string> SetIncomeSource(
         [Description("A name for the income, e.g. 'ACME payroll'.")] string name,
         [Description("The amount received EACH TIME (per paycheck, not per month).")] double amount,
         [Description("weekly, biweekly (every two weeks), semimonthly (twice a month), or monthly.")] string cadence,
-        [Description("ISO currency (default USD).")] string currency = "USD",
+        [Description("ISO currency (omit for the household default).")] string? currency = null,
         [Description("Optional account name the income lands in.")] string? accountName = null,
         CancellationToken cancellationToken = default)
     {
@@ -51,7 +52,7 @@ public sealed class IncomeSourceTools(
             accountId = account.Id;
         }
 
-        var currencyCode = currency.Trim().ToUpperInvariant();
+        var currencyCode = await household.ResolveCurrencyAsync(currency, cancellationToken);
         var existing = await db.IncomeSources.FirstOrDefaultAsync(
             i => EF.Functions.ILike(i.Name, trimmed), cancellationToken);
         if (existing is null)

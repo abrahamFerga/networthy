@@ -33,13 +33,13 @@ public sealed class FinanceCatalogTests
         Assert.Equal(
             ["create_account", "list_accounts", "get_net_worth", "log_own_transaction",
              "categorize_transaction", "edit_transaction", "search_transactions", "summarize_spending",
-             "can_i_afford", "list_pending_approvals", "get_activity_log", "set_budget", "get_budget_status", "set_account_visibility", "import_statement", "review_import_batch", "approve_import_batch", "set_goal", "contribute_to_goal", "list_goals", "update_account_terms", "get_financial_health", "set_income_source", "list_income_sources", "get_goal_plan", "list_recurring"],
+             "can_i_afford", "list_pending_approvals", "get_activity_log", "set_budget", "get_budget_status", "set_account_visibility", "import_statement", "review_import_batch", "approve_import_batch", "set_goal", "contribute_to_goal", "list_goals", "update_account_terms", "get_financial_health", "set_income_source", "list_income_sources", "get_goal_plan", "list_recurring", "get_household_settings", "update_household_settings"],
             manifest.Tools.Select(t => t.Name));
 
         // Record-changing tools are approval-gated (ADR-0002); reads are not.
         Assert.All(
             manifest.Tools.Where(t => t.Name is "create_account" or "categorize_transaction" or "edit_transaction"
-                or "import_statement" or "approve_import_batch" or "set_account_visibility" or "set_budget" or "set_goal" or "contribute_to_goal" or "update_account_terms" or "set_income_source"),
+                or "import_statement" or "approve_import_batch" or "set_account_visibility" or "set_budget" or "set_goal" or "contribute_to_goal" or "update_account_terms" or "set_income_source" or "update_household_settings"),
             t => Assert.True(t.RequiresApproval));
         // log_own_transaction is the module's ONE deliberately ungated write (ADR-0005); reads are never gated.
         Assert.All(

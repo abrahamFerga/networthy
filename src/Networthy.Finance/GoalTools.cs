@@ -16,13 +16,14 @@ namespace Networthy.Finance;
 public sealed class GoalTools(
     FinanceDbContext db,
     ITenantContext tenant,
-    ICurrentUser currentUser)
+    ICurrentUser currentUser,
+    HouseholdContext household)
 {
     [Description("Create or update a savings goal ('save $5,000 for Hawaii by June'). Optionally link an account whose balance IS the progress. Side-effecting and requires approval.")]
     public async Task<string> SetGoal(
         [Description("The goal's name, e.g. 'Hawaii trip' or 'Emergency fund'.")] string name,
         [Description("The target amount, positive.")] double targetAmount,
-        [Description("ISO currency (default USD).")] string currency = "USD",
+        [Description("ISO currency (omit for the household default).")] string? currency = null,
         [Description("Optional deadline as an ISO date, e.g. 2027-06-01.")] string? targetDate = null,
         [Description("Optional account name whose balance tracks this goal (e.g. a dedicated savings account).")] string? accountName = null,
         [Description("For invested goals: the user's OWN assumed annual return as a percent (e.g. 7). NEVER guess one — ask the user.")] double? expectedAnnualReturnPct = null,
@@ -68,7 +69,7 @@ public sealed class GoalTools(
             accountId = account.Id;
         }
 
-        var currencyCode = currency.Trim().ToUpperInvariant();
+        var currencyCode = await household.ResolveCurrencyAsync(currency, cancellationToken);
         var existing = await db.Goals.FirstOrDefaultAsync(
             g => EF.Functions.ILike(g.Name, trimmed), cancellationToken);
         if (existing is null)
@@ -150,7 +151,7 @@ public sealed class GoalTools(
         var accounts = (await db.Accounts.ToListAsync(cancellationToken))
             .Where(a => a.IsVisibleTo(currentUser.UserId))
             .ToDictionary(a => a.Id);
-        var today = DateOnly.FromDateTime(DateTimeOffset.UtcNow.UtcDateTime);
+        var today = await household.TodayAsync(cancellationToken);
 
         var sb = new StringBuilder("Goals:\n");
         foreach (var goal in goals)

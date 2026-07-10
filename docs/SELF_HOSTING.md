@@ -43,8 +43,13 @@ AI_PROVIDER=OpenAI AI_MODEL=gpt-4o-mini AI_API_KEY=sk-... docker compose up -d
 Supported providers: OpenAI, AzureOpenAI, Ollama (fully local — pair a local model with
 self-hosting for a zero-cloud setup), and Mock.
 
-Scanned-PDF statements additionally need the OCR capability (Azure Document Intelligence)
-configured; digital PDFs, CSV, and OFX/QFX work with nothing extra.
+Digital PDFs, CSV, and OFX/QFX statements work with nothing extra. Scanned PDFs (photos of
+paper) need an OCR engine, which is a host extension point — config-driven Azure Document
+Intelligence support is on the roadmap; until then scanned statements report honestly that no
+OCR engine is configured.
+
+Uploaded files live in the `networthy-files` volume by default; point `FILES_PROVIDER=AzureBlob`
+plus `FILES_AZURE_CONNECTION` at a storage account to keep them in Azure Blob instead.
 
 ## Day-2 operations
 

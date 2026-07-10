@@ -17,7 +17,8 @@ namespace Networthy.Finance;
 public sealed class TransactionTools(
     FinanceDbContext db,
     ITenantContext tenant,
-    ICurrentUser currentUser)
+    ICurrentUser currentUser,
+    HouseholdContext household)
 {
     [Description("Log the CALLER'S OWN transaction (a purchase or income they know happened). Quick capture: not approval-gated — entries are correctable with edit_transaction.")]
     public async Task<string> LogOwnTransaction(
@@ -46,7 +47,7 @@ public sealed class TransactionTools(
             return $"'{direction}' is not a direction. Use expense or income.";
         }
 
-        var occurredOn = DateOnly.FromDateTime(DateTimeOffset.UtcNow.UtcDateTime);
+        var occurredOn = await household.TodayAsync(cancellationToken);
         if (!string.IsNullOrWhiteSpace(date) && !DateOnly.TryParse(date, CultureInfo.InvariantCulture, out occurredOn))
         {
             return $"'{date}' is not a date I can parse — use an ISO date like 2026-07-09, or omit it for today.";
@@ -259,7 +260,7 @@ public sealed class TransactionTools(
         CancellationToken cancellationToken = default)
     {
         var normalizedDirection = Transaction.NormalizeDirection(direction) ?? "expense";
-        var today = DateOnly.FromDateTime(DateTimeOffset.UtcNow.UtcDateTime);
+        var today = await household.TodayAsync(cancellationToken);
         var from = new DateOnly(today.Year, today.Month, 1);
         if (!string.IsNullOrWhiteSpace(fromDate) && !DateOnly.TryParse(fromDate, CultureInfo.InvariantCulture, out from))
         {

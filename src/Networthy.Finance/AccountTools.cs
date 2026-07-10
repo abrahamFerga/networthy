@@ -15,13 +15,14 @@ namespace Networthy.Finance;
 public sealed class AccountTools(
     FinanceDbContext db,
     ITenantContext tenant,
-    ICurrentUser currentUser)
+    ICurrentUser currentUser,
+    HouseholdContext household)
 {
     [Description("Create a financial account (checking, savings, credit, cash, or loan — mortgage/auto/student/personal) for the household. Side-effecting and requires approval.")]
     public async Task<string> CreateAccount(
         [Description("The account's display name, e.g. 'Chase Checking' or 'House mortgage'.")] string name,
         [Description("The account type: checking, savings, credit, cash, or loan.")] string type,
-        [Description("ISO currency code, e.g. USD. Ask the user if unsure — never guess.")] string currency,
+        [Description("ISO currency code, e.g. USD. Omit to use the household default; never guess a DIFFERENT currency.")] string? currency = null,
         [Description("The opening balance (negative for money owed on credit/loan). Default 0.")] double openingBalance = 0,
         [Description("Optional institution name, e.g. 'Chase'.")] string? institution = null,
         [Description("Optional masked number for display, e.g. '4321' (last digits only).")] string? lastDigits = null,
@@ -41,7 +42,7 @@ public sealed class AccountTools(
             return $"'{type}' is not an account type. Use checking, savings, credit, or cash.";
         }
 
-        var currencyCode = currency.Trim().ToUpperInvariant();
+        var currencyCode = await household.ResolveCurrencyAsync(currency, cancellationToken);
         if (currencyCode.Length != 3)
         {
             return $"'{currency}' is not an ISO currency code (e.g. USD, MXN, EUR).";
@@ -171,7 +172,7 @@ public sealed class AccountTools(
             sb.AppendLine($"- {total:N2} {currency}");
         }
 
-        var since = DateOnly.FromDateTime(DateTimeOffset.UtcNow.UtcDateTime).AddDays(-30);
+        var since = (await household.TodayAsync(cancellationToken)).AddDays(-30);
         var snapshots = await db.NetWorthSnapshots
             .Where(s => s.TakenOn >= since)
             .OrderBy(s => s.TakenOn)

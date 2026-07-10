@@ -52,14 +52,16 @@ public sealed class BillReminderService(
     {
         var db = services.GetRequiredService<FinanceDbContext>();
         var notifier = services.GetRequiredService<INotifier>();
-        var today = DateOnly.FromDateTime(DateTimeOffset.UtcNow.UtcDateTime);
-        var since = today.AddDays(-RecurringTools.LookbackDays);
+        var settingsByTenant = await db.HouseholdSettings.IgnoreQueryFilters()
+            .ToDictionaryAsync(s => s.TenantId, cancellationToken);
+        var utcToday = DateOnly.FromDateTime(DateTime.UtcNow);
+        var since = utcToday.AddDays(-RecurringTools.LookbackDays - 2);
 
         var expenses = await db.Transactions.IgnoreQueryFilters()
             .Where(t => t.Direction == "expense" && t.OccurredOn >= since)
             .ToListAsync(cancellationToken);
         var alreadySent = (await db.BillReminders.IgnoreQueryFilters()
-                .Where(r => r.ExpectedOn >= today)
+                .Where(r => r.ExpectedOn >= utcToday.AddDays(-1))
                 .ToListAsync(cancellationToken))
             .Select(r => (r.TenantId, r.MerchantKey, r.ExpectedOn))
             .ToHashSet();
@@ -67,11 +69,14 @@ public sealed class BillReminderService(
         var sent = 0;
         foreach (var tenantGroup in expenses.GroupBy(t => t.TenantId))
         {
+            var settings = settingsByTenant.GetValueOrDefault(tenantGroup.Key);
+            var today = HouseholdSettings.TodayIn(settings?.TimeZoneId);
+            var leadDays = settings?.BillReminderLeadDays ?? HeadsUpDays;
             var charges = RecurringDetection.Detect(tenantGroup.Select(
                 t => new RecurringDetection.Observation(t.OccurredOn, t.Amount, t.Description)));
 
             foreach (var charge in charges.Where(c =>
-                         c.NextExpected >= today && c.NextExpected <= today.AddDays(HeadsUpDays)))
+                         c.NextExpected >= today && c.NextExpected <= today.AddDays(leadDays)))
             {
                 if (alreadySent.Contains((tenantGroup.Key, charge.MerchantKey, charge.NextExpected)))
                 {
