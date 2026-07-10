@@ -277,7 +277,7 @@ public sealed class FinanceModule : IModule
                     Fields =
                     [
                         new("name", "Account name"),
-                        new("type", "Type (checking, savings, credit, cash)"),
+                        new("type", "Type", Options: ["checking", "savings", "credit", "cash"]),
                         new("currencyCode", "Currency (ISO, e.g. USD)"),
                         new("cachedBalance", "Current balance (negative = owed)", Numeric: true),
                         new("institutionName", "Institution", Required: false),
@@ -292,7 +292,7 @@ public sealed class FinanceModule : IModule
                     Preset = new Dictionary<string, string> { ["direction"] = "income", ["categoryName"] = "Salary" },
                     Fields =
                     [
-                        new("accountName", "Which account does it land in?"),
+                        new("accountName", "Which account does it land in?", OptionsEndpoint: "/api/finance/accounts", OptionsField: "name"),
                         new("amount", "Amount", Numeric: true),
                         new("description", "Description (e.g. 'ACME payroll')"),
                         new("occurredOn", "Date (yyyy-MM-dd, optional = today)", Required: false),
@@ -307,7 +307,7 @@ public sealed class FinanceModule : IModule
                     Endpoint = "/api/finance/imports",
                     FileIdField = "fileId",
                     Accept = ".csv,.ofx,.qfx,.pdf",
-                    Fields = [new("accountName", "Which account are these statements from?")],
+                    Fields = [new("accountName", "Which account are these statements from?", OptionsEndpoint: "/api/finance/accounts", OptionsField: "name")],
                 },
                 new OnboardingStep
                 {
@@ -334,7 +334,7 @@ public sealed class FinanceModule : IModule
                     Endpoint = "/api/finance/budgets",
                     Fields =
                     [
-                        new("categoryName", "Category (e.g. Groceries)"),
+                        new("categoryName", "Category", OptionsEndpoint: "/api/finance/categories", OptionsField: "name"),
                         new("target", "Monthly target", Numeric: true),
                     ],
                 },
@@ -371,7 +371,7 @@ public sealed class FinanceModule : IModule
                     Fields =
                     [
                         new("name", "Account name"),
-                        new("type", "Type (checking, savings, credit, cash, loan)"),
+                        new("type", "Type", Options: ["checking", "savings", "credit", "cash", "loan"]),
                         new("currencyCode", "Currency (ISO, e.g. USD)"),
                         new("cachedBalance", "Balance (negative = owed; edits post an adjustment)", Numeric: true),
                         new("institutionName", "Institution (optional)", Required: false),
@@ -401,12 +401,12 @@ public sealed class FinanceModule : IModule
                     // delete+re-add here or edit_transaction in chat.
                     Fields =
                     [
-                        new("accountName", "Account name"),
+                        new("accountName", "Account", OptionsEndpoint: "/api/finance/accounts", OptionsField: "name"),
                         new("description", "Description"),
                         new("amount", "Amount (positive)", Numeric: true),
-                        new("direction", "Direction (expense or income)"),
+                        new("direction", "Direction", Options: ["expense", "income"]),
                         new("occurredOn", "Date (yyyy-MM-dd, optional = today)", Required: false),
-                        new("categoryName", "Category (optional, must exist)", Required: false),
+                        new("categoryName", "Category (optional)", Required: false, OptionsEndpoint: "/api/finance/categories", OptionsField: "name"),
                     ],
                 },
             },
@@ -429,7 +429,7 @@ public sealed class FinanceModule : IModule
                     KeyField = "categoryName",
                     Fields =
                     [
-                        new("categoryName", "Category (must exist)"),
+                        new("categoryName", "Category", OptionsEndpoint: "/api/finance/categories", OptionsField: "name"),
                         new("target", "Monthly target", Numeric: true),
                         new("currencyCode", "Currency (default USD)", Required: false),
                     ],
@@ -456,9 +456,9 @@ public sealed class FinanceModule : IModule
                     [
                         new("name", "Income name (e.g. 'ACME payroll')"),
                         new("amount", "Amount per paycheck", Numeric: true),
-                        new("cadence", "Cadence (weekly, biweekly, semimonthly, monthly)"),
+                        new("cadence", "Cadence", Options: ["weekly", "biweekly", "semimonthly", "monthly"]),
                         new("currencyCode", "Currency (default USD)", Required: false),
-                        new("accountName", "Lands in account (optional)", Required: false),
+                        new("accountName", "Lands in account (optional)", Required: false, OptionsEndpoint: "/api/finance/accounts", OptionsField: "name"),
                     ],
                 },
             },
@@ -521,7 +521,7 @@ public sealed class FinanceModule : IModule
                         new("target", "Target amount", Numeric: true),
                         new("currencyCode", "Currency (default USD)", Required: false),
                         new("targetDate", "Target date (yyyy-MM-dd, optional)", Required: false),
-                        new("accountName", "Tracked account (optional - its balance becomes the progress)", Required: false),
+                        new("accountName", "Tracked account (optional - its balance becomes the progress)", Required: false, OptionsEndpoint: "/api/finance/accounts", OptionsField: "name"),
                     ],
                 },
             },
@@ -546,7 +546,7 @@ public sealed class FinanceModule : IModule
                     Fields =
                     [
                         new("index", "Line # (from the table)", Numeric: true),
-                        new("category", "Category (must exist — see the Categories tab)", Required: false),
+                        new("category", "Category", Required: false, OptionsEndpoint: "/api/finance/categories", OptionsField: "name"),
                     ],
                 },
                 // …and one button posts the whole batch. The human clicking IS the approval.
