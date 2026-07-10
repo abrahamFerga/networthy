@@ -46,15 +46,29 @@ the platform; this repo is the finance domain and nothing else.
 ## Quick start
 
 ```powershell
-# Prereqs: .NET 10 SDK, Docker Desktop, pnpm (for the dev UI), a sibling Cortex checkout
-git clone https://github.com/abrahamFerga/Cortex ../Cortex
-dotnet run --project src/Networthy.AppHost   # Aspire: Postgres + Redis + API + branded UI
+# Prereqs: .NET 10 SDK + Docker Desktop. That's it — no Cortex checkout, no npm, no keys.
+git clone https://github.com/abrahamFerga/networthy && cd networthy
+dotnet run --project src/Networthy.AppHost   # Aspire: Postgres + Redis + API + web UI
 ```
 
-Zero configuration required — the assistant runs on the built-in Mock provider until you add a
-real AI key (`dotnet user-secrets --project src/Networthy.AppHost set "Parameters:ai-provider" "OpenAI"` …).
-The web UI is embedded in the host (built by `scripts/build-ui.ps1`, committed like `.packages/`),
-so the API serves the branded app at `/` and the admin console at `/admin` — no npm registry, no CORS.
+Open the `networthy-api` endpoint from the Aspire dashboard: the branded web app is served at
+`/` and the admin console at `/admin`, straight from the API — the Cortex platform ships as
+NuGet packages vendored in `.packages/`, and the built UI is committed under `wwwroot/`, so a
+bare clone is the whole product. Zero configuration required — the assistant runs on the
+built-in Mock provider until you add a real AI key
+(`dotnet user-secrets --project src/Networthy.AppHost set "Parameters:ai-provider" "OpenAI"` …).
+
+### Developing against the Cortex platform (optional)
+
+Only needed when changing the platform or its frontend — never to run Networthy:
+
+```powershell
+git clone https://github.com/abrahamFerga/Cortex ../Cortex   # sibling checkout + pnpm
+./scripts/build-ui.ps1        # rebuild + re-embed the branded UI from the checkout
+```
+
+With a sibling checkout present, the AppHost additionally launches hot-reload Vite dev servers
+for both UIs; without one, it serves the embedded build and skips them.
 
 ## Statement formats
 
