@@ -24,6 +24,7 @@ public sealed class FinanceToolSource : IModuleToolSource
         var health = scopedServices.GetRequiredService<HealthTools>();
         var goalPlans = scopedServices.GetRequiredService<GoalPlanTools>();
         var incomeSources = scopedServices.GetRequiredService<IncomeSourceTools>();
+        var recurring = scopedServices.GetRequiredService<RecurringTools>();
 
         return
         [
@@ -212,6 +213,13 @@ public sealed class FinanceToolSource : IModuleToolSource
                 Name = "get_goal_plan",
                 Permission = Permissions.ForTool(ModuleId, "get_goal_plan"),
                 Function = AIFunctionFactory.Create(goalPlans.GetGoalPlan, name: "get_goal_plan"),
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "list_recurring",
+                Permission = Permissions.ForTool(ModuleId, "list_recurring"),
+                Function = AIFunctionFactory.Create(recurring.ListRecurring, name: "list_recurring"),
             },
         ];
     }

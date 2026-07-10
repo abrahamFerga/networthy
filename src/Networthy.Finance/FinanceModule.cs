@@ -70,7 +70,8 @@ public sealed class FinanceModule : IModule
             "never a transaction); list_goals answers 'am I on track' with the computed pace - report " +
             "'behind pace' honestly. The Net worth tab charts the household's trend; the Statement " +
             "review tab is where extracted lines get corrected and approved outside of chat. " +
-            "INCOME & PLANS: 'I get paid X every two weeks' -> set_income_source (cadence matters: " +
+            "SUBSCRIPTIONS: 'what subscriptions do we have' / 'what are we paying for' -> list_recurring; report price rises and upcoming charges honestly, and note detection is conservative (three steady occurrences minimum). "
+            + "INCOME & PLANS: 'I get paid X every two weeks' -> set_income_source (cadence matters: " +
             "biweekly is 26 pays/year). 'Save 3,000 for vacations by June' or '100,000 by age 55, " +
             "invested' -> the goal needs a target DATE (convert an age: ask the year it lands on), and " +
             "invested goals need expectedAnnualReturnPct on set_goal - ALWAYS ask the user for their " +
@@ -245,6 +246,12 @@ public sealed class FinanceModule : IModule
                 Name = "get_goal_plan",
                 Description = "How to reach a goal: required contribution per month and per paycheck, where to save it, cash-flow fit. Uses the goal's own assumed return for invested goals. Read-only.",
                 Permission = Permissions.ForTool(Id, "get_goal_plan"),
+            },
+            new ToolDescriptor
+            {
+                Name = "list_recurring",
+                Description = "Detected recurring charges (subscriptions, bills) with cadence, monthly cost, price-rise flags, and what is due soon. Read-only.",
+                Permission = Permissions.ForTool(Id, "list_recurring"),
             },
         ],
         Onboarding = new OnboardingDescriptor
@@ -457,7 +464,20 @@ public sealed class FinanceModule : IModule
             },
             new TabDescriptor
             {
-                Id = "debts", Label = "Debts", Route = "/finance/debts", Icon = "credit-card", Order = 5,
+                Id = "recurring", Label = "Recurring", Route = "/finance/recurring", Icon = "repeat", Order = 5,
+                Permission = ViewFinance,
+                DataEndpoint = "/api/finance/recurring",
+                Columns =
+                [
+                    new("name", "Charge"), new("cadence", "Cadence"), new("average", "Average"),
+                    new("monthlyCost", "Monthly cost"), new("nextExpected", "Next expected"),
+                    new("status", "Status"),
+                ],
+                Placeholder = "No recurring charges detected yet. Detection needs at least three same-merchant charges at a steady rhythm - import a few months of statements and check back.",
+            },
+            new TabDescriptor
+            {
+                Id = "debts", Label = "Debts", Route = "/finance/debts", Icon = "credit-card", Order = 6,
                 Permission = ViewFinance,
                 DataEndpoint = "/api/finance/debts",
                 Columns =
@@ -470,7 +490,7 @@ public sealed class FinanceModule : IModule
             },
             new TabDescriptor
             {
-                Id = "trend", Label = "Net worth", Route = "/finance/trend", Icon = "trending-up", Order = 6,
+                Id = "trend", Label = "Net worth", Route = "/finance/trend", Icon = "trending-up", Order = 7,
                 Permission = ViewFinance,
                 DataEndpoint = "/api/finance/net-worth/history",
                 // The platform renders these rows as a time-series line chart — one line per currency.
@@ -479,7 +499,7 @@ public sealed class FinanceModule : IModule
             },
             new TabDescriptor
             {
-                Id = "goals", Label = "Goals", Route = "/finance/goals", Icon = "flag", Order = 7,
+                Id = "goals", Label = "Goals", Route = "/finance/goals", Icon = "flag", Order = 8,
                 Permission = ViewFinance,
                 DataEndpoint = "/api/finance/goals",
                 Columns =
@@ -507,7 +527,7 @@ public sealed class FinanceModule : IModule
             },
             new TabDescriptor
             {
-                Id = "review", Label = "Statement review", Route = "/finance/review", Icon = "list-checks", Order = 8,
+                Id = "review", Label = "Statement review", Route = "/finance/review", Icon = "list-checks", Order = 9,
                 Permission = ViewFinance,
                 DataEndpoint = "/api/finance/imports/latest/lines",
                 Columns =
@@ -544,7 +564,7 @@ public sealed class FinanceModule : IModule
             },
             new TabDescriptor
             {
-                Id = "categories", Label = "Categories", Route = "/finance/categories", Icon = "tags", Order = 9,
+                Id = "categories", Label = "Categories", Route = "/finance/categories", Icon = "tags", Order = 10,
                 Permission = ViewFinance,
                 DataEndpoint = "/api/finance/categories",
                 Columns = [new("name", "Category"), new("parentName", "Parent")],
@@ -582,6 +602,8 @@ public sealed class FinanceModule : IModule
         services.AddScoped<HealthTools>();
         services.AddScoped<GoalPlanTools>();
         services.AddScoped<IncomeSourceTools>();
+        services.AddScoped<RecurringTools>();
+        services.AddHostedService<BillReminderService>();
         services.AddHostedService<BudgetRolloverService>();
         services.AddScoped<IStatementAiExtractor, PlatformDocumentStatementExtractor>();
         services.AddSingleton<Cortex.Application.Jobs.IJobHandler, StatementParseJobHandler>();
@@ -723,6 +745,26 @@ public sealed class FinanceModule : IModule
             })
             .RequireAuthorization(PermissionRequirement.PolicyName(ViewFinance))
             .WithName("Finance_NetWorthHistory");
+
+        group.MapGet("/recurring", async (
+                FinanceDbContext db, Cortex.Core.Identity.ICurrentUser currentUser,
+                CancellationToken cancellationToken) =>
+            {
+                var charges = await RecurringTools.DetectAsync(db, currentUser.UserId, cancellationToken);
+                return Results.Ok(charges.Select(c => new
+                {
+                    id = c.MerchantKey,
+                    name = c.DisplayName,
+                    cadence = c.Cadence,
+                    average = c.AverageAmount,
+                    monthlyCost = Math.Round(c.MonthlyCost, 2),
+                    lastSeen = c.LastSeen.ToString("yyyy-MM-dd"),
+                    nextExpected = c.NextExpected.ToString("yyyy-MM-dd"),
+                    status = c.PriceRisen ? "price rose" : "steady",
+                }));
+            })
+            .RequireAuthorization(PermissionRequirement.PolicyName(ViewFinance))
+            .WithName("Finance_Recurring");
 
         group.MapGet("/income-sources", async (FinanceDbContext db, CancellationToken cancellationToken) =>
             {
