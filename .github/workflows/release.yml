@@ -1,0 +1,71 @@
+# =============================================================================
+# release.yml — Ship Networthy to self-hosters.
+# -----------------------------------------------------------------------------
+# On a version tag (v*): build the self-contained product image (platform packages +
+# finance module + embedded branded UI), push it to GHCR — public images pull with NO
+# authentication — and publish a GitHub Release carrying docker-compose.yml, so
+# "self-host Networthy" is:
+#
+#   curl -LO https://github.com/abrahamFerga/networthy/releases/latest/download/docker-compose.yml
+#   docker compose up -d
+# =============================================================================
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write   # create the release + attach assets
+  packages: write   # push the image to GHCR
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Image + release assets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/networthy"   # GHCR paths must be lowercase
+          docker build -t "$image:$version" -t "$image:latest" .
+          docker push "$image:$version"
+          docker push "$image:latest"
+
+      - name: Smoke-test the image boots
+        run: |
+          docker network create smoke
+          docker run -d --network smoke --name pg -e POSTGRES_PASSWORD=postgres pgvector/pgvector:pg17
+          for i in $(seq 1 30); do docker exec pg pg_isready -U postgres && break; sleep 2; done
+          docker run -d --network smoke --name app -p 8080:8080 \
+            -e ASPNETCORE_ENVIRONMENT=Development \
+            -e "ConnectionStrings__cortex-platform=Host=pg;Port=5432;Database=cortex_platform;Username=postgres;Password=postgres" \
+            -e "ConnectionStrings__cortex-audit=Host=pg;Port=5432;Database=cortex_audit;Username=postgres;Password=postgres" \
+            "ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/networthy:${GITHUB_REF_NAME#v}"
+          for i in $(seq 1 60); do curl -fsS http://localhost:8080/alive && break; sleep 2; done
+          curl -fsS http://localhost:8080/alive
+          curl -fsS http://localhost:8080/ | grep -q "<title>Networthy</title>"
+          docker logs app --tail 20
+
+      - name: Publish the release with compose asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" docker-compose.yml \
+            --title "Networthy $GITHUB_REF_NAME" \
+            --generate-notes || gh release upload "$GITHUB_REF_NAME" docker-compose.yml --clobber

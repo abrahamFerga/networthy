@@ -1,0 +1,54 @@
+# Networthy self-hosting — the whole product in one command:
+#
+#   docker compose up -d          # pulls ghcr.io/abrahamferga/networthy + Postgres
+#   open http://localhost:8080    # branded web app; /admin is the admin console
+#
+# DEFAULT MODE IS "PERSONAL": ASPNETCORE_ENVIRONMENT=Development enables the built-in
+# household sign-in (no identity provider) and the keyless Mock AI assistant. That is
+# perfect for one household on a trusted home network and NOT protected by real
+# authentication — do not expose this mode to the internet.
+#
+# To secure an exposed deployment, point it at any OIDC identity provider and flip to
+# Production (auth becomes required; the host refuses to start without it):
+#   NETWORTHY_ENVIRONMENT=Production AUTH_AUTHORITY=https://<idp> AUTH_AUDIENCE=<aud> \
+#     docker compose up -d
+#
+# To use a real AI model instead of the Mock provider:
+#   AI_PROVIDER=OpenAI AI_MODEL=gpt-4o-mini AI_API_KEY=sk-... docker compose up -d
+
+services:
+  db:
+    # pgvector-enabled Postgres — the platform's RAG migration needs the vector extension.
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-networthy-local-only}
+    volumes:
+      - networthy-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    image: ghcr.io/abrahamferga/networthy:${NETWORTHY_VERSION:-latest}
+    build: .   # `docker compose up --build` builds from this checkout instead of pulling
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${NETWORTHY_PORT:-8080}:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${NETWORTHY_ENVIRONMENT:-Development}
+      ConnectionStrings__cortex-platform: Host=db;Port=5432;Database=cortex_platform;Username=postgres;Password=${POSTGRES_PASSWORD:-networthy-local-only}
+      ConnectionStrings__cortex-audit: Host=db;Port=5432;Database=cortex_audit;Username=postgres;Password=${POSTGRES_PASSWORD:-networthy-local-only}
+      # AI provider (default: the dependency-free Mock — no key, works offline).
+      Ai__Provider: ${AI_PROVIDER:-Mock}
+      Ai__Model: ${AI_MODEL:-gpt-4o-mini}
+      Ai__ApiKey: ${AI_API_KEY:-}
+      # Real-auth mode (Production): any OIDC JWT issuer.
+      Auth__Authority: ${AUTH_AUTHORITY:-}
+      Auth__Audience: ${AUTH_AUDIENCE:-}
+
+volumes:
+  networthy-data:

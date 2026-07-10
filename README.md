@@ -43,7 +43,22 @@ Built on [Cortex](https://github.com/abrahamFerga/Cortex), the open-source AI-fi
 auth, multi-tenancy, RBAC-before-the-model, approvals, audit, jobs, and chat channels come from
 the platform; this repo is the finance domain and nothing else.
 
-## Quick start
+## Run it yourself (free, forever)
+
+```bash
+curl -LO https://github.com/abrahamFerga/networthy/releases/latest/download/docker-compose.yml
+docker compose up -d          # → http://localhost:8080
+```
+
+One command, no accounts, no keys: the GHCR image + Postgres, with the keyless Mock assistant
+until you bring an AI key (or run Ollama for a fully local model). Details, the secured mode
+for internet-facing deployments, upgrades, and backups: [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md).
+
+**Don't want to run a server?** The hosted service runs the same public image for a small
+monthly fee that covers the infrastructure and AI tokens — nothing feature-gated, BYO-key
+tenants skip the token fee entirely: [docs/HOSTED.md](docs/HOSTED.md).
+
+## Quick start (from source)
 
 ```powershell
 # Prereqs: .NET 10 SDK + Docker Desktop. That's it — no Cortex checkout, no npm, no keys.
