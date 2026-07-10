@@ -30,6 +30,11 @@ public sealed class FinanceModule : IModule
     /// <summary>Work the Statement review tab: correct extracted lines and approve the batch.</summary>
     public const string ReviewImports = "finance.imports.review";
 
+    /// <summary>Manage the books by hand from the tabs: add/edit/delete accounts, goals,
+    /// budgets, and transactions without going through chat. The forms are the human acting
+    /// directly, so no AI approval gate applies — RBAC is the gate.</summary>
+    public const string ManageFinance = "finance.manage";
+
     public ModuleManifest Manifest { get; } = new()
     {
         Id = Id,
@@ -229,7 +234,24 @@ public sealed class FinanceModule : IModule
                     new("name", "Account"), new("type", "Type"), new("institutionName", "Institution"),
                     new("cachedBalance", "Balance"), new("currencyCode", "Currency"),
                 ],
-                Placeholder = "No accounts yet. Accounts are created in Chat - try: 'Create a checking account called Chase Checking in USD with balance 2500'. The assistant asks for your approval before anything is created.",
+                Placeholder = "No accounts yet. Add one right here, or ask in Chat - 'Create a checking account called Chase Checking in USD with balance 2500' (the assistant asks for approval first).",
+                Editor = new TabEditor
+                {
+                    UpsertEndpoint = "/api/finance/accounts",
+                    DeleteEndpoint = "/api/finance/accounts/{id}",
+                    Permission = ManageFinance,
+                    KeyField = "name",
+                    Fields =
+                    [
+                        new("name", "Account name"),
+                        new("type", "Type (checking, savings, credit, cash, loan)"),
+                        new("currencyCode", "Currency (ISO, e.g. USD)"),
+                        new("cachedBalance", "Balance (negative = owed; edits post an adjustment)", Numeric: true),
+                        new("institutionName", "Institution (optional)", Required: false),
+                        new("interestRateApr", "APR % (credit/loan, optional)", Required: false, Numeric: true),
+                        new("minimumMonthlyPayment", "Minimum payment (optional)", Required: false, Numeric: true),
+                    ],
+                },
             },
             new TabDescriptor
             {
@@ -242,7 +264,24 @@ public sealed class FinanceModule : IModule
                     new("currencyCode", "Currency"), new("direction", "Direction"),
                     new("categoryName", "Category"), new("accountName", "Account"),
                 ],
-                Placeholder = "No transactions yet. Capture them in Chat - try: 'Log $6.50 coffee on Chase Checking' - or upload a bank statement and review the extracted lines.",
+                Placeholder = "No transactions yet. Add one here, capture it in Chat ('Log $6.50 coffee on Chase Checking'), or upload a bank statement and review the extracted lines.",
+                Editor = new TabEditor
+                {
+                    UpsertEndpoint = "/api/finance/transactions",
+                    DeleteEndpoint = "/api/finance/transactions/{id}",
+                    Permission = ManageFinance,
+                    // No key field: transactions are append-and-delete; corrections go through
+                    // delete+re-add here or edit_transaction in chat.
+                    Fields =
+                    [
+                        new("accountName", "Account name"),
+                        new("description", "Description"),
+                        new("amount", "Amount (positive)", Numeric: true),
+                        new("direction", "Direction (expense or income)"),
+                        new("occurredOn", "Date (yyyy-MM-dd, optional = today)", Required: false),
+                        new("categoryName", "Category (optional, must exist)", Required: false),
+                    ],
+                },
             },
             new TabDescriptor
             {
@@ -254,7 +293,20 @@ public sealed class FinanceModule : IModule
                     new("categoryName", "Category"), new("spent", "Spent"), new("target", "Target"),
                     new("remaining", "Remaining"), new("currencyCode", "Currency"), new("status", "Status"),
                 ],
-                Placeholder = "No budgets for this month. Set them in Chat - try: 'Set the grocery budget to $400'. Last month's targets roll forward automatically once you have some.",
+                Placeholder = "No budgets for this month. Set them here or in Chat ('Set the grocery budget to $400'). Last month's targets roll forward automatically once you have some.",
+                Editor = new TabEditor
+                {
+                    UpsertEndpoint = "/api/finance/budgets",
+                    DeleteEndpoint = "/api/finance/budgets/{id}",
+                    Permission = ManageFinance,
+                    KeyField = "categoryName",
+                    Fields =
+                    [
+                        new("categoryName", "Category (must exist)"),
+                        new("target", "Monthly target", Numeric: true),
+                        new("currencyCode", "Currency (default USD)", Required: false),
+                    ],
+                },
             },
             new TabDescriptor
             {
@@ -289,7 +341,22 @@ public sealed class FinanceModule : IModule
                     new("progress", "Progress"), new("currencyCode", "Currency"),
                     new("targetDate", "Target date"), new("pace", "Pace"),
                 ],
-                Placeholder = "No goals yet. Set them in Chat - try: 'Save $5,000 for Hawaii by June'. The assistant asks for your approval before anything is created.",
+                Placeholder = "No goals yet. Add one here, or in Chat - 'Save $5,000 for Hawaii by June' (the assistant asks for approval first).",
+                Editor = new TabEditor
+                {
+                    UpsertEndpoint = "/api/finance/goals",
+                    DeleteEndpoint = "/api/finance/goals/{id}",
+                    Permission = ManageFinance,
+                    KeyField = "name",
+                    Fields =
+                    [
+                        new("name", "Goal name"),
+                        new("target", "Target amount", Numeric: true),
+                        new("currencyCode", "Currency (default USD)", Required: false),
+                        new("targetDate", "Target date (yyyy-MM-dd, optional)", Required: false),
+                        new("accountName", "Tracked account (optional - its balance becomes the progress)", Required: false),
+                    ],
+                },
             },
             new TabDescriptor
             {
@@ -377,6 +444,9 @@ public sealed class FinanceModule : IModule
     {
         var group = endpoints.MapGroup("/api/finance").WithTags("Finance").RequireAuthorization();
 
+        // Manual bookkeeping from the tab editors (accounts/transactions/budgets/goals CRUD).
+        group.MapManualCrudEndpoints();
+
         group.MapGet("/accounts", async (
                 FinanceDbContext db, Cortex.Core.Identity.ICurrentUser currentUser,
                 CancellationToken cancellationToken) =>
@@ -387,6 +457,7 @@ public sealed class FinanceModule : IModule
                 {
                     id = a.Id, name = a.Name, type = a.Type, institutionName = a.InstitutionName,
                     cachedBalance = a.CachedBalance, currencyCode = a.CurrencyCode,
+                    interestRateApr = a.InterestRateApr, minimumMonthlyPayment = a.MinimumMonthlyPayment,
                 }));
             })
             .RequireAuthorization(PermissionRequirement.PolicyName(ViewFinance))

@@ -48,6 +48,7 @@ builder.Services.AddCortexRole("household-admin",
     // Plaid connector management + tools.
     "tools.connectors.plaid.*",
     FinanceModule.ViewFinance, FinanceModule.ManageCategories, FinanceModule.ReviewImports,
+    FinanceModule.ManageFinance,
 ]);
 builder.Services.AddCortexRole("household-member",
 [
