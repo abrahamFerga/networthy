@@ -24,7 +24,7 @@ public sealed class SetupWizardTests(IntegrationFixture fixture)
         Assert.Equal("/api/finance/accounts", onboarding.GetProperty("probeEndpoint").GetString());
         var steps = onboarding.GetProperty("steps").EnumerateArray()
             .Select(s => s.GetProperty("id").GetString()).ToList();
-        Assert.Equal(["welcome", "accounts", "income", "statements", "loans", "budget", "done"], steps);
+        Assert.Equal(["welcome", "basics", "accounts", "income", "statements", "loans", "budget", "done"], steps);
 
         // The income step presets the direction so the generic transactions endpoint serves it.
         var income = onboarding.GetProperty("steps").EnumerateArray()

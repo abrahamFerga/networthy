@@ -47,31 +47,39 @@ public sealed class BudgetRolloverService(
     public static async Task<int> SweepOnceAsync(IServiceProvider services, CancellationToken cancellationToken = default)
     {
         var db = services.GetRequiredService<FinanceDbContext>();
-        var today = DateOnly.FromDateTime(DateTimeOffset.UtcNow.UtcDateTime);
-        var thisMonth = new DateOnly(today.Year, today.Month, 1);
-        var lastMonth = thisMonth.AddMonths(-1);
+        // Month boundaries are household-local: on the UTC 1st it may still be last month in
+        // Mexico City — per-tenant "this month" keeps the rollover honest at the edges.
+        var zones = await db.HouseholdSettings.IgnoreQueryFilters()
+            .ToDictionaryAsync(s => s.TenantId, s => s.TimeZoneId, cancellationToken);
 
-        var previous = await db.Budgets.IgnoreQueryFilters()
-            .Where(b => b.PeriodMonth == lastMonth)
+        var utcToday = DateOnly.FromDateTime(DateTime.UtcNow);
+        var window = new DateOnly(utcToday.Year, utcToday.Month, 1).AddMonths(-2);
+        var candidates = await db.Budgets.IgnoreQueryFilters()
+            .Where(b => b.PeriodMonth >= window)
             .ToListAsync(cancellationToken);
-        if (previous.Count == 0)
+        if (candidates.Count == 0)
         {
             return 0;
         }
 
-        var current = await db.Budgets.IgnoreQueryFilters()
-            .Where(b => b.PeriodMonth == thisMonth)
-            .Select(b => new { b.TenantId, b.CategoryId, b.CurrencyCode })
-            .ToListAsync(cancellationToken);
-
         var written = 0;
-        foreach (var tenantGroup in previous.GroupBy(b => b.TenantId))
+        foreach (var tenantGroup in candidates.GroupBy(b => b.TenantId))
         {
-            var present = current
-                .Where(c => c.TenantId == tenantGroup.Key)
-                .Select(c => (c.CategoryId, c.CurrencyCode))
+            var tenantToday = HouseholdSettings.TodayIn(zones.GetValueOrDefault(tenantGroup.Key));
+            var thisMonth = new DateOnly(tenantToday.Year, tenantToday.Month, 1);
+            var lastMonth = thisMonth.AddMonths(-1);
+
+            var previous = tenantGroup.Where(b => b.PeriodMonth == lastMonth).ToList();
+            if (previous.Count == 0)
+            {
+                continue;
+            }
+
+            var present = tenantGroup
+                .Where(b => b.PeriodMonth == thisMonth)
+                .Select(b => (b.CategoryId, b.CurrencyCode))
                 .ToHashSet();
-            foreach (var budget in BudgetMath.RolloverPlan([.. tenantGroup], present))
+            foreach (var budget in BudgetMath.RolloverPlan(previous, present))
             {
                 db.Budgets.Add(new Budget
                 {

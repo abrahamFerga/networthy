@@ -70,7 +70,10 @@ public sealed class FinanceModule : IModule
             "never a transaction); list_goals answers 'am I on track' with the computed pace - report " +
             "'behind pace' honestly. The Net worth tab charts the household's trend; the Statement " +
             "review tab is where extracted lines get corrected and approved outside of chat. " +
-            "SUBSCRIPTIONS: 'what subscriptions do we have' / 'what are we paying for' -> list_recurring; report price rises and upcoming charges honestly, and note detection is conservative (three steady occurrences minimum). "
+            "PREFERENCES: the household sets its default currency, time zone, and reminder lead in the "
+            + "Settings tab or via update_household_settings; when the user says amounts without a "
+            + "currency, tools use that default - never assume USD for a household configured otherwise. "
+            + "SUBSCRIPTIONS: 'what subscriptions do we have' / 'what are we paying for' -> list_recurring; report price rises and upcoming charges honestly, and note detection is conservative (three steady occurrences minimum). "
             + "INCOME & PLANS: 'I get paid X every two weeks' -> set_income_source (cadence matters: " +
             "biweekly is 26 pays/year). 'Save 3,000 for vacations by June' or '100,000 by age 55, " +
             "invested' -> the goal needs a target DATE (convert an age: ask the year it lands on), and " +
@@ -253,6 +256,19 @@ public sealed class FinanceModule : IModule
                 Description = "Detected recurring charges (subscriptions, bills) with cadence, monthly cost, price-rise flags, and what is due soon. Read-only.",
                 Permission = Permissions.ForTool(Id, "list_recurring"),
             },
+            new ToolDescriptor
+            {
+                Name = "get_household_settings",
+                Description = "The household's preferences: default currency, time zone, reminder lead time.",
+                Permission = Permissions.ForTool(Id, "get_household_settings"),
+            },
+            new ToolDescriptor
+            {
+                Name = "update_household_settings",
+                Description = "Change the household's default currency, time zone, or reminder lead time. Side-effecting: writes data and requires human approval.",
+                Permission = Permissions.ForTool(Id, "update_household_settings"),
+                RequiresApproval = true,
+            },
         ],
         Onboarding = new OnboardingDescriptor
         {
@@ -267,6 +283,18 @@ public sealed class FinanceModule : IModule
                     Blurb = "A few guided minutes: your accounts, your income, your past expenses, your loans. " +
                             "Everything here is skippable and everything can be done later — from the tabs or by " +
                             "asking the assistant in Chat (it always asks your approval before changing anything).",
+                },
+                new OnboardingStep
+                {
+                    Id = "basics", Kind = "form", Title = "Your household basics",
+                    Blurb = "The currency you think in and the time zone you live in — every amount, " +
+                            "every 'today', every reminder uses these. One entry, set once.",
+                    Endpoint = "/api/finance/settings",
+                    Fields =
+                    [
+                        new("defaultCurrencyCode", "Default currency (ISO, e.g. MXN or USD)"),
+                        new("timeZoneId", "Time zone (IANA id, e.g. America/Mexico_City; empty = UTC)", Required: false),
+                    ],
                 },
                 new OnboardingStep
                 {
@@ -564,6 +592,29 @@ public sealed class FinanceModule : IModule
             },
             new TabDescriptor
             {
+                Id = "settings", Label = "Settings", Route = "/finance/settings", Icon = "settings", Order = 11,
+                Permission = ViewFinance,
+                DataEndpoint = "/api/finance/settings",
+                Columns =
+                [
+                    new("defaultCurrencyCode", "Default currency"), new("timeZoneId", "Time zone"),
+                    new("todayThere", "Today there"), new("billReminderLeadDays", "Reminder lead (days)"),
+                ],
+                Placeholder = "Defaults apply: USD, UTC, reminders 3 days ahead. Set your household's own here.",
+                Editor = new TabEditor
+                {
+                    UpsertEndpoint = "/api/finance/settings",
+                    Permission = ManageFinance,
+                    Fields =
+                    [
+                        new("defaultCurrencyCode", "Default currency (ISO, e.g. MXN)"),
+                        new("timeZoneId", "Time zone (IANA id, e.g. America/Mexico_City; empty = UTC)", Required: false),
+                        new("billReminderLeadDays", "Bill reminder lead (days, 0-14)", Required: false, Numeric: true),
+                    ],
+                },
+            },
+            new TabDescriptor
+            {
                 Id = "categories", Label = "Categories", Route = "/finance/categories", Icon = "tags", Order = 10,
                 Permission = ViewFinance,
                 DataEndpoint = "/api/finance/categories",
@@ -603,6 +654,8 @@ public sealed class FinanceModule : IModule
         services.AddScoped<GoalPlanTools>();
         services.AddScoped<IncomeSourceTools>();
         services.AddScoped<RecurringTools>();
+        services.AddScoped<HouseholdContext>();
+        services.AddScoped<HouseholdSettingsTools>();
         services.AddHostedService<BillReminderService>();
         services.AddHostedService<BudgetRolloverService>();
         services.AddScoped<IStatementAiExtractor, PlatformDocumentStatementExtractor>();
@@ -662,9 +715,9 @@ public sealed class FinanceModule : IModule
 
         group.MapGet("/budgets", async (
                 FinanceDbContext db, Cortex.Core.Identity.ICurrentUser currentUser,
-                CancellationToken cancellationToken) =>
+                HouseholdContext household, CancellationToken cancellationToken) =>
             {
-                if (!BudgetMath.TryParseMonth(null, out var period))
+                if (!BudgetMath.TryParseMonth(null, await household.TodayAsync(cancellationToken), out var period))
                 {
                     return Results.Problem("month resolution failed");
                 }
@@ -727,11 +780,11 @@ public sealed class FinanceModule : IModule
             .RequireAuthorization(PermissionRequirement.PolicyName(ViewFinance))
             .WithName("Finance_Debts");
 
-        group.MapGet("/net-worth/history", async (FinanceDbContext db, CancellationToken cancellationToken) =>
+        group.MapGet("/net-worth/history", async (FinanceDbContext db, HouseholdContext household, CancellationToken cancellationToken) =>
             {
                 // Tenant-level snapshots feed the trend chart — the same series get_net_worth's
                 // trend line reports in chat (snapshots are per-currency tenant totals by design).
-                var since = DateOnly.FromDateTime(DateTimeOffset.UtcNow.UtcDateTime).AddDays(-365);
+                var since = (await household.TodayAsync(cancellationToken)).AddDays(-365);
                 var snapshots = await db.NetWorthSnapshots
                     .Where(s => s.TakenOn >= since)
                     .OrderBy(s => s.TakenOn)
@@ -748,9 +801,10 @@ public sealed class FinanceModule : IModule
 
         group.MapGet("/recurring", async (
                 FinanceDbContext db, Cortex.Core.Identity.ICurrentUser currentUser,
-                CancellationToken cancellationToken) =>
+                HouseholdContext household, CancellationToken cancellationToken) =>
             {
-                var charges = await RecurringTools.DetectAsync(db, currentUser.UserId, cancellationToken);
+                var charges = await RecurringTools.DetectAsync(
+                    db, currentUser.UserId, await household.TodayAsync(cancellationToken), cancellationToken);
                 return Results.Ok(charges.Select(c => new
                 {
                     id = c.MerchantKey,
@@ -784,13 +838,13 @@ public sealed class FinanceModule : IModule
 
         group.MapGet("/goals", async (
                 FinanceDbContext db, Cortex.Core.Identity.ICurrentUser currentUser,
-                CancellationToken cancellationToken) =>
+                HouseholdContext household, CancellationToken cancellationToken) =>
             {
                 var goals = await db.Goals.OrderBy(g => g.Name).ToListAsync(cancellationToken);
                 var accounts = (await db.Accounts.ToListAsync(cancellationToken))
                     .Where(a => a.IsVisibleTo(currentUser.UserId))
                     .ToDictionary(a => a.Id);
-                var today = DateOnly.FromDateTime(DateTimeOffset.UtcNow.UtcDateTime);
+                var today = await household.TodayAsync(cancellationToken);
                 return Results.Ok(goals.Select(g =>
                 {
                     var saved = GoalTools.GoalProgress(g, accounts);

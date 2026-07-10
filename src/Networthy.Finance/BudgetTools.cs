@@ -16,13 +16,14 @@ namespace Networthy.Finance;
 public sealed class BudgetTools(
     FinanceDbContext db,
     ITenantContext tenant,
-    ICurrentUser currentUser)
+    ICurrentUser currentUser,
+    HouseholdContext household)
 {
     [Description("Set (or change) a category's monthly budget target, e.g. 'set the grocery budget to $400'. Side-effecting and requires approval.")]
     public async Task<string> SetBudget(
         [Description("The category name (must exist — see the Categories tab).")] string category,
         [Description("The monthly target amount, positive.")] double amount,
-        [Description("ISO currency (default USD).")] string currency = "USD",
+        [Description("ISO currency (omit for the household default).")] string? currency = null,
         [Description("The month as yyyy-MM (default: the current month).")] string? month = null,
         CancellationToken cancellationToken = default)
     {
@@ -38,12 +39,12 @@ public sealed class BudgetTools(
             return $"No category named '{category}' exists. Check the Categories tab first.";
         }
 
-        if (!BudgetMath.TryParseMonth(month, out var period))
+        if (!BudgetMath.TryParseMonth(month, await household.TodayAsync(cancellationToken), out var period))
         {
             return $"'{month}' is not a month I can parse — use yyyy-MM, e.g. 2026-07.";
         }
 
-        var currencyCode = currency.Trim().ToUpperInvariant();
+        var currencyCode = await household.ResolveCurrencyAsync(currency, cancellationToken);
         var existing = await db.Budgets.FirstOrDefaultAsync(
             b => b.CategoryId == categoryRow.Id && b.PeriodMonth == period && b.CurrencyCode == currencyCode,
             cancellationToken);
@@ -72,7 +73,7 @@ public sealed class BudgetTools(
         [Description("The month as yyyy-MM (default: the current month).")] string? month = null,
         CancellationToken cancellationToken = default)
     {
-        if (!BudgetMath.TryParseMonth(month, out var period))
+        if (!BudgetMath.TryParseMonth(month, await household.TodayAsync(cancellationToken), out var period))
         {
             return $"'{month}' is not a month I can parse — use yyyy-MM, e.g. 2026-07.";
         }
@@ -123,12 +124,15 @@ public static class BudgetMath
     public static BudgetStatus Status(decimal target, decimal spent) =>
         new(target - spent, spent > target);
 
-    /// <summary>Parses "yyyy-MM" (null/empty = the current month) to the month's first day.</summary>
-    public static bool TryParseMonth(string? month, out DateOnly period)
+    /// <summary>Parses "yyyy-MM" (null/empty = the current month, UTC). Prefer the today-aware overload.</summary>
+    public static bool TryParseMonth(string? month, out DateOnly period) =>
+        TryParseMonth(month, DateOnly.FromDateTime(DateTime.UtcNow), out period);
+
+    /// <summary>Parses "yyyy-MM" (null/empty = <paramref name="today"/>'s month) to the month's first day.</summary>
+    public static bool TryParseMonth(string? month, DateOnly today, out DateOnly period)
     {
         if (string.IsNullOrWhiteSpace(month))
         {
-            var today = DateOnly.FromDateTime(DateTimeOffset.UtcNow.UtcDateTime);
             period = new DateOnly(today.Year, today.Month, 1);
             return true;
         }

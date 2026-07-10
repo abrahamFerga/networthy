@@ -49,23 +49,28 @@ public sealed class NetWorthSnapshotService(
     public static async Task<int> SweepOnceAsync(IServiceProvider services, CancellationToken cancellationToken = default)
     {
         var db = services.GetRequiredService<FinanceDbContext>();
-        var today = DateOnly.FromDateTime(DateTimeOffset.UtcNow.UtcDateTime);
+        // Each household's snapshot day is ITS day (household time zone), not UTC's.
+        var zones = await db.HouseholdSettings.IgnoreQueryFilters()
+            .ToDictionaryAsync(s => s.TenantId, s => s.TimeZoneId, cancellationToken);
 
         var totals = await db.Accounts.IgnoreQueryFilters()
             .GroupBy(a => new { a.TenantId, a.CurrencyCode })
             .Select(g => new { g.Key.TenantId, g.Key.CurrencyCode, Total = g.Sum(a => a.CachedBalance) })
             .ToListAsync(cancellationToken);
 
+        // The two candidate days across all zones bound the lookup window.
+        var utcToday = DateOnly.FromDateTime(DateTime.UtcNow);
         var existing = await db.NetWorthSnapshots.IgnoreQueryFilters()
-            .Where(s => s.TakenOn == today)
-            .Select(s => new { s.TenantId, s.CurrencyCode })
+            .Where(s => s.TakenOn >= utcToday.AddDays(-1) && s.TakenOn <= utcToday.AddDays(1))
+            .Select(s => new { s.TenantId, s.CurrencyCode, s.TakenOn })
             .ToListAsync(cancellationToken);
-        var seen = existing.Select(e => (e.TenantId, e.CurrencyCode)).ToHashSet();
+        var seen = existing.Select(e => (e.TenantId, e.CurrencyCode, e.TakenOn)).ToHashSet();
 
         var written = 0;
         foreach (var t in totals)
         {
-            if (seen.Contains((t.TenantId, t.CurrencyCode)))
+            var tenantToday = HouseholdSettings.TodayIn(zones.GetValueOrDefault(t.TenantId));
+            if (seen.Contains((t.TenantId, t.CurrencyCode, tenantToday)))
             {
                 continue;
             }
@@ -73,7 +78,7 @@ public sealed class NetWorthSnapshotService(
             db.NetWorthSnapshots.Add(new NetWorthSnapshot
             {
                 TenantId = t.TenantId,
-                TakenOn = today,
+                TakenOn = tenantToday,
                 CurrencyCode = t.CurrencyCode,
                 NetWorth = t.Total,
             });

@@ -17,7 +17,8 @@ namespace Networthy.Finance;
 /// </summary>
 public sealed class GoalPlanTools(
     FinanceDbContext db,
-    ICurrentUser currentUser)
+    ICurrentUser currentUser,
+    HouseholdContext household)
 {
     [Description("The plan for reaching a goal: required contribution per month and per paycheck, where to put the money (from your own accounts), and whether it fits current cash flow. For invested goals, uses the goal's assumed annual return and shows the no-growth figure beside it. Read-only; math, not advice.")]
     public async Task<string> GetGoalPlan(
@@ -37,7 +38,7 @@ public sealed class GoalPlanTools(
                    "Give it one with set_goal (targetDate) — 'by age 55' works too: tell me the year that lands on.";
         }
 
-        var today = DateOnly.FromDateTime(DateTimeOffset.UtcNow.UtcDateTime);
+        var today = await household.TodayAsync(cancellationToken);
         var months = GoalPlanMath.MonthsBetween(today, deadline);
         if (months <= 0)
         {

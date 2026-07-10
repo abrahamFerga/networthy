@@ -13,14 +13,16 @@ namespace Networthy.Finance;
 /// </summary>
 public sealed class RecurringTools(
     FinanceDbContext db,
-    ICurrentUser currentUser)
+    ICurrentUser currentUser,
+    HouseholdContext household)
 {
     internal const int LookbackDays = 400;
 
     [Description("Detected recurring charges — subscriptions, bills, memberships — with cadence, average amount, total monthly cost, price-rise flags, and what's due soon. Computed from your own transactions; read-only.")]
     public async Task<string> ListRecurring(CancellationToken cancellationToken = default)
     {
-        var charges = await DetectAsync(db, currentUser.UserId, cancellationToken);
+        var today = await household.TodayAsync(cancellationToken);
+        var charges = await DetectAsync(db, currentUser.UserId, today, cancellationToken);
         if (charges.Count == 0)
         {
             return "No recurring charges detected yet. Detection needs at least three same-merchant " +
@@ -42,7 +44,6 @@ public sealed class RecurringTools(
 
         sb.AppendLine($"Total: ≈{charges.Sum(c => c.MonthlyCost):N2}/month.");
 
-        var today = DateOnly.FromDateTime(DateTimeOffset.UtcNow.UtcDateTime);
         var soon = charges.Where(c => c.NextExpected <= today.AddDays(7)).ToList();
         if (soon.Count > 0)
         {
@@ -54,9 +55,9 @@ public sealed class RecurringTools(
 
     /// <summary>Detection over the caller-visible expense history. Shared with the tab endpoint.</summary>
     internal static async Task<IReadOnlyList<RecurringCharge>> DetectAsync(
-        FinanceDbContext db, Guid? userId, CancellationToken cancellationToken)
+        FinanceDbContext db, Guid? userId, DateOnly today, CancellationToken cancellationToken)
     {
-        var since = DateOnly.FromDateTime(DateTimeOffset.UtcNow.UtcDateTime).AddDays(-LookbackDays);
+        var since = today.AddDays(-LookbackDays);
         var visibleIds = (await db.Accounts.ToListAsync(cancellationToken))
             .Where(a => a.IsVisibleTo(userId))
             .Select(a => a.Id)

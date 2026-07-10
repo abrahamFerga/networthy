@@ -31,6 +31,9 @@ internal static class ManualCrudEndpoints
 
     internal sealed record ImportRequest(string FileId, string AccountName);
 
+    internal sealed record SettingsUpsert(
+        string DefaultCurrencyCode, string? TimeZoneId, int? BillReminderLeadDays);
+
     internal sealed record IncomeSourceUpsert(
         string Name, decimal Amount, string Cadence, string? CurrencyCode, string? AccountName);
 
@@ -299,6 +302,41 @@ internal static class ManualCrudEndpoints
             })
             .RequireAuthorization(manage)
             .WithName("Finance_DeleteBudget");
+
+        // ── Household settings (singleton row; the Settings tab's editor posts here) ──
+        group.MapGet("/settings", async (FinanceDbContext db, CancellationToken ct) =>
+            {
+                var settings = await db.HouseholdSettings.FirstOrDefaultAsync(ct);
+                var effective = settings ?? new HouseholdSettings();
+                return Results.Ok(new[]
+                {
+                    new
+                    {
+                        id = settings?.Id,
+                        defaultCurrencyCode = effective.DefaultCurrencyCode,
+                        timeZoneId = effective.TimeZoneId ?? "UTC",
+                        todayThere = effective.Today().ToString("yyyy-MM-dd"),
+                        billReminderLeadDays = effective.BillReminderLeadDays,
+                    },
+                });
+            })
+            .RequireAuthorization(PermissionRequirement.PolicyName(FinanceModule.ViewFinance))
+            .WithName("Finance_GetSettings");
+
+        group.MapPost("/settings", async (
+                SettingsUpsert body, HouseholdSettingsTools tools, CancellationToken ct) =>
+            {
+                var message = await tools.UpdateHouseholdSettings(
+                    body.DefaultCurrencyCode,
+                    body.TimeZoneId ?? "UTC",
+                    body.BillReminderLeadDays,
+                    ct);
+                return message.StartsWith("Preferences saved", StringComparison.Ordinal)
+                    ? Results.Ok(new { message })
+                    : Results.BadRequest(new { error = message });
+            })
+            .RequireAuthorization(manage)
+            .WithName("Finance_UpdateSettings");
 
         // ── Income sources ──
         group.MapPost("/income-sources", async (

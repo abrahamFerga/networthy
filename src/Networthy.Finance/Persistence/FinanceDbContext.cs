@@ -27,6 +27,7 @@ public sealed class FinanceDbContext(
     public DbSet<Goal> Goals => Set<Goal>();
     public DbSet<IncomeSource> IncomeSources => Set<IncomeSource>();
     public DbSet<BillReminder> BillReminders => Set<BillReminder>();
+    public DbSet<HouseholdSettings> HouseholdSettings => Set<HouseholdSettings>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -141,6 +142,16 @@ public sealed class FinanceDbContext(
             b.HasKey(x => x.Id);
             b.Property(x => x.MerchantKey).HasMaxLength(40).IsRequired();
             b.HasIndex(x => new { x.TenantId, x.MerchantKey, x.ExpectedOn }).IsUnique();
+            b.HasQueryFilter(x => x.TenantId == tenantContext.TenantId);
+        });
+
+        modelBuilder.Entity<HouseholdSettings>(b =>
+        {
+            b.ToTable("household_settings");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.DefaultCurrencyCode).HasMaxLength(3).IsRequired();
+            b.Property(x => x.TimeZoneId).HasMaxLength(64);
+            b.HasIndex(x => x.TenantId).IsUnique(); // the singleton-per-tenant invariant
             b.HasQueryFilter(x => x.TenantId == tenantContext.TenantId);
         });
 

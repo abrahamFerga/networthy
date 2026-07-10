@@ -15,12 +15,13 @@ namespace Networthy.Finance;
 /// </summary>
 public sealed class AffordabilityTools(
     FinanceDbContext db,
-    ICurrentUser currentUser)
+    ICurrentUser currentUser,
+    HouseholdContext household)
 {
     [Description("Answer 'can I afford X?' directly: compares the amount against the household's liquid balances (checking/savings/cash) and this month's spending. Read-only, computed, honest.")]
     public async Task<string> CanIAfford(
         [Description("The amount being considered, e.g. 200.")] double amount,
-        [Description("ISO currency (default USD).")] string currency = "USD",
+        [Description("ISO currency (omit for the household default).")] string? currency = null,
         [Description("Optional category this would fall under, e.g. 'Dining'.")] string? category = null,
         CancellationToken cancellationToken = default)
     {
@@ -29,7 +30,7 @@ public sealed class AffordabilityTools(
             return "amount must be positive.";
         }
 
-        var currencyCode = currency.Trim().ToUpperInvariant();
+        var currencyCode = await household.ResolveCurrencyAsync(currency, cancellationToken);
         var accounts = (await db.Accounts.ToListAsync(cancellationToken))
             .Where(a => a.IsVisibleTo(currentUser.UserId) && a.CurrencyCode.Equals(currencyCode, StringComparison.OrdinalIgnoreCase))
             .ToList();
@@ -40,7 +41,7 @@ public sealed class AffordabilityTools(
 
         var liquid = AffordabilityMath.LiquidBalance(accounts);
 
-        var today = DateOnly.FromDateTime(DateTimeOffset.UtcNow.UtcDateTime);
+        var today = await household.TodayAsync(cancellationToken);
         var monthStart = new DateOnly(today.Year, today.Month, 1);
         var visibleIds = accounts.Select(a => a.Id).ToHashSet();
         var monthSpend = (await db.Transactions

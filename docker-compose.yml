@@ -38,6 +38,9 @@ services:
         condition: service_healthy
     ports:
       - "${NETWORTHY_PORT:-8080}:8080"
+    volumes:
+      # Uploaded statements (Local file provider) survive container replacement.
+      - networthy-files:/app/data
     environment:
       ASPNETCORE_ENVIRONMENT: ${NETWORTHY_ENVIRONMENT:-Development}
       ConnectionStrings__cortex-platform: Host=db;Port=5432;Database=cortex_platform;Username=postgres;Password=${POSTGRES_PASSWORD:-networthy-local-only}
@@ -49,6 +52,11 @@ services:
       # Real-auth mode (Production): any OIDC JWT issuer.
       Auth__Authority: ${AUTH_AUTHORITY:-}
       Auth__Audience: ${AUTH_AUDIENCE:-}
+      # File storage: Local (volume below) or AzureBlob (bring a connection string).
+      Files__Provider: ${FILES_PROVIDER:-Local}
+      Files__AzureBlobConnectionString: ${FILES_AZURE_CONNECTION:-}
+      Files__AzureBlobContainer: ${FILES_AZURE_CONTAINER:-cortex-files}
 
 volumes:
   networthy-data:
+  networthy-files:
