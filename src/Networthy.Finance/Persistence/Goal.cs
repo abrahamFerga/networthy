@@ -27,5 +27,9 @@ public sealed class Goal : TenantEntityBase
     /// <summary>Progress for unlinked goals; moved only by contribute_to_goal.</summary>
     public decimal SavedAmount { get; set; }
 
+    /// <summary>For invested goals: the household's OWN assumed annual return (percent, e.g.
+    /// 7). Null/0 = plain cash saving. An assumption the planner restates, never a promise.</summary>
+    public decimal? ExpectedAnnualReturnPct { get; set; }
+
     public Guid? CreatedByUserId { get; set; }
 }

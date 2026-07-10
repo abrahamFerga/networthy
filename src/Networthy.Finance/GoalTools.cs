@@ -25,6 +25,7 @@ public sealed class GoalTools(
         [Description("ISO currency (default USD).")] string currency = "USD",
         [Description("Optional deadline as an ISO date, e.g. 2027-06-01.")] string? targetDate = null,
         [Description("Optional account name whose balance tracks this goal (e.g. a dedicated savings account).")] string? accountName = null,
+        [Description("For invested goals: the user's OWN assumed annual return as a percent (e.g. 7). NEVER guess one — ask the user.")] double? expectedAnnualReturnPct = null,
         CancellationToken cancellationToken = default)
     {
         var trimmed = name.Trim();
@@ -36,6 +37,11 @@ public sealed class GoalTools(
         if (targetAmount <= 0)
         {
             return "targetAmount must be positive.";
+        }
+
+        if (expectedAnnualReturnPct is < 0 or > 50)
+        {
+            return $"{expectedAnnualReturnPct} is not a return assumption I can accept — use an annual percent like 7.";
         }
 
         DateOnly? deadline = null;
@@ -75,6 +81,7 @@ public sealed class GoalTools(
                 CurrencyCode = currencyCode,
                 TargetDate = deadline,
                 AccountId = accountId,
+                ExpectedAnnualReturnPct = (decimal?)expectedAnnualReturnPct,
                 CreatedByUserId = currentUser.UserId,
             });
             await db.SaveChangesAsync(cancellationToken);
@@ -87,6 +94,10 @@ public sealed class GoalTools(
         existing.CurrencyCode = currencyCode;
         existing.TargetDate = deadline;
         existing.AccountId = accountId;
+        if (expectedAnnualReturnPct is not null)
+        {
+            existing.ExpectedAnnualReturnPct = expectedAnnualReturnPct == 0 ? null : (decimal)expectedAnnualReturnPct;
+        }
         await db.SaveChangesAsync(cancellationToken);
         return $"Updated goal '{existing.Name}': {targetAmount:N2} {currencyCode}" +
                $"{(deadline is { } nd ? $" by {nd:yyyy-MM-dd}" : "")}.";

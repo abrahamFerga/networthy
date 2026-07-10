@@ -70,6 +70,13 @@ public sealed class FinanceModule : IModule
             "never a transaction); list_goals answers 'am I on track' with the computed pace - report " +
             "'behind pace' honestly. The Net worth tab charts the household's trend; the Statement " +
             "review tab is where extracted lines get corrected and approved outside of chat. " +
+            "INCOME & PLANS: 'I get paid X every two weeks' -> set_income_source (cadence matters: " +
+            "biweekly is 26 pays/year). 'Save 3,000 for vacations by June' or '100,000 by age 55, " +
+            "invested' -> the goal needs a target DATE (convert an age: ask the year it lands on), and " +
+            "invested goals need expectedAnnualReturnPct on set_goal - ALWAYS ask the user for their " +
+            "assumed return, NEVER pick one yourself, and repeat that it is an assumption, not a promise. " +
+            "Then get_goal_plan and relay it verbatim: monthly and per-paycheck amounts, where to save, " +
+            "whether it fits their cash flow. " +
             "DEBTS & HEALTH: loans (mortgage/auto/student) are accounts of type loan - create_account " +
             "with interestRateApr and minimumMonthlyPayment; NEVER guess a rate, ask. " +
             "update_account_terms corrects APR/minimum on any debt. 'How is our financial health' or " +
@@ -219,6 +226,25 @@ public sealed class FinanceModule : IModule
                 Name = "get_financial_health",
                 Description = "Computed financial-health check: net worth, debt cost, emergency fund, savings rate, plus standard data-triggered improvement strategies. Read-only.",
                 Permission = Permissions.ForTool(Id, "get_financial_health"),
+            },
+            new ToolDescriptor
+            {
+                Name = "set_income_source",
+                Description = "Declare or update a recurring income with its cadence (weekly/biweekly/semimonthly/monthly). Side-effecting: writes data and requires human approval.",
+                Permission = Permissions.ForTool(Id, "set_income_source"),
+                RequiresApproval = true,
+            },
+            new ToolDescriptor
+            {
+                Name = "list_income_sources",
+                Description = "Declared income schedules with monthly equivalents.",
+                Permission = Permissions.ForTool(Id, "list_income_sources"),
+            },
+            new ToolDescriptor
+            {
+                Name = "get_goal_plan",
+                Description = "How to reach a goal: required contribution per month and per paycheck, where to save it, cash-flow fit. Uses the goal's own assumed return for invested goals. Read-only.",
+                Permission = Permissions.ForTool(Id, "get_goal_plan"),
             },
         ],
         Onboarding = new OnboardingDescriptor
@@ -404,7 +430,34 @@ public sealed class FinanceModule : IModule
             },
             new TabDescriptor
             {
-                Id = "debts", Label = "Debts", Route = "/finance/debts", Icon = "credit-card", Order = 4,
+                Id = "income", Label = "Income", Route = "/finance/income", Icon = "banknote", Order = 4,
+                Permission = ViewFinance,
+                DataEndpoint = "/api/finance/income-sources",
+                Columns =
+                [
+                    new("name", "Income"), new("amount", "Per paycheck"), new("cadence", "Cadence"),
+                    new("monthlyEquivalent", "\u2248 Monthly"), new("currencyCode", "Currency"),
+                ],
+                Placeholder = "No income schedules yet. Add one here or in Chat - 'I get paid 2,500 every two weeks from ACME'. Schedules power per-paycheck goal plans and cash-flow checks.",
+                Editor = new TabEditor
+                {
+                    UpsertEndpoint = "/api/finance/income-sources",
+                    DeleteEndpoint = "/api/finance/income-sources/{id}",
+                    Permission = ManageFinance,
+                    KeyField = "name",
+                    Fields =
+                    [
+                        new("name", "Income name (e.g. 'ACME payroll')"),
+                        new("amount", "Amount per paycheck", Numeric: true),
+                        new("cadence", "Cadence (weekly, biweekly, semimonthly, monthly)"),
+                        new("currencyCode", "Currency (default USD)", Required: false),
+                        new("accountName", "Lands in account (optional)", Required: false),
+                    ],
+                },
+            },
+            new TabDescriptor
+            {
+                Id = "debts", Label = "Debts", Route = "/finance/debts", Icon = "credit-card", Order = 5,
                 Permission = ViewFinance,
                 DataEndpoint = "/api/finance/debts",
                 Columns =
@@ -417,7 +470,7 @@ public sealed class FinanceModule : IModule
             },
             new TabDescriptor
             {
-                Id = "trend", Label = "Net worth", Route = "/finance/trend", Icon = "trending-up", Order = 5,
+                Id = "trend", Label = "Net worth", Route = "/finance/trend", Icon = "trending-up", Order = 6,
                 Permission = ViewFinance,
                 DataEndpoint = "/api/finance/net-worth/history",
                 // The platform renders these rows as a time-series line chart — one line per currency.
@@ -426,7 +479,7 @@ public sealed class FinanceModule : IModule
             },
             new TabDescriptor
             {
-                Id = "goals", Label = "Goals", Route = "/finance/goals", Icon = "flag", Order = 6,
+                Id = "goals", Label = "Goals", Route = "/finance/goals", Icon = "flag", Order = 7,
                 Permission = ViewFinance,
                 DataEndpoint = "/api/finance/goals",
                 Columns =
@@ -454,7 +507,7 @@ public sealed class FinanceModule : IModule
             },
             new TabDescriptor
             {
-                Id = "review", Label = "Statement review", Route = "/finance/review", Icon = "list-checks", Order = 7,
+                Id = "review", Label = "Statement review", Route = "/finance/review", Icon = "list-checks", Order = 8,
                 Permission = ViewFinance,
                 DataEndpoint = "/api/finance/imports/latest/lines",
                 Columns =
@@ -491,7 +544,7 @@ public sealed class FinanceModule : IModule
             },
             new TabDescriptor
             {
-                Id = "categories", Label = "Categories", Route = "/finance/categories", Icon = "tags", Order = 8,
+                Id = "categories", Label = "Categories", Route = "/finance/categories", Icon = "tags", Order = 9,
                 Permission = ViewFinance,
                 DataEndpoint = "/api/finance/categories",
                 Columns = [new("name", "Category"), new("parentName", "Parent")],
@@ -527,6 +580,8 @@ public sealed class FinanceModule : IModule
         services.AddScoped<ApprovalSurfaceTools>();
         services.AddScoped<GoalTools>();
         services.AddScoped<HealthTools>();
+        services.AddScoped<GoalPlanTools>();
+        services.AddScoped<IncomeSourceTools>();
         services.AddHostedService<BudgetRolloverService>();
         services.AddScoped<IStatementAiExtractor, PlatformDocumentStatementExtractor>();
         services.AddSingleton<Cortex.Application.Jobs.IJobHandler, StatementParseJobHandler>();
@@ -668,6 +723,22 @@ public sealed class FinanceModule : IModule
             })
             .RequireAuthorization(PermissionRequirement.PolicyName(ViewFinance))
             .WithName("Finance_NetWorthHistory");
+
+        group.MapGet("/income-sources", async (FinanceDbContext db, CancellationToken cancellationToken) =>
+            {
+                var sources = await db.IncomeSources.OrderBy(i => i.Name).ToListAsync(cancellationToken);
+                return Results.Ok(sources.Select(i => new
+                {
+                    id = i.Id,
+                    name = i.Name,
+                    amount = i.Amount,
+                    cadence = i.Cadence,
+                    monthlyEquivalent = Math.Round(i.MonthlyEquivalent, 2),
+                    currencyCode = i.CurrencyCode,
+                }));
+            })
+            .RequireAuthorization(PermissionRequirement.PolicyName(ViewFinance))
+            .WithName("Finance_IncomeSources");
 
         group.MapGet("/goals", async (
                 FinanceDbContext db, Cortex.Core.Identity.ICurrentUser currentUser,
