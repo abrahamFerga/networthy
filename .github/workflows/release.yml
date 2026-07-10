@@ -39,15 +39,25 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push image
+      # Self-hosters run ARM boxes (Raspberry Pi, Apple-silicon VMs, Ampere clouds) as often as
+      # x86 — publish a multi-arch manifest so `docker compose up` just works on both.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image (amd64 + arm64)
         run: |
           version="${GITHUB_REF_NAME#v}"
           image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/networthy"   # GHCR paths must be lowercase
-          docker build -t "$image:$version" -t "$image:latest" .
-          docker push "$image:$version"
-          docker push "$image:latest"
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            -t "$image:$version" -t "$image:latest" \
+            --push .
 
       - name: Smoke-test the image boots
+        # Pulls the runner-native (amd64) slice of the manifest just pushed.
         run: |
           docker network create smoke
           docker run -d --network smoke --name pg -e POSTGRES_PASSWORD=postgres pgvector/pgvector:pg17

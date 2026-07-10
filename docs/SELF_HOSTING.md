@@ -12,7 +12,8 @@ docker compose up -d
 # open http://localhost:8080  (admin console at /admin)
 ```
 
-That pulls `ghcr.io/abrahamferga/networthy` (no registry account needed) plus a
+That pulls `ghcr.io/abrahamferga/networthy` (no registry account needed — multi-arch, so x86
+servers and ARM boxes like a Raspberry Pi both work) plus a
 pgvector-enabled Postgres with a persistent volume. First start runs the database migrations
 and seeds the starter category taxonomy.
 
