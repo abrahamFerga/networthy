@@ -60,6 +60,8 @@ builder.Services.AddCortexRole("household-member",
     "tools.finance.get_budget_status",
     // Goals: members see progress and may propose contributions (approval-gated like any write).
     "tools.finance.list_goals", "tools.finance.contribute_to_goal",
+    // Everyone in the household may ask how the household is doing.
+    "tools.finance.get_financial_health",
     FinanceModule.ViewFinance,
 ]);
 

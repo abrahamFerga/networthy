@@ -40,6 +40,8 @@ public sealed class FinanceDbContext(
             b.Property(x => x.MaskedAccountNumber).HasMaxLength(24);
             b.Property(x => x.CurrencyCode).HasMaxLength(3).IsRequired();
             b.Property(x => x.CachedBalance).HasPrecision(18, 2);
+            b.Property(x => x.InterestRateApr).HasPrecision(6, 3);
+            b.Property(x => x.MinimumMonthlyPayment).HasPrecision(18, 2);
             b.HasIndex(x => new { x.TenantId, x.Name }).IsUnique();
             b.HasQueryFilter(x => x.TenantId == tenantContext.TenantId);
         });
