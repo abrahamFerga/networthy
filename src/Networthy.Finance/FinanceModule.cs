@@ -27,6 +27,9 @@ public sealed class FinanceModule : IModule
     /// <summary>Curate the household's category taxonomy from the Categories tab.</summary>
     public const string ManageCategories = "finance.categories.manage";
 
+    /// <summary>Work the Statement review tab: correct extracted lines and approve the batch.</summary>
+    public const string ReviewImports = "finance.imports.review";
+
     public ModuleManifest Manifest { get; } = new()
     {
         Id = Id,
@@ -56,7 +59,12 @@ public sealed class FinanceModule : IModule
             "set_budget for targets ('set the grocery budget to $400'); get_budget_status answers " +
             "'how are we doing this month' and flags OVER categories - report those honestly. " +
             "TRANSPARENCY: list_pending_approvals shows what you are waiting on; get_activity_log shows " +
-            "what changed and where it came from - offer these whenever the user asks what the AI did.",
+            "what changed and where it came from - offer these whenever the user asks what the AI did. " +
+            "GOALS: set_goal for savings targets ('save $5,000 for Hawaii by June'), optionally tracked " +
+            "by an account's balance; contribute_to_goal records progress on unlinked goals (a marker, " +
+            "never a transaction); list_goals answers 'am I on track' with the computed pace - report " +
+            "'behind pace' honestly. The Net worth tab charts the household's trend; the Statement " +
+            "review tab is where extracted lines get corrected and approved outside of chat.",
         Tools =
         [
             new ToolDescriptor
@@ -168,6 +176,26 @@ public sealed class FinanceModule : IModule
                 Permission = Permissions.ForTool(Id, "approve_import_batch"),
                 RequiresApproval = true,
             },
+            new ToolDescriptor
+            {
+                Name = "set_goal",
+                Description = "Create or update a savings goal, optionally tracked by an account's balance. Side-effecting: writes data and requires human approval.",
+                Permission = Permissions.ForTool(Id, "set_goal"),
+                RequiresApproval = true,
+            },
+            new ToolDescriptor
+            {
+                Name = "contribute_to_goal",
+                Description = "Record progress toward an unlinked goal (a bookkeeping marker, not a transaction). Side-effecting: writes data and requires human approval.",
+                Permission = Permissions.ForTool(Id, "contribute_to_goal"),
+                RequiresApproval = true,
+            },
+            new ToolDescriptor
+            {
+                Name = "list_goals",
+                Description = "Savings goals with computed progress and on-pace verdicts.",
+                Permission = Permissions.ForTool(Id, "list_goals"),
+            },
         ],
         Tabs =
         [
@@ -211,7 +239,66 @@ public sealed class FinanceModule : IModule
             },
             new TabDescriptor
             {
-                Id = "categories", Label = "Categories", Route = "/finance/categories", Icon = "tags", Order = 5,
+                Id = "trend", Label = "Net worth", Route = "/finance/trend", Icon = "trending-up", Order = 4,
+                Permission = ViewFinance,
+                DataEndpoint = "/api/finance/net-worth/history",
+                // The platform renders these rows as a time-series line chart — one line per currency.
+                Chart = new TabChart { XField = "takenOn", YField = "netWorth", SeriesField = "currencyCode", YLabel = "Net worth" },
+                Placeholder = "The trend appears once daily snapshots accumulate — check back tomorrow.",
+            },
+            new TabDescriptor
+            {
+                Id = "goals", Label = "Goals", Route = "/finance/goals", Icon = "flag", Order = 5,
+                Permission = ViewFinance,
+                DataEndpoint = "/api/finance/goals",
+                Columns =
+                [
+                    new("name", "Goal"), new("saved", "Saved"), new("target", "Target"),
+                    new("progress", "Progress"), new("currencyCode", "Currency"),
+                    new("targetDate", "Target date"), new("pace", "Pace"),
+                ],
+                Placeholder = "No goals yet. Set them in Chat - try: 'Save $5,000 for Hawaii by June'. The assistant asks for your approval before anything is created.",
+            },
+            new TabDescriptor
+            {
+                Id = "review", Label = "Statement review", Route = "/finance/review", Icon = "list-checks", Order = 6,
+                Permission = ViewFinance,
+                DataEndpoint = "/api/finance/imports/latest/lines",
+                Columns =
+                [
+                    new("index", "#"), new("date", "Date"), new("description", "Description"),
+                    new("amount", "Amount"), new("direction", "Direction"), new("category", "Category"),
+                ],
+                Placeholder = "Nothing awaiting review. Attach a bank statement in Chat and ask to import it; the extracted lines land here for correction and approval.",
+                // Reviewers fix a line's category (or drop a bogus line) right in the table…
+                Editor = new TabEditor
+                {
+                    UpsertEndpoint = "/api/finance/imports/latest/lines",
+                    DeleteEndpoint = "/api/finance/imports/latest/lines/{index}",
+                    Permission = ReviewImports,
+                    KeyField = "index",
+                    Fields =
+                    [
+                        new("index", "Line # (from the table)", Numeric: true),
+                        new("category", "Category (must exist — see the Categories tab)", Required: false),
+                    ],
+                },
+                // …and one button posts the whole batch. The human clicking IS the approval.
+                Actions =
+                [
+                    new TabAction
+                    {
+                        Id = "approve-latest",
+                        Label = "Approve batch",
+                        Endpoint = "/api/finance/imports/latest/approve",
+                        Permission = ReviewImports,
+                        Confirm = "Post every line above as transactions? Balances update immediately.",
+                    },
+                ],
+            },
+            new TabDescriptor
+            {
+                Id = "categories", Label = "Categories", Route = "/finance/categories", Icon = "tags", Order = 7,
                 Permission = ViewFinance,
                 DataEndpoint = "/api/finance/categories",
                 Columns = [new("name", "Category"), new("parentName", "Parent")],
@@ -245,6 +332,7 @@ public sealed class FinanceModule : IModule
         services.AddScoped<HouseholdTools>();
         services.AddScoped<BudgetTools>();
         services.AddScoped<ApprovalSurfaceTools>();
+        services.AddScoped<GoalTools>();
         services.AddHostedService<BudgetRolloverService>();
         services.AddScoped<IStatementAiExtractor, PlatformDocumentStatementExtractor>();
         services.AddSingleton<Cortex.Application.Jobs.IJobHandler, StatementParseJobHandler>();
@@ -340,6 +428,156 @@ public sealed class FinanceModule : IModule
             })
             .RequireAuthorization(PermissionRequirement.PolicyName(ViewFinance))
             .WithName("Finance_Budgets");
+
+        group.MapGet("/net-worth/history", async (FinanceDbContext db, CancellationToken cancellationToken) =>
+            {
+                // Tenant-level snapshots feed the trend chart — the same series get_net_worth's
+                // trend line reports in chat (snapshots are per-currency tenant totals by design).
+                var since = DateOnly.FromDateTime(DateTimeOffset.UtcNow.UtcDateTime).AddDays(-365);
+                var snapshots = await db.NetWorthSnapshots
+                    .Where(s => s.TakenOn >= since)
+                    .OrderBy(s => s.TakenOn)
+                    .ToListAsync(cancellationToken);
+                return Results.Ok(snapshots.Select(s => new
+                {
+                    takenOn = s.TakenOn.ToString("yyyy-MM-dd"),
+                    netWorth = s.NetWorth,
+                    currencyCode = s.CurrencyCode,
+                }));
+            })
+            .RequireAuthorization(PermissionRequirement.PolicyName(ViewFinance))
+            .WithName("Finance_NetWorthHistory");
+
+        group.MapGet("/goals", async (
+                FinanceDbContext db, Cortex.Core.Identity.ICurrentUser currentUser,
+                CancellationToken cancellationToken) =>
+            {
+                var goals = await db.Goals.OrderBy(g => g.Name).ToListAsync(cancellationToken);
+                var accounts = (await db.Accounts.ToListAsync(cancellationToken))
+                    .Where(a => a.IsVisibleTo(currentUser.UserId))
+                    .ToDictionary(a => a.Id);
+                var today = DateOnly.FromDateTime(DateTimeOffset.UtcNow.UtcDateTime);
+                return Results.Ok(goals.Select(g =>
+                {
+                    var saved = GoalTools.GoalProgress(g, accounts);
+                    return new
+                    {
+                        id = g.Id,
+                        name = g.Name,
+                        saved = saved is { } s ? s.ToString("N2") : "(private account)",
+                        target = g.TargetAmount,
+                        progress = saved is { } p ? GoalMath.Percent(p, g.TargetAmount).ToString("P0") : "—",
+                        currencyCode = g.CurrencyCode,
+                        targetDate = g.TargetDate?.ToString("yyyy-MM-dd"),
+                        pace = g.TargetDate is { } d && saved is { } v
+                            ? (GoalMath.OnPace(v, g.TargetAmount, g.CreatedAt, d, today) ? "on pace" : "behind")
+                            : null,
+                    };
+                }));
+            })
+            .RequireAuthorization(PermissionRequirement.PolicyName(ViewFinance))
+            .WithName("Finance_Goals");
+
+        // ── Statement review: the import pipeline's human moment, as a working surface ──
+        group.MapGet("/imports/latest/lines", async (FinanceDbContext db, CancellationToken cancellationToken) =>
+            {
+                var batch = await db.ImportBatches
+                    .OrderByDescending(b => b.CreatedAt)
+                    .FirstOrDefaultAsync(cancellationToken);
+                if (batch is null || batch.Status != "parsed")
+                {
+                    return Results.Ok(Array.Empty<object>()); // the tab shows its placeholder
+                }
+
+                var lines = StatementImportTools.Deserialize(batch.ExtractedLinesJson);
+                return Results.Ok(lines.Select((line, i) => new
+                {
+                    index = i,
+                    date = line.Date.ToString("yyyy-MM-dd"),
+                    description = line.Description,
+                    amount = (line.Direction == "income" ? "+" : "-") + line.Amount.ToString("N2"),
+                    direction = line.Direction,
+                    category = line.SuggestedCategory,
+                    batch = batch.FileName,
+                }));
+            })
+            .RequireAuthorization(PermissionRequirement.PolicyName(ViewFinance))
+            .WithName("Finance_ImportLines");
+
+        group.MapPost("/imports/latest/lines", async (
+                ReviewLineRequest body, FinanceDbContext db, CancellationToken cancellationToken) =>
+            {
+                var batch = await db.ImportBatches
+                    .OrderByDescending(b => b.CreatedAt)
+                    .FirstOrDefaultAsync(cancellationToken);
+                if (batch is null || batch.Status != "parsed")
+                {
+                    return Results.BadRequest(new { error = "No batch is awaiting review." });
+                }
+
+                var lines = StatementImportTools.Deserialize(batch.ExtractedLinesJson).ToList();
+                if (body.Index < 0 || body.Index >= lines.Count)
+                {
+                    return Results.BadRequest(new { error = $"Line {body.Index} does not exist." });
+                }
+
+                string? category = null;
+                if (!string.IsNullOrWhiteSpace(body.Category))
+                {
+                    var match = await db.Categories.FirstOrDefaultAsync(
+                        c => EF.Functions.ILike(c.Name, body.Category.Trim()), cancellationToken);
+                    if (match is null)
+                    {
+                        return Results.BadRequest(new { error = $"No category named '{body.Category}' exists." });
+                    }
+
+                    category = match.Name;
+                }
+
+                lines[body.Index] = lines[body.Index] with { SuggestedCategory = category };
+                batch.ExtractedLinesJson = System.Text.Json.JsonSerializer.Serialize(
+                    lines, System.Text.Json.JsonSerializerOptions.Web);
+                await db.SaveChangesAsync(cancellationToken);
+                return Results.Ok(new { index = body.Index, category });
+            })
+            .RequireAuthorization(PermissionRequirement.PolicyName(ReviewImports))
+            .WithName("Finance_ReviewLine");
+
+        group.MapDelete("/imports/latest/lines/{index:int}", async (
+                int index, FinanceDbContext db, CancellationToken cancellationToken) =>
+            {
+                var batch = await db.ImportBatches
+                    .OrderByDescending(b => b.CreatedAt)
+                    .FirstOrDefaultAsync(cancellationToken);
+                if (batch is null || batch.Status != "parsed")
+                {
+                    return Results.BadRequest(new { error = "No batch is awaiting review." });
+                }
+
+                var lines = StatementImportTools.Deserialize(batch.ExtractedLinesJson).ToList();
+                if (index < 0 || index >= lines.Count)
+                {
+                    return Results.NotFound();
+                }
+
+                lines.RemoveAt(index);
+                batch.ExtractedLinesJson = System.Text.Json.JsonSerializer.Serialize(
+                    lines, System.Text.Json.JsonSerializerOptions.Web);
+                await db.SaveChangesAsync(cancellationToken);
+                return Results.NoContent();
+            })
+            .RequireAuthorization(PermissionRequirement.PolicyName(ReviewImports))
+            .WithName("Finance_DropLine");
+
+        group.MapPost("/imports/latest/approve", async (
+                StatementImportTools imports, CancellationToken cancellationToken) =>
+            {
+                // The reviewer clicking the button IS the human approval this batch waits for.
+                var message = await imports.ApproveImportBatch(fileName: null, cancellationToken);
+                return Results.Ok(new { message });
+            })
+            .RequireAuthorization(PermissionRequirement.PolicyName(ReviewImports))
+            .WithName("Finance_ApproveLatestImport");
 
         group.MapGet("/categories", async (FinanceDbContext db, CancellationToken cancellationToken) =>
             {
@@ -449,6 +687,9 @@ public sealed class FinanceModule : IModule
 }
 
 public sealed record CategoryDto(Guid Id, string Name, string? ParentName);
+
+/// <summary>Body of the review tab's line edit: which line, and its corrected category (empty clears it).</summary>
+public sealed record ReviewLineRequest(int Index, string? Category);
 
 public sealed record UpsertCategoryRequest(Guid? Id, string Name, string? ParentName);
 

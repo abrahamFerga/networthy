@@ -20,6 +20,7 @@ public sealed class FinanceToolSource : IModuleToolSource
         var household = scopedServices.GetRequiredService<HouseholdTools>();
         var budgets = scopedServices.GetRequiredService<BudgetTools>();
         var approvals = scopedServices.GetRequiredService<ApprovalSurfaceTools>();
+        var goals = scopedServices.GetRequiredService<GoalTools>();
 
         return
         [
@@ -148,6 +149,29 @@ public sealed class FinanceToolSource : IModuleToolSource
                 Permission = Permissions.ForTool(ModuleId, "approve_import_batch"),
                 Function = AIFunctionFactory.Create(imports.ApproveImportBatch, name: "approve_import_batch"),
                 RequiresApproval = true,
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "set_goal",
+                Permission = Permissions.ForTool(ModuleId, "set_goal"),
+                Function = AIFunctionFactory.Create(goals.SetGoal, name: "set_goal"),
+                RequiresApproval = true,
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "contribute_to_goal",
+                Permission = Permissions.ForTool(ModuleId, "contribute_to_goal"),
+                Function = AIFunctionFactory.Create(goals.ContributeToGoal, name: "contribute_to_goal"),
+                RequiresApproval = true,
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "list_goals",
+                Permission = Permissions.ForTool(ModuleId, "list_goals"),
+                Function = AIFunctionFactory.Create(goals.ListGoals, name: "list_goals"),
             },
         ];
     }

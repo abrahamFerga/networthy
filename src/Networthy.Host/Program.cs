@@ -47,7 +47,7 @@ builder.Services.AddCortexRole("household-admin",
     "tools.finance.*",
     // Plaid connector management + tools.
     "tools.connectors.plaid.*",
-    FinanceModule.ViewFinance, FinanceModule.ManageCategories,
+    FinanceModule.ViewFinance, FinanceModule.ManageCategories, FinanceModule.ReviewImports,
 ]);
 builder.Services.AddCortexRole("household-member",
 [
@@ -58,6 +58,8 @@ builder.Services.AddCortexRole("household-member",
     "tools.finance.search_transactions", "tools.finance.summarize_spending",
     "tools.finance.log_own_transaction", "tools.finance.can_i_afford",
     "tools.finance.get_budget_status",
+    // Goals: members see progress and may propose contributions (approval-gated like any write).
+    "tools.finance.list_goals", "tools.finance.contribute_to_goal",
     FinanceModule.ViewFinance,
 ]);
 
