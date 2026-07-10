@@ -1,0 +1,12 @@
+# Keep the build context to sources + the vendored feed; stale build output in
+# bin/obj would otherwise shadow freshly-restored packages inside the image.
+**/bin/
+**/obj/
+.git/
+.github/
+.claude/
+docs/
+research/
+tests/
+scripts/
+*.md
