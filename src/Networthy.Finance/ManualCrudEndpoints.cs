@@ -31,6 +31,9 @@ internal static class ManualCrudEndpoints
 
     internal sealed record ImportRequest(string FileId, string AccountName);
 
+    internal sealed record IncomeSourceUpsert(
+        string Name, decimal Amount, string Cadence, string? CurrencyCode, string? AccountName);
+
     internal sealed record GoalUpsert(
         string Name, decimal Target, string? CurrencyCode, string? TargetDate, string? AccountName);
 
@@ -296,6 +299,37 @@ internal static class ManualCrudEndpoints
             })
             .RequireAuthorization(manage)
             .WithName("Finance_DeleteBudget");
+
+        // ── Income sources ──
+        group.MapPost("/income-sources", async (
+                IncomeSourceUpsert body, IncomeSourceTools tools, CancellationToken ct) =>
+            {
+                // Same validation/upsert logic as the chat tool; the form is the human directly.
+                var message = await tools.SetIncomeSource(
+                    body.Name, (double)body.Amount, body.Cadence,
+                    string.IsNullOrWhiteSpace(body.CurrencyCode) ? "USD" : body.CurrencyCode,
+                    body.AccountName, ct);
+                return message.StartsWith("Income ", StringComparison.Ordinal)
+                    ? Results.Ok(new { message })
+                    : Results.BadRequest(new { error = message });
+            })
+            .RequireAuthorization(manage)
+            .WithName("Finance_UpsertIncomeSource");
+
+        group.MapDelete("/income-sources/{id:guid}", async (Guid id, FinanceDbContext db, CancellationToken ct) =>
+            {
+                var source = await db.IncomeSources.FirstOrDefaultAsync(i => i.Id == id, ct);
+                if (source is null)
+                {
+                    return Results.NotFound();
+                }
+
+                db.IncomeSources.Remove(source);
+                await db.SaveChangesAsync(ct);
+                return Results.NoContent();
+            })
+            .RequireAuthorization(manage)
+            .WithName("Finance_DeleteIncomeSource");
 
         // ── Goals ───────────────────────────────────────────────────────────────────
         group.MapPost("/goals", async (

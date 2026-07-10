@@ -22,6 +22,8 @@ public sealed class FinanceToolSource : IModuleToolSource
         var approvals = scopedServices.GetRequiredService<ApprovalSurfaceTools>();
         var goals = scopedServices.GetRequiredService<GoalTools>();
         var health = scopedServices.GetRequiredService<HealthTools>();
+        var goalPlans = scopedServices.GetRequiredService<GoalPlanTools>();
+        var incomeSources = scopedServices.GetRequiredService<IncomeSourceTools>();
 
         return
         [
@@ -188,6 +190,28 @@ public sealed class FinanceToolSource : IModuleToolSource
                 Name = "get_financial_health",
                 Permission = Permissions.ForTool(ModuleId, "get_financial_health"),
                 Function = AIFunctionFactory.Create(health.GetFinancialHealth, name: "get_financial_health"),
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "set_income_source",
+                Permission = Permissions.ForTool(ModuleId, "set_income_source"),
+                Function = AIFunctionFactory.Create(incomeSources.SetIncomeSource, name: "set_income_source"),
+                RequiresApproval = true,
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "list_income_sources",
+                Permission = Permissions.ForTool(ModuleId, "list_income_sources"),
+                Function = AIFunctionFactory.Create(incomeSources.ListIncomeSources, name: "list_income_sources"),
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "get_goal_plan",
+                Permission = Permissions.ForTool(ModuleId, "get_goal_plan"),
+                Function = AIFunctionFactory.Create(goalPlans.GetGoalPlan, name: "get_goal_plan"),
             },
         ];
     }

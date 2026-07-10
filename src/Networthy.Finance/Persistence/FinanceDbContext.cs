@@ -25,6 +25,7 @@ public sealed class FinanceDbContext(
     public DbSet<Budget> Budgets => Set<Budget>();
     public DbSet<PlaidLinkedAccount> PlaidLinks => Set<PlaidLinkedAccount>();
     public DbSet<Goal> Goals => Set<Goal>();
+    public DbSet<IncomeSource> IncomeSources => Set<IncomeSource>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -114,6 +115,20 @@ public sealed class FinanceDbContext(
             b.Property(x => x.CurrencyCode).HasMaxLength(3).IsRequired();
             b.Property(x => x.TargetAmount).HasPrecision(18, 2);
             b.Property(x => x.SavedAmount).HasPrecision(18, 2);
+            b.Property(x => x.ExpectedAnnualReturnPct).HasPrecision(6, 3);
+            b.HasIndex(x => new { x.TenantId, x.Name }).IsUnique();
+            b.HasOne<Account>().WithMany().HasForeignKey(x => x.AccountId).OnDelete(DeleteBehavior.SetNull);
+            b.HasQueryFilter(x => x.TenantId == tenantContext.TenantId);
+        });
+
+        modelBuilder.Entity<IncomeSource>(b =>
+        {
+            b.ToTable("income_sources");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            b.Property(x => x.CurrencyCode).HasMaxLength(3).IsRequired();
+            b.Property(x => x.Cadence).HasMaxLength(16).IsRequired();
+            b.Property(x => x.Amount).HasPrecision(18, 2);
             b.HasIndex(x => new { x.TenantId, x.Name }).IsUnique();
             b.HasOne<Account>().WithMany().HasForeignKey(x => x.AccountId).OnDelete(DeleteBehavior.SetNull);
             b.HasQueryFilter(x => x.TenantId == tenantContext.TenantId);
