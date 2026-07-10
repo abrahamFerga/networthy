@@ -21,7 +21,7 @@ public sealed class PlatformSurfaceTests(IntegrationFixture fixture)
 
         var finance = modules.EnumerateArray().Single(m => m.GetProperty("id").GetString() == "finance");
         var tabs = finance.GetProperty("tabs").EnumerateArray().Select(t => t.GetProperty("id").GetString()).ToList();
-        Assert.Equal(["chat", "accounts", "transactions", "budgets", "trend", "goals", "review", "categories"], tabs);
+        Assert.Equal(["chat", "accounts", "transactions", "budgets", "debts", "trend", "goals", "review", "categories"], tabs);
     }
 
     [Fact]

@@ -21,6 +21,7 @@ public sealed class FinanceToolSource : IModuleToolSource
         var budgets = scopedServices.GetRequiredService<BudgetTools>();
         var approvals = scopedServices.GetRequiredService<ApprovalSurfaceTools>();
         var goals = scopedServices.GetRequiredService<GoalTools>();
+        var health = scopedServices.GetRequiredService<HealthTools>();
 
         return
         [
@@ -172,6 +173,21 @@ public sealed class FinanceToolSource : IModuleToolSource
                 Name = "list_goals",
                 Permission = Permissions.ForTool(ModuleId, "list_goals"),
                 Function = AIFunctionFactory.Create(goals.ListGoals, name: "list_goals"),
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "update_account_terms",
+                Permission = Permissions.ForTool(ModuleId, "update_account_terms"),
+                Function = AIFunctionFactory.Create(accounts.UpdateAccountTerms, name: "update_account_terms"),
+                RequiresApproval = true,
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "get_financial_health",
+                Permission = Permissions.ForTool(ModuleId, "get_financial_health"),
+                Function = AIFunctionFactory.Create(health.GetFinancialHealth, name: "get_financial_health"),
             },
         ];
     }

@@ -64,7 +64,13 @@ public sealed class FinanceModule : IModule
             "by an account's balance; contribute_to_goal records progress on unlinked goals (a marker, " +
             "never a transaction); list_goals answers 'am I on track' with the computed pace - report " +
             "'behind pace' honestly. The Net worth tab charts the household's trend; the Statement " +
-            "review tab is where extracted lines get corrected and approved outside of chat.",
+            "review tab is where extracted lines get corrected and approved outside of chat. " +
+            "DEBTS & HEALTH: loans (mortgage/auto/student) are accounts of type loan - create_account " +
+            "with interestRateApr and minimumMonthlyPayment; NEVER guess a rate, ask. " +
+            "update_account_terms corrects APR/minimum on any debt. 'How is our financial health' or " +
+            "'how do we improve' -> get_financial_health and relay its computed numbers and its " +
+            "suggestions - do not invent strategies beyond the tool's list, and repeat its framing: " +
+            "standard strategies from their own data, not financial advice.",
         Tools =
         [
             new ToolDescriptor
@@ -196,6 +202,19 @@ public sealed class FinanceModule : IModule
                 Description = "Savings goals with computed progress and on-pace verdicts.",
                 Permission = Permissions.ForTool(Id, "list_goals"),
             },
+            new ToolDescriptor
+            {
+                Name = "update_account_terms",
+                Description = "Set or correct a debt account's interest rate (APR) and minimum payment. Side-effecting: writes data and requires human approval.",
+                Permission = Permissions.ForTool(Id, "update_account_terms"),
+                RequiresApproval = true,
+            },
+            new ToolDescriptor
+            {
+                Name = "get_financial_health",
+                Description = "Computed financial-health check: net worth, debt cost, emergency fund, savings rate, plus standard data-triggered improvement strategies. Read-only.",
+                Permission = Permissions.ForTool(Id, "get_financial_health"),
+            },
         ],
         Tabs =
         [
@@ -239,7 +258,20 @@ public sealed class FinanceModule : IModule
             },
             new TabDescriptor
             {
-                Id = "trend", Label = "Net worth", Route = "/finance/trend", Icon = "trending-up", Order = 4,
+                Id = "debts", Label = "Debts", Route = "/finance/debts", Icon = "credit-card", Order = 4,
+                Permission = ViewFinance,
+                DataEndpoint = "/api/finance/debts",
+                Columns =
+                [
+                    new("name", "Debt"), new("type", "Type"), new("owed", "Owed"),
+                    new("apr", "APR %"), new("monthlyInterest", "Interest/mo"),
+                    new("minimumPayment", "Min payment"), new("currencyCode", "Currency"),
+                ],
+                Placeholder = "No debts recorded. Add them in Chat - try: 'Add my mortgage: 250,000 at 6.25% with Wells Fargo' - and ask 'how is our financial health?' once they're in.",
+            },
+            new TabDescriptor
+            {
+                Id = "trend", Label = "Net worth", Route = "/finance/trend", Icon = "trending-up", Order = 5,
                 Permission = ViewFinance,
                 DataEndpoint = "/api/finance/net-worth/history",
                 // The platform renders these rows as a time-series line chart — one line per currency.
@@ -248,7 +280,7 @@ public sealed class FinanceModule : IModule
             },
             new TabDescriptor
             {
-                Id = "goals", Label = "Goals", Route = "/finance/goals", Icon = "flag", Order = 5,
+                Id = "goals", Label = "Goals", Route = "/finance/goals", Icon = "flag", Order = 6,
                 Permission = ViewFinance,
                 DataEndpoint = "/api/finance/goals",
                 Columns =
@@ -261,7 +293,7 @@ public sealed class FinanceModule : IModule
             },
             new TabDescriptor
             {
-                Id = "review", Label = "Statement review", Route = "/finance/review", Icon = "list-checks", Order = 6,
+                Id = "review", Label = "Statement review", Route = "/finance/review", Icon = "list-checks", Order = 7,
                 Permission = ViewFinance,
                 DataEndpoint = "/api/finance/imports/latest/lines",
                 Columns =
@@ -298,7 +330,7 @@ public sealed class FinanceModule : IModule
             },
             new TabDescriptor
             {
-                Id = "categories", Label = "Categories", Route = "/finance/categories", Icon = "tags", Order = 7,
+                Id = "categories", Label = "Categories", Route = "/finance/categories", Icon = "tags", Order = 8,
                 Permission = ViewFinance,
                 DataEndpoint = "/api/finance/categories",
                 Columns = [new("name", "Category"), new("parentName", "Parent")],
@@ -333,6 +365,7 @@ public sealed class FinanceModule : IModule
         services.AddScoped<BudgetTools>();
         services.AddScoped<ApprovalSurfaceTools>();
         services.AddScoped<GoalTools>();
+        services.AddScoped<HealthTools>();
         services.AddHostedService<BudgetRolloverService>();
         services.AddScoped<IStatementAiExtractor, PlatformDocumentStatementExtractor>();
         services.AddSingleton<Cortex.Application.Jobs.IJobHandler, StatementParseJobHandler>();
@@ -428,6 +461,29 @@ public sealed class FinanceModule : IModule
             })
             .RequireAuthorization(PermissionRequirement.PolicyName(ViewFinance))
             .WithName("Finance_Budgets");
+
+        group.MapGet("/debts", async (
+                FinanceDbContext db, Cortex.Core.Identity.ICurrentUser currentUser,
+                CancellationToken cancellationToken) =>
+            {
+                var debts = (await db.Accounts.OrderBy(a => a.Name).ToListAsync(cancellationToken))
+                    .Where(a => a.IsVisibleTo(currentUser.UserId) && a.IsDebt && a.CachedBalance < 0);
+                return Results.Ok(debts.Select(a => new
+                {
+                    id = a.Id,
+                    name = a.Name,
+                    type = a.Type,
+                    owed = Math.Abs(a.CachedBalance),
+                    apr = a.InterestRateApr,
+                    monthlyInterest = a.InterestRateApr is { } apr
+                        ? Math.Round(Math.Abs(a.CachedBalance) * apr / 100m / 12m, 2)
+                        : (decimal?)null,
+                    minimumPayment = a.MinimumMonthlyPayment,
+                    currencyCode = a.CurrencyCode,
+                }));
+            })
+            .RequireAuthorization(PermissionRequirement.PolicyName(ViewFinance))
+            .WithName("Finance_Debts");
 
         group.MapGet("/net-worth/history", async (FinanceDbContext db, CancellationToken cancellationToken) =>
             {

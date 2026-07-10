@@ -17,14 +17,16 @@ public sealed class AccountTools(
     ITenantContext tenant,
     ICurrentUser currentUser)
 {
-    [Description("Create a financial account (checking, savings, credit, or cash) for the household. Side-effecting and requires approval.")]
+    [Description("Create a financial account (checking, savings, credit, cash, or loan — mortgage/auto/student/personal) for the household. Side-effecting and requires approval.")]
     public async Task<string> CreateAccount(
-        [Description("The account's display name, e.g. 'Chase Checking' or 'Groceries cash'.")] string name,
-        [Description("The account type: checking, savings, credit, or cash.")] string type,
+        [Description("The account's display name, e.g. 'Chase Checking' or 'House mortgage'.")] string name,
+        [Description("The account type: checking, savings, credit, cash, or loan.")] string type,
         [Description("ISO currency code, e.g. USD. Ask the user if unsure — never guess.")] string currency,
-        [Description("The opening balance (negative for credit owed). Default 0.")] double openingBalance = 0,
+        [Description("The opening balance (negative for money owed on credit/loan). Default 0.")] double openingBalance = 0,
         [Description("Optional institution name, e.g. 'Chase'.")] string? institution = null,
         [Description("Optional masked number for display, e.g. '4321' (last digits only).")] string? lastDigits = null,
+        [Description("Annual interest rate as a percent for credit/loan accounts, e.g. 6.25. Ask — never guess.")] double? interestRateApr = null,
+        [Description("Optional contractual minimum monthly payment for credit/loan accounts.")] double? minimumMonthlyPayment = null,
         CancellationToken cancellationToken = default)
     {
         var trimmed = name.Trim();
@@ -52,22 +54,79 @@ public sealed class AccountTools(
             return $"An account named '{existing.Name}' already exists. Use it, or pick a different name.";
         }
 
+        if (interestRateApr is < 0 or > 100)
+        {
+            return $"{interestRateApr} is not an APR I can accept — use the annual percentage, e.g. 6.25.";
+        }
+
+        // A loan entered as a positive figure ("I owe 250,000") is money owed — store it negative
+        // so net worth stays a straight sum. Explicitly-negative input is already correct.
+        var balance = (decimal)openingBalance;
+        if (normalizedType is "loan" && balance > 0)
+        {
+            balance = -balance;
+        }
+
         var account = new Account
         {
             TenantId = tenant.RequireTenantId(),
             Name = trimmed,
             Type = normalizedType,
             CurrencyCode = currencyCode,
-            CachedBalance = (decimal)openingBalance,
+            CachedBalance = balance,
             InstitutionName = string.IsNullOrWhiteSpace(institution) ? null : institution.Trim(),
             MaskedAccountNumber = string.IsNullOrWhiteSpace(lastDigits) ? null : $"••••{lastDigits.Trim()}",
+            InterestRateApr = (decimal?)interestRateApr,
+            MinimumMonthlyPayment = (decimal?)minimumMonthlyPayment,
             CreatedByUserId = currentUser.UserId,
         };
         db.Accounts.Add(account);
         await db.SaveChangesAsync(cancellationToken);
 
         return $"Created {normalizedType} account '{account.Name}' ({currencyCode}) " +
-               $"with opening balance {account.CachedBalance:N2}.";
+               $"with opening balance {account.CachedBalance:N2}" +
+               $"{(account.InterestRateApr is { } apr ? $" at {apr:0.###}% APR" : "")}" +
+               $"{(account.MinimumMonthlyPayment is { } min ? $", minimum payment {min:N2}" : "")}.";
+    }
+
+    [Description("Set or correct a debt account's terms: interest rate (APR %) and/or minimum monthly payment. Side-effecting and requires approval.")]
+    public async Task<string> UpdateAccountTerms(
+        [Description("The account's name.")] string accountName,
+        [Description("Annual interest rate as a percent, e.g. 21.99. Omit to leave unchanged.")] double? interestRateApr = null,
+        [Description("Contractual minimum monthly payment. Omit to leave unchanged; 0 clears it.")] double? minimumMonthlyPayment = null,
+        CancellationToken cancellationToken = default)
+    {
+        var account = await db.Accounts.FirstOrDefaultAsync(
+            a => EF.Functions.ILike(a.Name, accountName.Trim()), cancellationToken);
+        if (account is null || !account.IsVisibleTo(currentUser.UserId))
+        {
+            return $"No account named '{accountName}' exists (or it is private to another member). Use list_accounts.";
+        }
+
+        if (interestRateApr is null && minimumMonthlyPayment is null)
+        {
+            return "Nothing to change — pass interestRateApr and/or minimumMonthlyPayment.";
+        }
+
+        if (interestRateApr is < 0 or > 100)
+        {
+            return $"{interestRateApr} is not an APR I can accept — use the annual percentage, e.g. 21.99.";
+        }
+
+        if (interestRateApr is { } newApr)
+        {
+            account.InterestRateApr = (decimal)newApr;
+        }
+
+        if (minimumMonthlyPayment is { } newMin)
+        {
+            account.MinimumMonthlyPayment = newMin == 0 ? null : (decimal)newMin;
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        return $"'{account.Name}' terms: " +
+               $"{(account.InterestRateApr is { } apr ? $"{apr:0.###}% APR" : "APR unknown")}" +
+               $"{(account.MinimumMonthlyPayment is { } min ? $", minimum payment {min:N2} {account.CurrencyCode}" : "")}.";
     }
 
     [Description("List the household's accounts with their types and current balances (accounts restricted to another member are not shown).")]
@@ -85,6 +144,7 @@ public sealed class AccountTools(
         foreach (var a in accounts)
         {
             sb.AppendLine($"- {a.Name} [{a.Type}] {a.CachedBalance:N2} {a.CurrencyCode}" +
+                          $"{(a.InterestRateApr is { } apr ? $" @ {apr:0.###}% APR" : "")}" +
                           $"{(a.InstitutionName is null ? "" : $" — {a.InstitutionName}")}" +
                           $"{(a.MaskedAccountNumber is null ? "" : $" {a.MaskedAccountNumber}")}" +
                           $"{(a.RestrictedToUserId is null ? "" : " (private)")}");
