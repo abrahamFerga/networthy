@@ -417,6 +417,16 @@ public sealed class FinanceModule : IModule
             new TabDescriptor { Id = "chat", Label = "Chat", Route = "/finance/chat", Icon = "message-circle", Order = 0 },
             new TabDescriptor
             {
+                // The household command center (epic 8, ADR-0008): rendered by networthy-ui's
+                // custom Overview component over this one composed read — the shell's generic
+                // machinery never renders it. Home: the app opens here; Chat stays one tap away.
+                Id = "overview", Label = "Overview", Route = "/finance/overview", Icon = "layout-dashboard", Order = 0,
+                Home = true,
+                Permission = ViewFinance,
+                DataEndpoint = "/api/finance/overview",
+            },
+            new TabDescriptor
+            {
                 Id = "accounts", Label = "Accounts", Route = "/finance/accounts", Icon = "landmark", Order = 1,
                 Permission = ViewFinance,
                 DataEndpoint = "/api/finance/accounts",
@@ -743,6 +753,9 @@ public sealed class FinanceModule : IModule
 
         // Manual bookkeeping from the tab editors (accounts/transactions/budgets/goals CRUD).
         group.MapManualCrudEndpoints();
+
+        // The Overview tab's one composed read (epic 8, ADR-0008).
+        group.MapOverviewEndpoint();
 
         group.MapGet("/accounts", async (
                 FinanceDbContext db, Cortex.Core.Identity.ICurrentUser currentUser,

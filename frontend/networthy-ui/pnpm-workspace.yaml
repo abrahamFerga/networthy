@@ -1,0 +1,5 @@
+# Allow native postinstall build scripts only for the deps that genuinely need them
+# (esbuild fetches its platform binary; Vite uses it). pnpm blocks all others by default —
+# same policy as the Cortex frontend workspace.
+allowBuilds:
+  esbuild: true

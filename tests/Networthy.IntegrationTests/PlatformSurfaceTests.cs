@@ -21,7 +21,35 @@ public sealed class PlatformSurfaceTests(IntegrationFixture fixture)
 
         var finance = modules.EnumerateArray().Single(m => m.GetProperty("id").GetString() == "finance");
         var tabs = finance.GetProperty("tabs").EnumerateArray().Select(t => t.GetProperty("id").GetString()).ToList();
-        Assert.Equal(["chat", "accounts", "transactions", "budgets", "income", "recurring", "debts", "trend", "goals", "review", "categories", "settings"], tabs);
+        Assert.Equal(["chat", "overview", "accounts", "transactions", "budgets", "income", "recurring", "debts", "trend", "goals", "review", "categories", "settings"], tabs);
+
+        // The Overview tab is the declared home (epic 8): the shell opens the app on it.
+        var overview = finance.GetProperty("tabs").EnumerateArray().Single(t => t.GetProperty("id").GetString() == "overview");
+        Assert.True(overview.GetProperty("home").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Overview_ComposesTheDashboardPayload_InOneRead()
+    {
+        using var client = fixture.AdminClient();
+        var overview = await client.GetFromJsonAsync<JsonElement>("/api/finance/overview");
+
+        // Every section is present in the one composed payload; safeToSpend is honest —
+        // null (guidance) or an object with its inputs, never a fabricated bare number.
+        Assert.True(overview.TryGetProperty("currencyCode", out _));
+        Assert.True(overview.TryGetProperty("netWorth", out var netWorth));
+        Assert.True(netWorth.TryGetProperty("trend", out _));
+        Assert.Equal(JsonValueKind.Array, overview.GetProperty("budgets").ValueKind);
+        Assert.Equal(JsonValueKind.Array, overview.GetProperty("upcomingBills").ValueKind);
+        Assert.Equal(JsonValueKind.Array, overview.GetProperty("recentTransactions").ValueKind);
+        Assert.Equal(JsonValueKind.Array, overview.GetProperty("goals").ValueKind);
+        var safeToSpend = overview.GetProperty("safeToSpend");
+        if (safeToSpend.ValueKind is not JsonValueKind.Null)
+        {
+            Assert.True(safeToSpend.TryGetProperty("amount", out _));
+            Assert.True(safeToSpend.TryGetProperty("totalTarget", out _));
+            Assert.True(safeToSpend.TryGetProperty("totalSpent", out _));
+        }
     }
 
     [Fact]
