@@ -237,6 +237,14 @@ public sealed class FinanceToolSource : IModuleToolSource
                 Function = AIFunctionFactory.Create(settings.UpdateHouseholdSettings, name: "update_household_settings"),
                 RequiresApproval = true,
             },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "set_exchange_rate",
+                Permission = Permissions.ForTool(ModuleId, "set_exchange_rate"),
+                Function = AIFunctionFactory.Create(settings.SetExchangeRate, name: "set_exchange_rate"),
+                RequiresApproval = true,
+            },
         ];
     }
 }
