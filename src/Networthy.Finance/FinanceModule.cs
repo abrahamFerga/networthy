@@ -669,6 +669,15 @@ public sealed class FinanceModule : IModule
                 },
             },
         ],
+
+        // Per-user mutable notification streams: declaring the category here lets each household
+        // member mute bill reminders for themselves (Notifications bell -> Preferences) without
+        // silencing anyone else. The id must match what BillReminderService publishes.
+        NotificationCategories =
+        [
+            new("finance.bill", "Bill reminders",
+                "Heads-up before a detected recurring charge (subscription, utility, loan payment) is due."),
+        ],
     };
 
     public void RegisterServices(IServiceCollection services, IConfiguration configuration)

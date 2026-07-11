@@ -44,8 +44,16 @@ Supported providers: OpenAI, AzureOpenAI, Ollama (fully local — pair a local m
 self-hosting for a zero-cloud setup), and Mock.
 
 Digital PDFs, CSV, and OFX/QFX statements work with nothing extra. Scanned PDFs (photos of
-paper) need an OCR engine, which is a host extension point — config-driven Azure Document
-Intelligence support is on the roadmap; until then scanned statements report honestly that no
+paper) need an OCR engine — bring an [Azure Document Intelligence](https://learn.microsoft.com/azure/ai-services/document-intelligence/)
+resource and set three variables:
+
+```bash
+OCR_PROVIDER=AzureDocumentIntelligence OCR_ENDPOINT=https://<resource>.cognitiveservices.azure.com \
+  OCR_API_KEY=... docker compose up -d
+```
+
+Scanned pages then go through the prebuilt-read model of your own Azure resource (your documents
+never touch anyone else's account). Without these, scanned statements report honestly that no
 OCR engine is configured.
 
 Uploaded files live in the `networthy-files` volume by default; point `FILES_PROVIDER=AzureBlob`

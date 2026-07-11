@@ -79,10 +79,13 @@ public sealed class PlatformSurfaceTests(IntegrationFixture fixture)
     public async Task PlaidConnector_AppearsInTheAdminCatalog()
     {
         using var client = fixture.AdminClient();
-        var connectors = await client.GetFromJsonAsync<JsonElement>("/api/admin/connectors");
+        var catalog = await client.GetFromJsonAsync<JsonElement>("/api/admin/connectors");
 
+        // Since alpha.16 the catalog is a marketplace: what this host installed vs what
+        // first-party connectors exist to add. Plaid is Networthy's own, so it's installed.
         Assert.Contains("plaid",
-            connectors.EnumerateArray().Select(c => c.GetProperty("id").GetString()));
+            catalog.GetProperty("installed").EnumerateArray().Select(c => c.GetProperty("id").GetString()));
+        Assert.NotEmpty(catalog.GetProperty("available").EnumerateArray());
     }
 
     [Fact]
