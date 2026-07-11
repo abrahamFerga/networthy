@@ -304,6 +304,62 @@ project, or alongside `Networthy.Finance` — a build-time detail), referencing
 
 ---
 
+## ADR-0008: Networthy grows its own SPA entry for the v2 dashboard (moduleUi seam)
+
+- **Status**: accepted
+- **Date**: 2026-07-11
+- **Deciders**: Architecture pass for v2 epic 8 (Household Command Center)
+
+### Context
+
+v1 embedded the stock, brand-agnostic `@cortex/ui` app shell — every tab is the server-driven
+generic table/chart, zero custom React (see ARCH.md's original SPA section). Epic 8's home
+dashboard is a card-grid composition (hero safe-to-spend, net worth, budget snapshot, upcoming
+bills, recent activity, goal progress) that the generic tab machinery deliberately does not
+express. Cortex's `docs/RICH_UI_KIT_PLAN.md` research settled the platform-vs-product boundary:
+the platform ships the *pieces* (`StatTile`, `ProgressBar`, chart kinds, `useMediaQuery`,
+released in v0.1.0-alpha.17) and the existing `<CortexApp moduleUi>` registry is the seam; the
+dashboard *layout* is product-owned. No new platform seam was added for it, on purpose.
+
+### Decision
+
+Add `frontend/networthy-ui`: a minimal Vite app whose entry renders
+`<CortexApp moduleUi={[finance]} />`, registering a custom **Overview** tab component for the
+finance module (everything else keeps falling back to `GenericTab`). It depends on `@cortex/ui`
+from the sibling Cortex checkout (`file:` dependency) — the same checkout `scripts/build-ui.ps1`
+already requires — and that script now builds *this* app (which bakes the brand as a side
+effect) instead of the stock shell. The built bundle stays committed under
+`src/Networthy.Host/wwwroot/app`, so clone-and-run remains true.
+
+Server side, the module adds one composed read endpoint (`/api/finance/overview`) so the
+dashboard is one fetch, and the safe-to-spend figure is computed **server-side in one place** —
+epic 11's conversational surface must interrogate the *same* number the dashboard shows, so the
+formula lives in the module, never re-derived in the SPA.
+
+### Consequences
+
+- **Positive**: the dashboard composes released, tested platform primitives; per-tab custom UI
+  is additive (any tab can upgrade later without touching the rest).
+- **Positive**: one aggregate endpoint keeps the dashboard honest — every figure traces to the
+  same queries the tabs use.
+- **Negative**: the committed app bundle can no longer be refreshed from release assets alone —
+  `update-platform.ps1 -WithUi` keeps working for the admin bundle, but the app bundle's
+  canonical build becomes `build-ui.ps1` (checkout path).
+- **Neutral**: solo/simple deployments notice nothing — the custom entry renders identically
+  except for the new Overview tab.
+
+### Alternatives considered
+
+- **A server-declared "card-grid" tab kind in Cortex** — rejected in the platform's own plan:
+  dashboards are exactly where products differ; a generic grammar for them would grow without
+  bound. The platform ships pieces, not layouts.
+- **Compose the dashboard from multiple generic tabs** — rejected: a tab is a page, not a card;
+  the result reads as navigation, not an overview.
+- **Keep "opens on Chat"** — rejected by the v2 research: every competitor's home is a summary
+  surface; chat stays one tap away (and the assistant panel is unaffected).
+
+---
+
 ## Open items not resolved by an ADR
 
 - **Idempotency-Key guardrail for the Plaid webhook route** — `/api/connectors/plaid/webhook`

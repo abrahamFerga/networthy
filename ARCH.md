@@ -224,14 +224,18 @@ role, covers both personas without a handoff pattern.
 - **State**: TanStack Query for server state (mirrors every existing Cortex product's tab
   data-fetching), no separate global client-state library needed for v1.
 - **Components**: shadcn primitives + the shared `DataTable` (for the accounts/transactions/
-  budgets/categories tabs) + the shared `Form` + the always-present slide-over chatbot panel —
-  no new shared components required; Networthy's tabs are declared the same way Casewell's are
-  (`TabDescriptor` + `DataEndpoint`).
+  budgets/categories tabs) + the shared `Form` + the always-present slide-over chatbot panel;
+  Networthy's tabs are declared the same way Casewell's are (`TabDescriptor` + `DataEndpoint`).
+- **Custom entry** *(v2, ADR-0008)*: `frontend/networthy-ui` — a minimal Vite app rendering
+  `<CortexApp moduleUi={[finance]} />`, registering the custom **Overview** dashboard tab
+  (composed from `@cortex/ui`'s `StatTile`/`ProgressBar` primitives over one
+  `/api/finance/overview` aggregate fetch); every other tab still falls back to the
+  server-driven `GenericTab`. Built and embedded by `scripts/build-ui.ps1` from the sibling
+  Cortex checkout; the committed bundle keeps clone-and-run true.
 - **Feature folders**: one bounded context (Accounts, Transactions, Budgets, Household,
   Approvals) — each a tab in the module manifest, not a separate SPA route tree.
-- **Branding**: `VITE_BRAND_NAME=Networthy`, built via `@cortex/ui`'s app-shell target
-  (`pnpm build:app`) and embedded into `Networthy.Host/wwwroot/app`, the identical mechanism
-  Casewell uses.
+- **Branding**: `VITE_BRAND_NAME=Networthy` baked at build; runtime `Branding:ProductName`
+  supersedes it, unchanged.
 
 ## Diagrams checked into the repo
 
