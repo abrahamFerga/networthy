@@ -172,6 +172,30 @@ public sealed class AccountTools(
             sb.AppendLine($"- {total:N2} {currency}");
         }
 
+        // Combine across currencies when the household saved rates: the default currency as the
+        // measuring stick, every rate user-chosen and shown. Currencies without a rate are never
+        // silently guessed — they are listed as unconverted with the tool that fixes it.
+        if (totals.Count > 1)
+        {
+            var defaultCurrency = (await household.GetSettingsAsync(cancellationToken)).DefaultCurrencyCode;
+            var fxRates = (await db.ExchangeRates.ToListAsync(cancellationToken))
+                .ToDictionary(r => r.CurrencyCode, r => r.RateToDefault, StringComparer.OrdinalIgnoreCase);
+            var (combined, converted, unconvertible) = NetWorthMath.Combine(totals, defaultCurrency, fxRates);
+            if (converted.Count > 0)
+            {
+                sb.AppendLine(
+                    $"Combined: {combined:N2} {defaultCurrency} (your saved rates: " +
+                    string.Join(", ", converted.Select(c => $"1 {c.Currency} = {fxRates[c.Currency]:0.####} {defaultCurrency}")) + ")");
+            }
+
+            foreach (var (unconvertedCurrency, unconvertedTotal) in unconvertible)
+            {
+                sb.AppendLine(
+                    $"Not combined: {unconvertedTotal:N2} {unconvertedCurrency} — no saved rate " +
+                    $"(set_exchange_rate {unconvertedCurrency} to include it).");
+            }
+        }
+
         var since = (await household.TodayAsync(cancellationToken)).AddDays(-30);
         var snapshots = await db.NetWorthSnapshots
             .Where(s => s.TakenOn >= since)
@@ -204,4 +228,41 @@ public static class NetWorthMath
             .GroupBy(a => a.CurrencyCode, StringComparer.OrdinalIgnoreCase)
             .Select(g => (Currency: g.Key.ToUpperInvariant(), Total: g.Sum(a => a.CachedBalance)))
             .OrderBy(t => t.Currency, StringComparer.Ordinal)];
+
+    /// <summary>
+    /// Combines per-currency totals into the default currency using the household's saved rates
+    /// (units of default per 1 unit of foreign). The default itself counts at 1; a currency with
+    /// no saved rate is returned separately — never guessed at.
+    /// </summary>
+    public static (decimal Total,
+        IReadOnlyList<(string Currency, decimal Original, decimal Converted)> Converted,
+        IReadOnlyList<(string Currency, decimal Total)> Unconvertible)
+        Combine(
+            IReadOnlyList<(string Currency, decimal Total)> totals,
+            string defaultCurrency,
+            IReadOnlyDictionary<string, decimal> ratesToDefault)
+    {
+        var combined = 0m;
+        var converted = new List<(string, decimal, decimal)>();
+        var unconvertible = new List<(string, decimal)>();
+        foreach (var (currency, total) in totals)
+        {
+            if (string.Equals(currency, defaultCurrency, StringComparison.OrdinalIgnoreCase))
+            {
+                combined += total;
+            }
+            else if (ratesToDefault.TryGetValue(currency, out var rate))
+            {
+                var value = Math.Round(total * rate, 2);
+                combined += value;
+                converted.Add((currency, total, value));
+            }
+            else
+            {
+                unconvertible.Add((currency, total));
+            }
+        }
+
+        return (combined, converted, unconvertible);
+    }
 }

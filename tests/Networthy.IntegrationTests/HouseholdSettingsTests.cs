@@ -65,6 +65,60 @@ public sealed class HouseholdSettingsTests(IntegrationFixture fixture)
     }
 
     [Fact]
+    public async Task ExchangeRates_CombineMultiCurrencyNetWorth_OnlyThroughSavedRates()
+    {
+        var (scope, _, _) = await fixture.AuthorizedScopeAsync();
+        using var _scope = scope;
+        var services = scope.ServiceProvider;
+        var settingsTools = services.GetRequiredService<HouseholdSettingsTools>();
+        var accounts = services.GetRequiredService<AccountTools>();
+
+        await settingsTools.UpdateHouseholdSettings(defaultCurrency: "MXN");
+        await accounts.CreateAccount("FX Pesos", "checking", "MXN", 50_000);
+        await accounts.CreateAccount("FX Dollars", "savings", "USD", 1_000);
+
+        // Before a rate exists the USD total is reported apart — never silently guessed.
+        var before = await accounts.GetNetWorth();
+        Assert.Contains("Not combined", before);
+        Assert.Contains("set_exchange_rate", before);
+
+        var saved = await settingsTools.SetExchangeRate("usd", 17m);
+        Assert.Contains("1 USD = 17 MXN", saved);
+
+        var after = await accounts.GetNetWorth();
+        Assert.Contains("Combined:", after);
+
+        // The default currency itself is refused — its rate is 1 by definition.
+        Assert.Contains("default currency", await settingsTools.SetExchangeRate("MXN", 20m));
+
+        await settingsTools.UpdateHouseholdSettings(defaultCurrency: "USD"); // restore for the collection
+    }
+
+    [Fact]
+    public async Task HealthThresholds_ComeFromSettings()
+    {
+        var (scope, _, _) = await fixture.AuthorizedScopeAsync();
+        using var _scope = scope;
+        var services = scope.ServiceProvider;
+        var settingsTools = services.GetRequiredService<HouseholdSettingsTools>();
+
+        var accounts = services.GetRequiredService<AccountTools>();
+        await accounts.CreateAccount("Tuning Card", "credit", "USD", -1_000);
+        await accounts.UpdateAccountTerms("Tuning Card", interestRateApr: 20);
+
+        // Default threshold (8%): a 20% card triggers the avalanche suggestion.
+        var flagged = await services.GetRequiredService<HealthTools>().GetFinancialHealth("USD");
+        Assert.Contains("avalanche", flagged);
+
+        // Raise the household's bar above the card's APR — the flag disappears.
+        await settingsTools.UpdateHouseholdSettings(highAprThresholdPercent: 30);
+        var calm = await services.GetRequiredService<HealthTools>().GetFinancialHealth("USD");
+        Assert.DoesNotContain("avalanche", calm);
+
+        await settingsTools.UpdateHouseholdSettings(highAprThresholdPercent: 8); // restore
+    }
+
+    [Fact]
     public async Task SettingsTab_ReadsAndWrites_TheSingleton()
     {
         using var admin = fixture.AdminClient();

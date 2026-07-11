@@ -20,6 +20,12 @@ public sealed class HouseholdSettings : TenantEntityBase
     /// <summary>How many days before an expected recurring charge the reminder fires.</summary>
     public int BillReminderLeadDays { get; set; } = 3;
 
+    /// <summary>Emergency-fund guideline floor, in months of average expenses (health assessment).</summary>
+    public decimal EmergencyFundFloorMonths { get; set; } = 3m;
+
+    /// <summary>APR at/above this counts as "high-interest" debt (health assessment / avalanche).</summary>
+    public decimal HighAprThresholdPercent { get; set; } = 8m;
+
     /// <summary>The household's current date in its own time zone (UTC when unset/invalid).</summary>
     public DateOnly Today() => TodayIn(TimeZoneId);
 

@@ -265,8 +265,15 @@ public sealed class FinanceModule : IModule
             new ToolDescriptor
             {
                 Name = "update_household_settings",
-                Description = "Change the household's default currency, time zone, or reminder lead time. Side-effecting: writes data and requires human approval.",
+                Description = "Change the household's default currency, time zone, reminder lead time, emergency-fund floor, or high-APR threshold. Side-effecting: writes data and requires human approval.",
                 Permission = Permissions.ForTool(Id, "update_household_settings"),
+                RequiresApproval = true,
+            },
+            new ToolDescriptor
+            {
+                Name = "set_exchange_rate",
+                Description = "Save the household's own conversion rate for a foreign currency so multi-currency net worth combines into the default currency. Side-effecting: writes data and requires human approval.",
+                Permission = Permissions.ForTool(Id, "set_exchange_rate"),
                 RequiresApproval = true,
             },
         ],
@@ -599,6 +606,8 @@ public sealed class FinanceModule : IModule
                 [
                     new("defaultCurrencyCode", "Default currency"), new("timeZoneId", "Time zone"),
                     new("todayThere", "Today there"), new("billReminderLeadDays", "Reminder lead (days)"),
+                    new("emergencyFundFloorMonths", "Emergency floor (months)"),
+                    new("highAprThresholdPercent", "High-APR threshold (%)"),
                 ],
                 Placeholder = "Defaults apply: USD, UTC, reminders 3 days ahead. Set your household's own here.",
                 Editor = new TabEditor
@@ -610,6 +619,8 @@ public sealed class FinanceModule : IModule
                         new("defaultCurrencyCode", "Default currency (ISO, e.g. MXN)"),
                         new("timeZoneId", "Time zone (IANA id, e.g. America/Mexico_City; empty = UTC)", Required: false),
                         new("billReminderLeadDays", "Bill reminder lead (days, 0-14)", Required: false, Numeric: true),
+                        new("emergencyFundFloorMonths", "Emergency-fund floor (months, 0-24)", Required: false, Numeric: true),
+                        new("highAprThresholdPercent", "High-APR threshold (%, 0-100)", Required: false, Numeric: true),
                     ],
                 },
             },

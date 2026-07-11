@@ -62,7 +62,10 @@ public sealed class HealthTools(
                     .Sum(t => t.Amount)).Over)
             .Count();
 
-        var snapshot = FinancialHealthMath.Assess(accounts, income90, expense90, budgets.Count, overBudget);
+        var tuning = await household.GetSettingsAsync(cancellationToken);
+        var snapshot = FinancialHealthMath.Assess(
+            accounts, income90, expense90, budgets.Count, overBudget,
+            tuning.HighAprThresholdPercent, tuning.EmergencyFundFloorMonths);
 
         var sb = new StringBuilder($"Financial health ({currencyCode}, computed from your own data):\n");
         sb.AppendLine($"- Net worth: {snapshot.NetWorth:N2}");
@@ -142,7 +145,8 @@ public static class FinancialHealthMath
     public const decimal SavingsRateFloor = 0.10m;
 
     public static HealthSnapshot Assess(
-        IReadOnlyList<Account> accounts, decimal income90, decimal expense90, int budgetCount, int overBudgetCount)
+        IReadOnlyList<Account> accounts, decimal income90, decimal expense90, int budgetCount, int overBudgetCount,
+        decimal highAprThreshold = HighAprThreshold, decimal emergencyFloorMonths = EmergencyFundFloorMonths)
     {
         var netWorth = accounts.Sum(a => a.CachedBalance);
         var liquid = AffordabilityMath.LiquidBalance(accounts);
@@ -169,7 +173,8 @@ public static class FinancialHealthMath
 
         return new HealthSnapshot(
             netWorth, liquid, debts, totalDebt, weightedApr, monthlyInterest, savingsRate, emergencyMonths,
-            BuildSuggestions(debts, liquid, savingsRate, emergencyMonths, budgetCount, overBudgetCount));
+            BuildSuggestions(debts, liquid, savingsRate, emergencyMonths, budgetCount, overBudgetCount,
+                highAprThreshold, emergencyFloorMonths));
     }
 
     /// <summary>
@@ -178,11 +183,12 @@ public static class FinancialHealthMath
     /// </summary>
     internal static IReadOnlyList<string> BuildSuggestions(
         IReadOnlyList<DebtLine> debts, decimal liquid, decimal? savingsRate, decimal? emergencyMonths,
-        int budgetCount, int overBudgetCount)
+        int budgetCount, int overBudgetCount,
+        decimal highAprThreshold = HighAprThreshold, decimal emergencyFloorMonths = EmergencyFundFloorMonths)
     {
         var suggestions = new List<string>();
 
-        var highInterest = debts.Where(d => d.Apr >= HighAprThreshold).ToList();
+        var highInterest = debts.Where(d => d.Apr >= highAprThreshold).ToList();
         if (highInterest.Count > 0)
         {
             var costliest = highInterest[0]; // avalanche order already
@@ -200,13 +206,13 @@ public static class FinancialHealthMath
                 "(update_account_terms) — unpriced debt hides its real monthly cost.");
         }
 
-        if (emergencyMonths is { } months && months < EmergencyFundFloorMonths)
+        if (emergencyMonths is { } months && months < emergencyFloorMonths)
         {
             // Standard caveat: past ~1 month of buffer, high-APR paydown usually beats idle cash —
             // only push the fund when there is no high-interest debt eating faster than savings earn.
             suggestions.Add(highInterest.Count == 0
-                ? $"Emergency fund covers ≈{months:0.#} month(s) of expenses; the common guideline is {EmergencyFundFloorMonths}–6 months in liquid accounts."
-                : $"Emergency fund covers ≈{months:0.#} month(s); common practice is a small buffer first, then high-interest paydown, then building toward {EmergencyFundFloorMonths}–6 months.");
+                ? $"Emergency fund covers ≈{months:0.#} month(s) of expenses; the common guideline is {emergencyFloorMonths}–6 months in liquid accounts."
+                : $"Emergency fund covers ≈{months:0.#} month(s); common practice is a small buffer first, then high-interest paydown, then building toward {emergencyFloorMonths}–6 months.");
         }
 
         if (savingsRate is { } rate && rate < SavingsRateFloor)

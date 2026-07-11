@@ -32,7 +32,8 @@ internal static class ManualCrudEndpoints
     internal sealed record ImportRequest(string FileId, string AccountName);
 
     internal sealed record SettingsUpsert(
-        string DefaultCurrencyCode, string? TimeZoneId, int? BillReminderLeadDays);
+        string DefaultCurrencyCode, string? TimeZoneId, int? BillReminderLeadDays,
+        decimal? EmergencyFundFloorMonths, decimal? HighAprThresholdPercent);
 
     internal sealed record IncomeSourceUpsert(
         string Name, decimal Amount, string Cadence, string? CurrencyCode, string? AccountName);
@@ -317,6 +318,8 @@ internal static class ManualCrudEndpoints
                         timeZoneId = effective.TimeZoneId ?? "UTC",
                         todayThere = effective.Today().ToString("yyyy-MM-dd"),
                         billReminderLeadDays = effective.BillReminderLeadDays,
+                        emergencyFundFloorMonths = effective.EmergencyFundFloorMonths,
+                        highAprThresholdPercent = effective.HighAprThresholdPercent,
                     },
                 });
             })
@@ -330,6 +333,8 @@ internal static class ManualCrudEndpoints
                     body.DefaultCurrencyCode,
                     body.TimeZoneId ?? "UTC",
                     body.BillReminderLeadDays,
+                    body.EmergencyFundFloorMonths,
+                    body.HighAprThresholdPercent,
                     ct);
                 return message.StartsWith("Preferences saved", StringComparison.Ordinal)
                     ? Results.Ok(new { message })
