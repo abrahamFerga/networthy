@@ -166,3 +166,95 @@ None outstanding — see Answers below.
 
 These three decisions widen v1 beyond the initial draft (Plaid and household sharing move from
 "fast-follow" to "must-have") — reflected in the Must-have (v1) list above.
+
+---
+
+## v2 refresh (2026-07-11)
+
+v1's entire backlog (epics 1–7, all 15 issues) shipped, plus a wave of product work built
+directly against `main` ahead of any backlog entry for it: Goals (contribution math, invested-
+goal growth, income-cadence planning), Debt tracking + a computed financial-health score,
+recurring-charge detection + bill reminders, a guided first-run setup wizard, manual CRUD in
+the UI (AI-first, not AI-only), household settings (currency/timezone/reminder lead,
+configurable health thresholds), reports & exports (CSV, monthly PDF, audit download),
+one-command self-hosting distribution + a small-fee hosted tier, and an admin console page for
+exchange-rate management. See `SPEC.md`'s new *Delivered since v1* table for the reconciled
+capability list — this research refresh assumes all of the above already exists and does not
+re-recommend any of it.
+
+### What's still genuinely missing, checked against the 2026 field
+
+Re-surveyed Monarch, YNAB, Copilot Money, Cleo, Rocket Money, Empower, PocketGuard, Tiller,
+Simplifi, Origin, Firefly III, and Actual Budget, plus newer 2025–2026 entrants (OpenAI's
+ChatGPT Finances, Ray Finance, Maybe Finance → the community-run Sure fork).
+
+| Gap | Who does it | Why it matters here |
+|---|---|---|
+| No home/overview dashboard — the app opens on Chat, every other screen is a generic table or a single line chart | Copilot ("Free to Spend" hero), Monarch (customizable widget grid), PocketGuard ("In My Pocket") | The single biggest structural product gap. Every competitor's home screen is a card-grid summary, not a list. |
+| No "safe to spend today" number | PocketGuard, Rocket Money Payday View | A proven activation hook; Networthy's chat assistant could make it *conversational and explainable* ("why is my number $340 today?") — nobody else does that. |
+| No cash-flow / forward-balance forecasting | Monarch Forecasting, Simplifi Projected Cash Flows, PocketSmith | Natural extension of budgets + recurring detection, already-shipped data. |
+| No debt payoff strategy comparator (avalanche vs. snowball) or cross-goal funding prioritization | Monarch Goals 3.0 | Extends the already-shipped Debts and Goals tabs rather than adding new domain concepts. |
+| No notification/alert surface — bill reminders and over-budget flags exist as data but nothing surfaces them proactively; reports are pull (download), not push | Monarch weekly recap, PocketGuard/Simplifi watchlists & pace alerts | Backend data already exists (BillReminderService, budget over-flags, recurring detection); this is a presentation gap, not a new data model. |
+| No risk-tiering on the AI approval queue — every AI write gets the same review UI regardless of stakes | General human-in-the-loop UX research (the "rubber-stamp problem": uniform approval friction trains users to stop reading) | Directly touches the product's core differentiator — approval-gated AI. Getting this wrong undermines the differentiator instead of showcasing it. |
+| Visualization is a single line chart (net worth) — no category breakdown, no cash-flow chart, no budget progress bars, no bill calendar | Copilot, Monarch, PocketGuard, Rocket Money, CalendarBudget | The shared `Chart` component (X/Y/series line only) needs a proportional/categorical mode and Budgets needs a progress-bar idiom, not just table rows. |
+| No mobile-responsive navigation — 12 flat tabs, generic DataTable, no card-mode below a breakpoint | Universal across every competitor (finance apps are checked from a phone) | A self-hosted product competing with app-store incumbents cannot skip this. |
+| No 2FA/passkey | Increasingly table-stakes industry-wide by 2026 | Trust gap for an app holding full transaction/statement history. |
+| No public API / developer surface | Firefly III (full REST API; its refusal to build native AI spawned a third-party MCP server so users could get AI anyway) | Networthy's approval-gated *native* AI is the direct rebuttal to Firefly's "AI is unreliable" stance — an API extends that story to power users/self-hosters instead of ceding it. |
+| No masked-by-default account numbers/balances | Standard banking-app trust pattern by 2026 | Cheap, high-trust-signal fix. |
+
+**Deliberately not re-recommending** (each already ruled out in SPEC.md's *Explicitly out of
+scope*, and the 2026 survey found no new reason to reopen any of them): investment
+portfolio/advisory depth (still RIA-licensed territory — net worth continues to *reflect*
+balances without advising), bill-negotiation/subscription-cancellation concierge (needs a BPO
+call-center backend, not software), credit score monitoring (needs a credit-bureau data
+relationship — stays a candidate connector, not a build item), tax prep/filing (its own
+regulated category). Newly considered and also rejected: envelope/zero-based budgeting as a
+second budget philosophy (conflicts with the shipped rollover-budget model — a fork, not an
+increment), gamification/financial-literacy content (wrong audience — this product's users are
+self-hosters and households wanting AI leverage, not financial-literacy learners), family
+sub-accounts with prepaid debit cards (needs a card-issuing BaaS partner, out of an
+open-source/self-hosted product's reach), cash-advance lending (Cleo's model — requires state
+lending licenses, structurally incompatible with self-hosting).
+
+### Notable 2026 market shifts
+
+- **OpenAI shipped ChatGPT Finances (May 2026)**: Plaid-linked, 12,000 institutions, dashboard +
+  chat, but **read/insight-only — it cannot make changes to accounts.** This validates the
+  chat-first bet Networthy already made and raises the bar on execution, but it does not erode
+  Networthy's actual differentiator: ChatGPT Finances has no approval-gated *write* capability at
+  all, because it doesn't write. Networthy's "AI drafts, human approves, everything's audited"
+  story is untouched.
+- **Ray Finance** (open-source, local-first, strips PII before any LLM call) is the closest
+  ideological neighbor — but it's single-user, advice/read-only, no household RBAC, no statement
+  OCR, no approval gate. Worth watching, not treating as a solved threat.
+- **Maybe Finance shut down commercially in 2025**, open-sourced under AGPLv3; a community fork
+  ("Sure") continues it. Reads as validation that self-host-only isn't enough of a business model
+  without a support/hosted-tier lane — which Networthy already has.
+- **CFPB Section 1033 ("open banking" rule)** was enjoined by a federal court and is back in
+  ANPRM rulemaking as of mid-2026, with banks increasingly tightening or monetizing account-data
+  API access in the meantime. Networthy's upload-first, Plaid-optional architecture is
+  structurally insulated from this — worth stating as explicit positioning, not just a technical
+  footnote.
+- **California's CPPA rules (effective 2026)** add disclosure/opt-out obligations for automated
+  decision-making technology (ADMT). Networthy's AI-suggested categorization and AI-set budgets
+  are exactly the kind of automated financial decision these rules target — but the product
+  already has approval-gating and an audit trail, which is *ahead* of where ADMT compliance is
+  pushing the rest of the industry. Extending the existing AI-activity export into an explicit
+  disclosure/opt-out surface turns a compliance obligation into a differentiator.
+
+### Candidate new differentiators (beyond the three already claimed)
+
+1. **Conversational, explainable safe-to-spend** — competitors compute a static black-box number;
+   Networthy's chat assistant can make it interrogable using infrastructure that already exists.
+2. **AI-decision transparency as ADMT-readiness** — extend the audit/export surface into an
+   explicit automated-decision disclosure, ahead of where regulation is pushing competitors.
+3. **The direct rebuttal to open source's own "no AI" camp** — Firefly III's maintainer states
+   plainly that LLMs are "hallucinatory" and "impossible to get... to work reliably," which is
+   exactly why Networthy gates every AI write behind human approval rather than avoiding AI
+   altogether. Quotable, and aimed at the category's largest open-source incumbent.
+4. **Regulatory-hedge positioning** — upload-first architecture as explicit insurance against
+   Section 1033 litigation risk and banks' 2026 API lockdowns, a claim no Plaid-dependent
+   competitor can credibly make.
+
+See `SPEC.md` for how these translate into v2 must-haves/differentiators and `PLAN.md` for the
+v2 epic sequence (epics 8–14, building on the already-shipped 1–7).
