@@ -26,6 +26,7 @@ public sealed class FinanceToolSource : IModuleToolSource
         var incomeSources = scopedServices.GetRequiredService<IncomeSourceTools>();
         var recurring = scopedServices.GetRequiredService<RecurringTools>();
         var settings = scopedServices.GetRequiredService<HouseholdSettingsTools>();
+        var exports = scopedServices.GetRequiredService<ExportTools>();
 
         return
         [
@@ -244,6 +245,27 @@ public sealed class FinanceToolSource : IModuleToolSource
                 Permission = Permissions.ForTool(ModuleId, "set_exchange_rate"),
                 Function = AIFunctionFactory.Create(settings.SetExchangeRate, name: "set_exchange_rate"),
                 RequiresApproval = true,
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "export_transactions",
+                Permission = Permissions.ForTool(ModuleId, "export_transactions"),
+                Function = AIFunctionFactory.Create(exports.ExportTransactions, name: "export_transactions"),
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "generate_monthly_report",
+                Permission = Permissions.ForTool(ModuleId, "generate_monthly_report"),
+                Function = AIFunctionFactory.Create(exports.GenerateMonthlyReport, name: "generate_monthly_report"),
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "export_activity_log",
+                Permission = Permissions.ForTool(ModuleId, "export_activity_log"),
+                Function = AIFunctionFactory.Create(exports.ExportActivityLog, name: "export_activity_log"),
             },
         ];
     }

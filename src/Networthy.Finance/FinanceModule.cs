@@ -86,7 +86,10 @@ public sealed class FinanceModule : IModule
             "update_account_terms corrects APR/minimum on any debt. 'How is our financial health' or " +
             "'how do we improve' -> get_financial_health and relay its computed numbers and its " +
             "suggestions - do not invent strategies beyond the tool's list, and repeat its framing: " +
-            "standard strategies from their own data, not financial advice.",
+            "standard strategies from their own data, not financial advice. " +
+            "REPORTS: export_transactions (CSV, optional date range), generate_monthly_report (PDF " +
+            "month summary), and export_activity_log (CSV) each store a file and return its download " +
+            "link - relay that link so the user can download it; they change nothing, so no approval is needed.",
         Tools =
         [
             new ToolDescriptor
@@ -275,6 +278,24 @@ public sealed class FinanceModule : IModule
                 Description = "Save the household's own conversion rate for a foreign currency so multi-currency net worth combines into the default currency. Side-effecting: writes data and requires human approval.",
                 Permission = Permissions.ForTool(Id, "set_exchange_rate"),
                 RequiresApproval = true,
+            },
+            new ToolDescriptor
+            {
+                Name = "export_transactions",
+                Description = "Export the caller-visible transactions as a downloadable CSV file, optionally date-filtered. Read-only: creates a file, changes no records.",
+                Permission = Permissions.ForTool(Id, "export_transactions"),
+            },
+            new ToolDescriptor
+            {
+                Name = "generate_monthly_report",
+                Description = "Generate a downloadable PDF summary of a month: income and expenses, top expense categories, net worth, budget statuses. Read-only: creates a file, changes no records.",
+                Permission = Permissions.ForTool(Id, "generate_monthly_report"),
+            },
+            new ToolDescriptor
+            {
+                Name = "export_activity_log",
+                Description = "Export the household's recent activity log as a downloadable CSV file. Read-only: creates a file, changes no records.",
+                Permission = Permissions.ForTool(Id, "export_activity_log"),
             },
         ],
         Onboarding = new OnboardingDescriptor
@@ -667,6 +688,7 @@ public sealed class FinanceModule : IModule
         services.AddScoped<RecurringTools>();
         services.AddScoped<HouseholdContext>();
         services.AddScoped<HouseholdSettingsTools>();
+        services.AddScoped<ExportTools>();
         services.AddHostedService<BillReminderService>();
         services.AddHostedService<BudgetRolloverService>();
         services.AddScoped<IStatementAiExtractor, PlatformDocumentStatementExtractor>();
