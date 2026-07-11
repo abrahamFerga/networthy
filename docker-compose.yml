@@ -56,6 +56,12 @@ services:
       Files__Provider: ${FILES_PROVIDER:-Local}
       Files__AzureBlobConnectionString: ${FILES_AZURE_CONNECTION:-}
       Files__AzureBlobContainer: ${FILES_AZURE_CONTAINER:-cortex-files}
+      # OCR for scanned (image-only) statements: set all three to enable Azure
+      # Document Intelligence. Left empty, scanned PDFs report that no OCR engine
+      # is configured — digital PDFs/CSV/OFX never need this.
+      Ocr__Provider: ${OCR_PROVIDER:-}
+      Ocr__Endpoint: ${OCR_ENDPOINT:-}
+      Ocr__ApiKey: ${OCR_API_KEY:-}
 
 volumes:
   networthy-data:
