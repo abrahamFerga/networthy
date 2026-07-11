@@ -65,6 +65,9 @@ builder.Services.AddCortexRole("household-member",
     "tools.finance.get_financial_health",
     "tools.finance.list_income_sources", "tools.finance.get_goal_plan", "tools.finance.list_recurring",
     "tools.finance.get_household_settings",
+    // Transparency over the import pipeline: what's waiting on review (a read; reviewing and
+    // approving stay admin-only).
+    "tools.finance.list_import_batches",
     // Reports & exports: read-only files of the member's own visible data.
     "tools.finance.export_transactions", "tools.finance.generate_monthly_report",
     "tools.finance.export_activity_log",

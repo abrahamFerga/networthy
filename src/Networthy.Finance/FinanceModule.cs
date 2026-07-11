@@ -58,7 +58,9 @@ public sealed class FinanceModule : IModule
             "and offer categorize_transaction afterwards. STATEMENTS: when the user attaches a bank " +
             "statement, import_statement (file id from the attachment block, plus the account); then " +
             "review_import_batch to show the extracted lines, and only after the user confirms, " +
-            "approve_import_batch. Never post lines the user hasn't seen. HOUSEHOLD: members and " +
+            "approve_import_batch. Never post lines the user hasn't seen. When several statements " +
+            "are in flight, list_import_batches enumerates what's pending — review and approve " +
+            "each by its file name; no batch is limited to being 'the latest'. HOUSEHOLD: members and " +
             "roles are managed by admins under Admin -> Users (household-admin / household-member); " +
             "set_account_visibility makes an account private to its owner or shared again. BUDGETS: " +
             "set_budget for targets ('set the grocery budget to $400'); get_budget_status answers " +
@@ -296,6 +298,12 @@ public sealed class FinanceModule : IModule
                 Name = "export_activity_log",
                 Description = "Export the household's recent activity log as a downloadable CSV file. Read-only: creates a file, changes no records.",
                 Permission = Permissions.ForTool(Id, "export_activity_log"),
+            },
+            new ToolDescriptor
+            {
+                Name = "list_import_batches",
+                Description = "List every import batch not yet approved (file name, imported when, status, line count). Read-only — enumerate what's pending before picking one for review or approval.",
+                Permission = Permissions.ForTool(Id, "list_import_batches"),
             },
         ],
         Onboarding = new OnboardingDescriptor
@@ -585,36 +593,29 @@ public sealed class FinanceModule : IModule
             {
                 Id = "review", Label = "Statement review", Route = "/finance/review", Icon = "list-checks", Order = 9,
                 Permission = ViewFinance,
-                DataEndpoint = "/api/finance/imports/latest/lines",
+                // The tab lists every batch awaiting review (a household that uploads three
+                // statements sees three rows, not just the last)…
+                DataEndpoint = "/api/finance/imports/batches",
                 Columns =
                 [
-                    new("index", "#"), new("date", "Date"), new("description", "Description"),
-                    new("amount", "Amount"), new("direction", "Direction"), new("category", "Category"),
+                    new("fileName", "Statement"), new("createdAt", "Imported"),
+                    new("lineCount", "Lines"), new("totals", "Totals (−/+)"),
                 ],
-                Placeholder = "Nothing awaiting review. Attach a bank statement in Chat and ask to import it; the extracted lines land here for correction and approval.",
-                // Reviewers fix a line's category (or drop a bogus line) right in the table…
-                Editor = new TabEditor
-                {
-                    UpsertEndpoint = "/api/finance/imports/latest/lines",
-                    DeleteEndpoint = "/api/finance/imports/latest/lines/{index}",
-                    Permission = ReviewImports,
-                    KeyField = "index",
-                    Fields =
-                    [
-                        new("index", "Line # (from the table)", Numeric: true),
-                        new("category", "Category", Required: false, OptionsEndpoint: "/api/finance/categories", OptionsField: "name"),
-                    ],
-                },
-                // …and one button posts the whole batch. The human clicking IS the approval.
+                // …and each row drills into a detail document of that batch's extracted lines.
+                DetailEndpoint = "/api/finance/imports/{id}/detail",
+                Placeholder = "Nothing awaiting review. Attach a bank statement in Chat and ask to import it; each parsed batch lands here for inspection and approval.",
+                // One button posts the NEWEST parsed batch — tab actions POST to a fixed endpoint,
+                // so per-row approval isn't expressible here; any other batch is approved in Chat
+                // (approve_import_batch with its file name). The human clicking IS the approval.
                 Actions =
                 [
                     new TabAction
                     {
                         Id = "approve-latest",
-                        Label = "Approve batch",
+                        Label = "Approve latest batch",
                         Endpoint = "/api/finance/imports/latest/approve",
                         Permission = ReviewImports,
-                        Confirm = "Post every line above as transactions? Balances update immediately.",
+                        Confirm = "Post the most recent parsed batch's lines as transactions? Balances update immediately.",
                     },
                 ],
             },
@@ -900,95 +901,75 @@ public sealed class FinanceModule : IModule
             .WithName("Finance_Goals");
 
         // ── Statement review: the import pipeline's human moment, as a working surface ──
-        group.MapGet("/imports/latest/lines", async (FinanceDbContext db, CancellationToken cancellationToken) =>
+        // Every review operation exists twice: under /imports/latest/... (backwards compatible —
+        // resolves the newest parsed batch) and under /imports/{batchId}/... (any batch, so a
+        // household that uploaded three statements can review all three, not just the last).
+        // Both routes delegate to the same helper; the handler bodies live once.
+        group.MapGet("/imports/batches", async (FinanceDbContext db, CancellationToken cancellationToken) =>
             {
-                var batch = await db.ImportBatches
+                var batches = await db.ImportBatches
+                    .Where(b => b.Status == "parsed")
                     .OrderByDescending(b => b.CreatedAt)
-                    .FirstOrDefaultAsync(cancellationToken);
-                if (batch is null || batch.Status != "parsed")
+                    .Take(100)
+                    .ToListAsync(cancellationToken);
+                return Results.Ok(batches.Select(b =>
                 {
-                    return Results.Ok(Array.Empty<object>()); // the tab shows its placeholder
-                }
-
-                var lines = StatementImportTools.Deserialize(batch.ExtractedLinesJson);
-                return Results.Ok(lines.Select((line, i) => new
-                {
-                    index = i,
-                    date = line.Date.ToString("yyyy-MM-dd"),
-                    description = line.Description,
-                    amount = (line.Direction == "income" ? "+" : "-") + line.Amount.ToString("N2"),
-                    direction = line.Direction,
-                    category = line.SuggestedCategory,
-                    batch = batch.FileName,
+                    var lines = StatementImportTools.Deserialize(b.ExtractedLinesJson);
+                    var expense = lines.Where(l => l.Direction == "expense").Sum(l => l.Amount);
+                    var income = lines.Where(l => l.Direction == "income").Sum(l => l.Amount);
+                    return new
+                    {
+                        id = b.Id,
+                        fileName = b.FileName,
+                        createdAt = b.CreatedAt.ToString("yyyy-MM-dd HH:mm"),
+                        lineCount = lines.Count,
+                        totals = $"-{expense:N2} / +{income:N2}",
+                    };
                 }));
             })
             .RequireAuthorization(PermissionRequirement.PolicyName(ViewFinance))
+            .WithName("Finance_ImportBatches");
+
+        group.MapGet("/imports/latest/lines", async (FinanceDbContext db, CancellationToken cancellationToken) =>
+                ListBatchLines(await LatestParsedBatchAsync(db, cancellationToken)))
+            .RequireAuthorization(PermissionRequirement.PolicyName(ViewFinance))
             .WithName("Finance_ImportLines");
+
+        group.MapGet("/imports/{batchId:guid}/lines", async (
+                Guid batchId, FinanceDbContext db, CancellationToken cancellationToken) =>
+                ListBatchLines(await db.ImportBatches.FirstOrDefaultAsync(b => b.Id == batchId, cancellationToken)))
+            .RequireAuthorization(PermissionRequirement.PolicyName(ViewFinance))
+            .WithName("Finance_ImportBatchLines");
 
         group.MapPost("/imports/latest/lines", async (
                 ReviewLineRequest body, FinanceDbContext db, CancellationToken cancellationToken) =>
-            {
-                var batch = await db.ImportBatches
-                    .OrderByDescending(b => b.CreatedAt)
-                    .FirstOrDefaultAsync(cancellationToken);
-                if (batch is null || batch.Status != "parsed")
-                {
-                    return Results.BadRequest(new { error = "No batch is awaiting review." });
-                }
-
-                var lines = StatementImportTools.Deserialize(batch.ExtractedLinesJson).ToList();
-                if (body.Index < 0 || body.Index >= lines.Count)
-                {
-                    return Results.BadRequest(new { error = $"Line {body.Index} does not exist." });
-                }
-
-                string? category = null;
-                if (!string.IsNullOrWhiteSpace(body.Category))
-                {
-                    var match = await db.Categories.FirstOrDefaultAsync(
-                        c => EF.Functions.ILike(c.Name, body.Category.Trim()), cancellationToken);
-                    if (match is null)
-                    {
-                        return Results.BadRequest(new { error = $"No category named '{body.Category}' exists." });
-                    }
-
-                    category = match.Name;
-                }
-
-                lines[body.Index] = lines[body.Index] with { SuggestedCategory = category };
-                batch.ExtractedLinesJson = System.Text.Json.JsonSerializer.Serialize(
-                    lines, System.Text.Json.JsonSerializerOptions.Web);
-                await db.SaveChangesAsync(cancellationToken);
-                return Results.Ok(new { index = body.Index, category });
-            })
+                await ReviewBatchLineAsync(
+                    await LatestParsedBatchAsync(db, cancellationToken), body, db, cancellationToken))
             .RequireAuthorization(PermissionRequirement.PolicyName(ReviewImports))
             .WithName("Finance_ReviewLine");
 
+        group.MapPost("/imports/{batchId:guid}/lines", async (
+                Guid batchId, ReviewLineRequest body, FinanceDbContext db, CancellationToken cancellationToken) =>
+                await ReviewBatchLineAsync(
+                    await db.ImportBatches.FirstOrDefaultAsync(b => b.Id == batchId, cancellationToken),
+                    body, db, cancellationToken))
+            .RequireAuthorization(PermissionRequirement.PolicyName(ReviewImports))
+            .WithName("Finance_ReviewBatchLine");
+
         group.MapDelete("/imports/latest/lines/{index:int}", async (
                 int index, FinanceDbContext db, CancellationToken cancellationToken) =>
-            {
-                var batch = await db.ImportBatches
-                    .OrderByDescending(b => b.CreatedAt)
-                    .FirstOrDefaultAsync(cancellationToken);
-                if (batch is null || batch.Status != "parsed")
-                {
-                    return Results.BadRequest(new { error = "No batch is awaiting review." });
-                }
-
-                var lines = StatementImportTools.Deserialize(batch.ExtractedLinesJson).ToList();
-                if (index < 0 || index >= lines.Count)
-                {
-                    return Results.NotFound();
-                }
-
-                lines.RemoveAt(index);
-                batch.ExtractedLinesJson = System.Text.Json.JsonSerializer.Serialize(
-                    lines, System.Text.Json.JsonSerializerOptions.Web);
-                await db.SaveChangesAsync(cancellationToken);
-                return Results.NoContent();
-            })
+                await DropBatchLineAsync(
+                    await LatestParsedBatchAsync(db, cancellationToken), index, db, cancellationToken))
             .RequireAuthorization(PermissionRequirement.PolicyName(ReviewImports))
             .WithName("Finance_DropLine");
+
+        group.MapDelete("/imports/{batchId:guid}/lines/{index:int}", async (
+                Guid batchId, int index, FinanceDbContext db, CancellationToken cancellationToken) =>
+                await DropBatchLineAsync(
+                    await db.ImportBatches.FirstOrDefaultAsync(b => b.Id == batchId, cancellationToken),
+                    index, db, cancellationToken))
+            .RequireAuthorization(PermissionRequirement.PolicyName(ReviewImports))
+            .WithName("Finance_DropBatchLine");
 
         group.MapPost("/imports/latest/approve", async (
                 StatementImportTools imports, CancellationToken cancellationToken) =>
@@ -999,6 +980,74 @@ public sealed class FinanceModule : IModule
             })
             .RequireAuthorization(PermissionRequirement.PolicyName(ReviewImports))
             .WithName("Finance_ApproveLatestImport");
+
+        group.MapPost("/imports/{batchId:guid}/approve", async (
+                Guid batchId, StatementImportTools imports, FinanceDbContext db, CancellationToken cancellationToken) =>
+            {
+                var batch = await db.ImportBatches.FirstOrDefaultAsync(b => b.Id == batchId, cancellationToken);
+                if (batch is null)
+                {
+                    return Results.NotFound();
+                }
+
+                var message = await imports.ApproveBatchAsync(batch, cancellationToken);
+                return Results.Ok(new { message });
+            })
+            .RequireAuthorization(PermissionRequirement.PolicyName(ReviewImports))
+            .WithName("Finance_ApproveImportBatch");
+
+        // A batch as a generic DETAIL DOCUMENT — the Review tab's drill-down from the batch list.
+        group.MapGet("/imports/{batchId:guid}/detail", async (
+                Guid batchId, FinanceDbContext db, CancellationToken cancellationToken) =>
+            {
+                var batch = await db.ImportBatches.FirstOrDefaultAsync(b => b.Id == batchId, cancellationToken);
+                if (batch is null)
+                {
+                    return Results.NotFound();
+                }
+
+                var account = await db.Accounts.FirstOrDefaultAsync(a => a.Id == batch.AccountId, cancellationToken);
+                var lines = StatementImportTools.Deserialize(batch.ExtractedLinesJson);
+                var expense = lines.Where(l => l.Direction == "expense").Sum(l => l.Amount);
+                var income = lines.Where(l => l.Direction == "income").Sum(l => l.Amount);
+
+                var sections = new List<object>
+                {
+                    new
+                    {
+                        heading = $"Extracted lines (-{expense:N2} expense, +{income:N2} income)",
+                        columns = new[]
+                        {
+                            new { field = "index", header = "#" }, new { field = "date", header = "Date" },
+                            new { field = "description", header = "Description" }, new { field = "amount", header = "Amount" },
+                            new { field = "direction", header = "Direction" }, new { field = "category", header = "Category" },
+                        },
+                        rows = (object)lines.Select((line, i) => new
+                        {
+                            index = i,
+                            date = line.Date.ToString("yyyy-MM-dd"),
+                            description = line.Description,
+                            amount = (line.Direction == "income" ? "+" : "-") + line.Amount.ToString("N2"),
+                            direction = line.Direction,
+                            category = line.SuggestedCategory,
+                        }).ToArray(),
+                    },
+                };
+                if (batch.Status == "failed")
+                {
+                    sections.Insert(0, new { heading = "Extraction failed", text = batch.FailureReason });
+                }
+
+                return Results.Ok(new
+                {
+                    title = batch.FileName,
+                    subtitle = $"{batch.Status} · {lines.Count} line(s) · into '{account?.Name ?? "(unknown account)"}' " +
+                               $"· imported {batch.CreatedAt:yyyy-MM-dd HH:mm}",
+                    sections,
+                });
+            })
+            .RequireAuthorization(PermissionRequirement.PolicyName(ViewFinance))
+            .WithName("Finance_ImportBatchDetail");
 
         group.MapGet("/categories", async (FinanceDbContext db, CancellationToken cancellationToken) =>
             {
@@ -1075,6 +1124,92 @@ public sealed class FinanceModule : IModule
             })
             .RequireAuthorization(PermissionRequirement.PolicyName(ManageCategories))
             .WithName("Finance_DeleteCategory");
+    }
+
+    // ── Review handler cores, shared by the /latest and /{batchId} route pairs ──
+
+    /// <summary>"Latest" means the newest PARSED batch — the one actually awaiting review — so a
+    /// still-queued upload never hides a reviewable batch behind a 400.</summary>
+    private static Task<StatementImportBatch?> LatestParsedBatchAsync(
+        FinanceDbContext db, CancellationToken cancellationToken) =>
+        db.ImportBatches
+            .Where(b => b.Status == "parsed")
+            .OrderByDescending(b => b.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+
+    private static IResult ListBatchLines(StatementImportBatch? batch)
+    {
+        if (batch is null || batch.Status != "parsed")
+        {
+            return Results.Ok(Array.Empty<object>()); // the tab shows its placeholder
+        }
+
+        var lines = StatementImportTools.Deserialize(batch.ExtractedLinesJson);
+        return Results.Ok(lines.Select((line, i) => new
+        {
+            index = i,
+            date = line.Date.ToString("yyyy-MM-dd"),
+            description = line.Description,
+            amount = (line.Direction == "income" ? "+" : "-") + line.Amount.ToString("N2"),
+            direction = line.Direction,
+            category = line.SuggestedCategory,
+            batch = batch.FileName,
+        }));
+    }
+
+    private static async Task<IResult> ReviewBatchLineAsync(
+        StatementImportBatch? batch, ReviewLineRequest body, FinanceDbContext db, CancellationToken cancellationToken)
+    {
+        if (batch is null || batch.Status != "parsed")
+        {
+            return Results.BadRequest(new { error = "No batch is awaiting review." });
+        }
+
+        var lines = StatementImportTools.Deserialize(batch.ExtractedLinesJson).ToList();
+        if (body.Index < 0 || body.Index >= lines.Count)
+        {
+            return Results.BadRequest(new { error = $"Line {body.Index} does not exist." });
+        }
+
+        string? category = null;
+        if (!string.IsNullOrWhiteSpace(body.Category))
+        {
+            var match = await db.Categories.FirstOrDefaultAsync(
+                c => EF.Functions.ILike(c.Name, body.Category.Trim()), cancellationToken);
+            if (match is null)
+            {
+                return Results.BadRequest(new { error = $"No category named '{body.Category}' exists." });
+            }
+
+            category = match.Name;
+        }
+
+        lines[body.Index] = lines[body.Index] with { SuggestedCategory = category };
+        batch.ExtractedLinesJson = System.Text.Json.JsonSerializer.Serialize(
+            lines, System.Text.Json.JsonSerializerOptions.Web);
+        await db.SaveChangesAsync(cancellationToken);
+        return Results.Ok(new { index = body.Index, category });
+    }
+
+    private static async Task<IResult> DropBatchLineAsync(
+        StatementImportBatch? batch, int index, FinanceDbContext db, CancellationToken cancellationToken)
+    {
+        if (batch is null || batch.Status != "parsed")
+        {
+            return Results.BadRequest(new { error = "No batch is awaiting review." });
+        }
+
+        var lines = StatementImportTools.Deserialize(batch.ExtractedLinesJson).ToList();
+        if (index < 0 || index >= lines.Count)
+        {
+            return Results.NotFound();
+        }
+
+        lines.RemoveAt(index);
+        batch.ExtractedLinesJson = System.Text.Json.JsonSerializer.Serialize(
+            lines, System.Text.Json.JsonSerializerOptions.Web);
+        await db.SaveChangesAsync(cancellationToken);
+        return Results.NoContent();
     }
 
     public async Task MigrateAsync(IServiceProvider services, CancellationToken cancellationToken = default)

@@ -267,6 +267,13 @@ public sealed class FinanceToolSource : IModuleToolSource
                 Permission = Permissions.ForTool(ModuleId, "export_activity_log"),
                 Function = AIFunctionFactory.Create(exports.ExportActivityLog, name: "export_activity_log"),
             },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "list_import_batches",
+                Permission = Permissions.ForTool(ModuleId, "list_import_batches"),
+                Function = AIFunctionFactory.Create(imports.ListImportBatches, name: "list_import_batches"),
+            },
         ];
     }
 }

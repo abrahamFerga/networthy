@@ -111,6 +111,36 @@ public sealed class StatementImportTools(
         return sb.ToString();
     }
 
+    [Description("List every import batch that has not been approved yet (file name, when it was imported, status, line count). Read-only — use this to enumerate what's pending when several statements are in flight, then pick one by file name for review_import_batch or approve_import_batch.")]
+    public async Task<string> ListImportBatches(CancellationToken cancellationToken = default)
+    {
+        var batches = await db.ImportBatches
+            .Where(b => b.Status != "approved")
+            .OrderByDescending(b => b.CreatedAt)
+            .Take(50)
+            .ToListAsync(cancellationToken);
+        if (batches.Count == 0)
+        {
+            return "No import batches are pending. Attach a statement and run import_statement.";
+        }
+
+        var sb = new StringBuilder($"{batches.Count} pending import batch(es), newest first:\n");
+        foreach (var batch in batches)
+        {
+            var detail = batch.Status switch
+            {
+                "parsed" => $"{Deserialize(batch.ExtractedLinesJson).Count} line(s) awaiting review",
+                "queued" => "still being extracted",
+                "failed" => $"failed: {batch.FailureReason}",
+                _ => batch.Status,
+            };
+            sb.AppendLine($"- '{batch.FileName}' · imported {batch.CreatedAt:yyyy-MM-dd HH:mm} UTC · {detail}");
+        }
+
+        sb.Append("Pick one by file name with review_import_batch; nothing posts until approve_import_batch.");
+        return sb.ToString();
+    }
+
     [Description("Approve a reviewed import batch: its lines post as transactions (with the suggested categories) and the account balance updates. Side-effecting and requires approval.")]
     public async Task<string> ApproveImportBatch(
         [Description("Optional file name (or part of it) to pick a specific batch; defaults to the most recent parsed one.")] string? fileName = null,
@@ -122,6 +152,13 @@ public sealed class StatementImportTools(
             return "No import batches yet. Attach a statement and run import_statement.";
         }
 
+        return await ApproveBatchAsync(batch, cancellationToken);
+    }
+
+    /// <summary>The approval core, shared by the chat tool (which resolves by file name) and the
+    /// review endpoints (which resolve the latest parsed batch, or one by id).</summary>
+    internal async Task<string> ApproveBatchAsync(StatementImportBatch batch, CancellationToken cancellationToken)
+    {
         if (batch.Status != "parsed")
         {
             return $"'{batch.FileName}' is {batch.Status} — only a parsed batch can be approved.";
