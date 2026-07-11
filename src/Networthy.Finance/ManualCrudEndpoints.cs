@@ -35,6 +35,8 @@ internal static class ManualCrudEndpoints
         string DefaultCurrencyCode, string? TimeZoneId, int? BillReminderLeadDays,
         decimal? EmergencyFundFloorMonths, decimal? HighAprThresholdPercent);
 
+    internal sealed record ExchangeRateUpsert(string CurrencyCode, decimal RateToDefault);
+
     internal sealed record IncomeSourceUpsert(
         string Name, decimal Amount, string Cadence, string? CurrencyCode, string? AccountName);
 
@@ -342,6 +344,57 @@ internal static class ManualCrudEndpoints
             })
             .RequireAuthorization(manage)
             .WithName("Finance_UpdateSettings");
+
+        // ── Exchange rates (the admin console's Exchange rates extension page posts here) ──
+        group.MapGet("/settings/rates", async (FinanceDbContext db, CancellationToken ct) =>
+            {
+                var defaultCurrency =
+                    (await db.HouseholdSettings.FirstOrDefaultAsync(ct))?.DefaultCurrencyCode ?? "USD";
+                var rates = await db.ExchangeRates.OrderBy(r => r.CurrencyCode).ToListAsync(ct);
+                return Results.Ok(rates.Select(r => new
+                {
+                    id = r.Id,
+                    currencyCode = r.CurrencyCode,
+                    rateToDefault = r.RateToDefault,
+                    meaning = string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"1 {r.CurrencyCode} = {r.RateToDefault:0.####} {defaultCurrency}"),
+                }));
+            })
+            .RequireAuthorization(PermissionRequirement.PolicyName(FinanceModule.ViewFinance))
+            .WithName("Finance_GetExchangeRates");
+
+        group.MapPost("/settings/rates", async (
+                ExchangeRateUpsert body, HouseholdSettingsTools tools, CancellationToken ct) =>
+            {
+                // Same validation as the chat tool (ISO shape, positive rate, refuses the default
+                // currency); the form is the human directly, so RBAC is the gate — no approval.
+                var message = await tools.SetExchangeRate(body.CurrencyCode, body.RateToDefault, ct);
+                return message.StartsWith("Saved:", StringComparison.Ordinal)
+                    ? Results.Ok(new { message })
+                    : Results.BadRequest(new { error = message });
+            })
+            .RequireAuthorization(manage)
+            .WithName("Finance_UpsertExchangeRate");
+
+        group.MapDelete("/settings/rates/{currencyCode}", async (
+                string currencyCode, FinanceDbContext db, CancellationToken ct) =>
+            {
+                var code = currencyCode.Trim().ToUpperInvariant();
+                var rate = await db.ExchangeRates.FirstOrDefaultAsync(r => r.CurrencyCode == code, ct);
+                if (rate is null)
+                {
+                    return Results.NotFound();
+                }
+
+                // Dropping a rate is honest, not destructive: that currency's totals simply return
+                // to the "not combined" list until a new rate is saved.
+                db.ExchangeRates.Remove(rate);
+                await db.SaveChangesAsync(ct);
+                return Results.NoContent();
+            })
+            .RequireAuthorization(manage)
+            .WithName("Finance_DeleteExchangeRate");
 
         // ── Income sources ──
         group.MapPost("/income-sources", async (

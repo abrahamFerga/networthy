@@ -670,6 +670,36 @@ public sealed class FinanceModule : IModule
             },
         ],
 
+        // The admin console's extension pages (rendered generically at /ext/finance/...): surfaces
+        // that belong with administration rather than daily bookkeeping. Exchange rates were
+        // previously reachable only through the set_exchange_rate chat tool; here a household
+        // admin curates them directly — every rate stays user-chosen, never fetched.
+        AdminTabs =
+        [
+            new TabDescriptor
+            {
+                Id = "exchange-rates", Label = "Exchange rates", Route = "/ext/finance/exchange-rates",
+                Icon = "arrow-left-right",
+                Permission = ManageFinance,
+                DataEndpoint = "/api/finance/settings/rates",
+                Columns = [new("currencyCode", "Currency"), new("meaning", "Saved rate")],
+                Placeholder = "No exchange rates saved. Add one to combine multi-currency " +
+                              "balances into the household's default currency on the Net worth view.",
+                Editor = new TabEditor
+                {
+                    UpsertEndpoint = "/api/finance/settings/rates",
+                    DeleteEndpoint = "/api/finance/settings/rates/{currencyCode}",
+                    Permission = ManageFinance,
+                    KeyField = "currencyCode",
+                    Fields =
+                    [
+                        new("currencyCode", "Currency (ISO, e.g. EUR)"),
+                        new("rateToDefault", "Units of the DEFAULT currency per 1 unit of it", Numeric: true),
+                    ],
+                },
+            },
+        ],
+
         // Per-user mutable notification streams: declaring the category here lets each household
         // member mute bill reminders for themselves (Notifications bell -> Preferences) without
         // silencing anyone else. The id must match what BillReminderService publishes.
