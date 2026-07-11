@@ -27,19 +27,22 @@ Write-Host "Installing Cortex frontend workspace deps..." -ForegroundColor Cyan
 pnpm -C $frontend install
 if ($LASTEXITCODE -ne 0) { throw "pnpm install failed" }
 
-# networthy-ui consumes @cortex/ui's LIBRARY build (dist/), so build that first.
-Write-Host "Building the @cortex/ui library..." -ForegroundColor Cyan
-pnpm -C (Join-Path $frontend "cortex-ui") build
-if ($LASTEXITCODE -ne 0) { throw "@cortex/ui library build failed" }
-
-Write-Host "Installing networthy-ui deps (links @cortex/ui from the checkout)..." -ForegroundColor Cyan
-pnpm -C $networthyUi install
-if ($LASTEXITCODE -ne 0) { throw "networthy-ui install failed" }
-
 # Networthy branding + same-origin API base ("" -> relative /api/... calls; the host serves both).
+# Set BEFORE the @cortex/ui library build: Vite freezes import.meta.env into the dist at LIBRARY
+# build time, so an unset VITE_API_BASE there bakes the library's localhost:8080 dev fallback into
+# everything downstream — the embedded app would send every API call to the wrong origin.
 $env:VITE_BRAND_NAME = "Networthy"
 $env:VITE_API_BASE = ""
 try {
+    # networthy-ui consumes @cortex/ui's LIBRARY build (dist/), so build that first.
+    Write-Host "Building the @cortex/ui library (same-origin API base)..." -ForegroundColor Cyan
+    pnpm -C (Join-Path $frontend "cortex-ui") build
+    if ($LASTEXITCODE -ne 0) { throw "@cortex/ui library build failed" }
+
+    Write-Host "Installing networthy-ui deps (links @cortex/ui from the checkout)..." -ForegroundColor Cyan
+    pnpm -C $networthyUi install
+    if ($LASTEXITCODE -ne 0) { throw "networthy-ui install failed" }
+
     Write-Host "Building networthy-ui (the branded app: shell + Overview dashboard)..." -ForegroundColor Cyan
     pnpm -C $networthyUi build
     if ($LASTEXITCODE -ne 0) { throw "networthy-ui build failed" }
@@ -55,6 +58,15 @@ finally {
 
 $appTarget = Join-Path $repoRoot "src\Networthy.Host\wwwroot\app"
 $adminTarget = Join-Path $repoRoot "src\Networthy.Host\wwwroot\admin"
+
+# Tripwire: a bundle carrying the library's localhost:8080 dev fallback means the @cortex/ui dist
+# was built without VITE_API_BASE="" (see above) — fail loudly instead of shipping a dead app.
+$leaked = Get-ChildItem (Join-Path $networthyUi "dist\assets\*.js") |
+    Select-String -Pattern "localhost:8080" -List
+if ($leaked) {
+    throw "networthy-ui bundle contains the localhost:8080 API fallback — the @cortex/ui library " +
+        "was built without VITE_API_BASE=`"`"; re-run this script so the library rebuilds correctly."
+}
 
 foreach ($pair in @(
     @{ Source = Join-Path $networthyUi "dist"; Target = $appTarget; Name = "domain UI (networthy-ui)" },
