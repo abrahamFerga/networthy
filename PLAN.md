@@ -225,18 +225,24 @@ with a third party. It belongs in the API surface section of `ARCH.md`, not here
 v1's four open questions were resolved during v1's build (see ADR-0004, ADR-0005, ADR-0006;
 scale target is now moot post-launch) and don't recur here. New for v2:
 
-1. Do the dashboard and visualization must-haves (epics 8–9) require new generic component
-   types in the shared Cortex UI package (a card-grid tab kind, a proportional/categorical chart
-   kind, a budget-progress-bar primitive, mobile card-mode for the data table, a
-   notification-inbox primitive) — meaning a companion change in the Cortex repo — or should
-   Networthy build these as bespoke, product-owned SPA components, an explicit deviation from
-   ADR-0001's "no product-specific UI layer" spirit? **This is the single highest-leverage
-   decision for the whole v2 round** — it determines whether epics 8–10 are Networthy-repo-only
-   or need coordinated Cortex-repo work first.
-2. Is two-factor/passkey authentication (epic 13) a Cortex-platform authentication capability
-   (`AddCortexAuthentication`, benefiting every product built on the platform) or
-   Networthy-specific? ADR-0001's precedent — generic capabilities live in the platform — leans
-   platform; confirm before scoping epic 13 as a Networthy-repo-only change.
+1. ~~Do the dashboard and visualization must-haves (epics 8–9) require new generic component
+   types in the shared Cortex UI package, or bespoke product-owned SPA components?~~
+   **Resolved (2026-07-11)** — answered in the Cortex repo by verifying its actual frontend
+   source, recorded as `docs/RICH_UI_KIT_PLAN.md` there. Split verdict: the
+   **notification-inbox primitive already exists** in the platform (`NotificationBell` +
+   `INotifier` + `/api/notifications` — epic 10's inbox just produces events into it), and the
+   **bespoke dashboard needs no new seam** (`<CortexApp moduleUi>` already lets a product
+   register custom React per tab — the Overview screen is Networthy-owned, composed from
+   platform primitives). What *was* genuinely missing lands as Cortex phases: donut/bar chart
+   kinds, stat-tile + progress-bar primitives, data-table mobile card-mode, `[Pii]`
+   masked-value rendering, and the risk-tiered approval queue. **Consequence for build order:**
+   epics 8–10 wait on those Cortex phases shipping in a vendored platform release; epics 11–12
+   (forecasting, payoff math) are pure Networthy work and can proceed in parallel.
+2. ~~Is two-factor/passkey authentication (epic 13) a Cortex-platform authentication capability
+   or Networthy-specific?~~ **Resolved (2026-07-11)** — platform, per ADR-0001's precedent;
+   confirmed no 2FA/WebAuthn/TOTP code exists anywhere in Cortex today. Planned as the
+   `AddCortexAuthentication` phase of Cortex's `docs/RICH_UI_KIT_PLAN.md`; epic 13's
+   Networthy-side scope shrinks to adopting the platform release plus the masked-balances UI.
 3. Epic 14's API introduces the system's first REST *write* surface — a deliberate, scoped
    exception to ADR-0002 ("writes happen through chat-invoked, approval-gated MAF tools, not a
    REST CRUD API"). How does an API-originated write still land in the approval queue instead of
