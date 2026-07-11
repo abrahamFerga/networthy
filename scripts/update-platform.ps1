@@ -60,11 +60,13 @@ foreach ($proj in $csprojs) {
 }
 
 if ($WithUi) {
-    Write-Host "Fetching prebuilt UI bundles (runtime-branded via Branding:ProductName)..." -ForegroundColor Cyan
+    # ADR-0008: the APP bundle is Networthy's own build (frontend/networthy-ui, embedded by
+    # scripts/build-ui.ps1) — the prebuilt release app shell would drop the Overview dashboard.
+    # Only the admin console still vendors prebuilt from the release.
+    Write-Host "Fetching the prebuilt admin bundle (the app bundle builds via build-ui.ps1, ADR-0008)..." -ForegroundColor Cyan
     $tmp = Join-Path ([IO.Path]::GetTempPath()) "cortex-ui-$Version"
     New-Item -ItemType Directory -Force $tmp | Out-Null
     foreach ($pair in @(
-        @{ Zip = "cortex-ui-app.zip";   Target = Join-Path $repoRoot "src\Networthy.Host\wwwroot\app" },
         @{ Zip = "cortex-admin-ui.zip"; Target = Join-Path $repoRoot "src\Networthy.Host\wwwroot\admin" }
     )) {
         $zipPath = Join-Path $tmp $pair.Zip

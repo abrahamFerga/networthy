@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- Networthy resolves at build time; build-ui.ps1 sets it to "Networthy". -->
-    <title>Networthy</title>
+    <!-- %VITE_BRAND_NAME% resolves at build time; build-ui.ps1 sets it to "Networthy". -->
+    <title>%VITE_BRAND_NAME%</title>
     <!-- Apply the stored theme before the bundle loads so a dark-mode reload never flashes light.
          Keep in sync with @cortex/ui's theme storage key. -->
     <script>
@@ -14,10 +14,9 @@
           document.documentElement.classList.add("dark");
       } catch (e) {}
     </script>
-    <script type="module" crossorigin src="/assets/index-ZfTK96Zx.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-DoxWa9Os.css">
   </head>
   <body>
     <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
