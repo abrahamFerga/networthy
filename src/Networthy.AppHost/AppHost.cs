@@ -2,11 +2,12 @@
 //   dotnet run --project src/Networthy.AppHost    (or `aspire run`)
 //
 // Zero-config: the chat assistant uses Cortex's dependency-free Mock provider and the RAG
-// pipeline uses the deterministic Mock embedder, so no API keys are required. The web UI ships
-// from the Cortex frontend packages (@cortex/ui, @cortex/admin-ui); until they publish to npm,
-// the AppHost launches them as Vite dev servers straight from a sibling Cortex checkout
-// (default ../Cortex next to this repo; override with "CortexRepoPath" in appsettings or
-// user-secrets). No checkout found → the API still runs, the UI resources are skipped.
+// pipeline uses the deterministic Mock embedder, so no API keys are required. The workspace UI
+// is Networthy's OWN entry (frontend/networthy-ui — the Cortex shell + the custom Overview
+// dashboard, ADR-0008), launched as a Vite dev server; the admin console still comes straight
+// from a sibling Cortex checkout (default ../Cortex next to this repo; override with
+// "CortexRepoPath" in appsettings or user-secrets), which networthy-ui also needs for its
+// file:-linked @cortex/ui dependency. No checkout found → the API still runs, UI skipped.
 
 var builder = DistributedApplication.CreateBuilder(args);
 
@@ -48,13 +49,15 @@ var api = builder.AddProject<Projects.Networthy_Host>("networthy-api")
     .WithEnvironment("Ai__ApiKey", aiApiKey)
     .WithExternalHttpEndpoints();
 
-// ── Front-ends (Vite dev servers from the Cortex checkout, until @cortex/* publish to npm) ──
+// ── Front-ends (Vite dev servers; the workspace is THIS repo's entry, not the stock shell) ──
 var cortexRepo = Path.GetFullPath(
     builder.Configuration["CortexRepoPath"] ?? Path.Combine(builder.AppHostDirectory, "..", "..", "..", "Cortex"));
-var workspaceDir = Path.Combine(cortexRepo, "frontend", "cortex-ui");
+// The workspace dev server MUST run frontend/networthy-ui — the stock @cortex/ui harness has no
+// Overview registration, so the dashboard tab would crash into the generic table renderer.
+var workspaceDir = Path.Combine(builder.AppHostDirectory, "..", "..", "frontend", "networthy-ui");
 var adminDir = Path.Combine(cortexRepo, "frontend", "admin-ui");
 
-if (builder.ExecutionContext.IsRunMode && Directory.Exists(workspaceDir) && ToolExistsOnPath("pnpm"))
+if (builder.ExecutionContext.IsRunMode && Directory.Exists(adminDir) && ToolExistsOnPath("pnpm"))
 {
     var workspace = builder.AddViteApp("networthy-ui", workspaceDir)
         .WithPnpm()
@@ -86,7 +89,8 @@ else if (builder.ExecutionContext.IsRunMode)
 {
     Console.WriteLine(
         $"[Networthy.AppHost] UI resources skipped — Cortex checkout not found at '{cortexRepo}' " +
-        "(set \"CortexRepoPath\") or pnpm is not on PATH (`corepack enable`). The API runs without them.");
+        "(set \"CortexRepoPath\"; networthy-ui's file:-linked @cortex/ui needs it too) or pnpm is " +
+        "not on PATH (`corepack enable`). The API runs without them.");
 }
 
 builder.Build().Run();
