@@ -511,7 +511,19 @@ public sealed class FinanceModule : IModule
             },
             new TabDescriptor
             {
-                Id = "income", Label = "Income", Route = "/finance/income", Icon = "banknote", Order = 4,
+                // Where the month's money went, proportionally (issue #46). The shell's donut
+                // caps named segments and rolls the tail into "Other"; networthy-ui's SpendingTab
+                // wraps this same descriptor with a month picker that re-points dataEndpoint at
+                // ?month=yyyy-MM (ADR-0008) — the chart itself stays server-driven either way.
+                Id = "spending", Label = "Spending", Route = "/finance/spending", Icon = "pie-chart", Order = 4,
+                Permission = ViewFinance,
+                DataEndpoint = "/api/finance/spending",
+                Chart = new TabChart { Kind = TabChartKind.Donut, XField = "category", YField = "amount", YLabel = "Spent" },
+                Placeholder = "No expenses recorded for this month yet — log some spending or import a statement.",
+            },
+            new TabDescriptor
+            {
+                Id = "income", Label = "Income", Route = "/finance/income", Icon = "banknote", Order = 5,
                 Permission = ViewFinance,
                 DataEndpoint = "/api/finance/income-sources",
                 Columns =
@@ -538,7 +550,7 @@ public sealed class FinanceModule : IModule
             },
             new TabDescriptor
             {
-                Id = "recurring", Label = "Recurring", Route = "/finance/recurring", Icon = "repeat", Order = 5,
+                Id = "recurring", Label = "Recurring", Route = "/finance/recurring", Icon = "repeat", Order = 6,
                 Permission = ViewFinance,
                 DataEndpoint = "/api/finance/recurring",
                 Columns =
@@ -551,7 +563,7 @@ public sealed class FinanceModule : IModule
             },
             new TabDescriptor
             {
-                Id = "debts", Label = "Debts", Route = "/finance/debts", Icon = "credit-card", Order = 6,
+                Id = "debts", Label = "Debts", Route = "/finance/debts", Icon = "credit-card", Order = 7,
                 Permission = ViewFinance,
                 DataEndpoint = "/api/finance/debts",
                 Columns =
@@ -564,7 +576,7 @@ public sealed class FinanceModule : IModule
             },
             new TabDescriptor
             {
-                Id = "trend", Label = "Net worth", Route = "/finance/trend", Icon = "trending-up", Order = 7,
+                Id = "trend", Label = "Net worth", Route = "/finance/trend", Icon = "trending-up", Order = 8,
                 Permission = ViewFinance,
                 DataEndpoint = "/api/finance/net-worth/history",
                 // The platform renders these rows as a time-series line chart — one line per currency.
@@ -573,7 +585,18 @@ public sealed class FinanceModule : IModule
             },
             new TabDescriptor
             {
-                Id = "goals", Label = "Goals", Route = "/finance/goals", Icon = "flag", Order = 8,
+                // Money in vs money out, month by month (issue #46) — grouped bars beside the
+                // net-worth trend. Fully server-driven: rows are {month, direction, amount};
+                // the shell draws one bar per direction per month and always includes zero.
+                Id = "cashflow", Label = "Cash flow", Route = "/finance/cashflow", Icon = "arrow-left-right", Order = 9,
+                Permission = ViewFinance,
+                DataEndpoint = "/api/finance/cashflow",
+                Chart = new TabChart { Kind = TabChartKind.Bar, XField = "month", YField = "amount", SeriesField = "direction", YLabel = "Amount" },
+                Placeholder = "Cash flow appears once transactions accumulate — log some or import a statement.",
+            },
+            new TabDescriptor
+            {
+                Id = "goals", Label = "Goals", Route = "/finance/goals", Icon = "flag", Order = 10,
                 Permission = ViewFinance,
                 DataEndpoint = "/api/finance/goals",
                 Columns =
@@ -601,7 +624,7 @@ public sealed class FinanceModule : IModule
             },
             new TabDescriptor
             {
-                Id = "review", Label = "Statement review", Route = "/finance/review", Icon = "list-checks", Order = 9,
+                Id = "review", Label = "Statement review", Route = "/finance/review", Icon = "list-checks", Order = 11,
                 Permission = ViewFinance,
                 // The tab lists every batch awaiting review (a household that uploads three
                 // statements sees three rows, not just the last)…
@@ -631,7 +654,7 @@ public sealed class FinanceModule : IModule
             },
             new TabDescriptor
             {
-                Id = "settings", Label = "Settings", Route = "/finance/settings", Icon = "settings", Order = 11,
+                Id = "settings", Label = "Settings", Route = "/finance/settings", Icon = "settings", Order = 13,
                 Permission = ViewFinance,
                 DataEndpoint = "/api/finance/settings",
                 Columns =
@@ -658,7 +681,7 @@ public sealed class FinanceModule : IModule
             },
             new TabDescriptor
             {
-                Id = "categories", Label = "Categories", Route = "/finance/categories", Icon = "tags", Order = 10,
+                Id = "categories", Label = "Categories", Route = "/finance/categories", Icon = "tags", Order = 12,
                 Permission = ViewFinance,
                 DataEndpoint = "/api/finance/categories",
                 Columns = [new("name", "Category"), new("parentName", "Parent")],
@@ -756,6 +779,12 @@ public sealed class FinanceModule : IModule
 
         // The Overview tab's one composed read (epic 8, ADR-0008).
         group.MapOverviewEndpoint();
+
+        // Spending & cash-flow visualization reads (issue #46): the Spending donut's month
+        // summary, the Cash flow tab's monthly bars, and the Recurring calendar's projection.
+        group.MapSpendingEndpoint();
+        group.MapCashFlowEndpoint();
+        group.MapUpcomingBillsEndpoint();
 
         group.MapGet("/accounts", async (
                 FinanceDbContext db, Cortex.Core.Identity.ICurrentUser currentUser,

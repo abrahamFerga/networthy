@@ -21,7 +21,8 @@ public sealed class PlatformSurfaceTests(IntegrationFixture fixture)
 
         var finance = modules.EnumerateArray().Single(m => m.GetProperty("id").GetString() == "finance");
         var tabs = finance.GetProperty("tabs").EnumerateArray().Select(t => t.GetProperty("id").GetString()).ToList();
-        Assert.Equal(["chat", "overview", "accounts", "transactions", "budgets", "income", "recurring", "debts", "trend", "goals", "review", "categories", "settings"], tabs);
+        // Deliberate additions only: "spending" and "cashflow" joined with issue #46.
+        Assert.Equal(["chat", "overview", "accounts", "transactions", "budgets", "spending", "income", "recurring", "debts", "trend", "cashflow", "goals", "review", "categories", "settings"], tabs);
 
         // The Overview tab is the declared home (epic 8): the shell opens the app on it.
         var overview = finance.GetProperty("tabs").EnumerateArray().Single(t => t.GetProperty("id").GetString() == "overview");
