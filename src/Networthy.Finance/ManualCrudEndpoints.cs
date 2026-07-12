@@ -33,7 +33,8 @@ internal static class ManualCrudEndpoints
 
     internal sealed record SettingsUpsert(
         string DefaultCurrencyCode, string? TimeZoneId, int? BillReminderLeadDays,
-        decimal? EmergencyFundFloorMonths, decimal? HighAprThresholdPercent);
+        decimal? EmergencyFundFloorMonths, decimal? HighAprThresholdPercent,
+        bool? StatementRemindersEnabled, string? StatementReminderCadence);
 
     internal sealed record ExchangeRateUpsert(string CurrencyCode, decimal RateToDefault);
 
@@ -320,6 +321,11 @@ internal static class ManualCrudEndpoints
                         timeZoneId = effective.TimeZoneId ?? "UTC",
                         todayThere = effective.Today().ToString("yyyy-MM-dd"),
                         billReminderLeadDays = effective.BillReminderLeadDays,
+                        statementRemindersEnabled = effective.StatementRemindersEnabled,
+                        statementReminderCadence = effective.StatementReminderCadence,
+                        statementReminders = effective.StatementRemindersEnabled
+                            ? effective.StatementReminderCadence
+                            : "off",
                         emergencyFundFloorMonths = effective.EmergencyFundFloorMonths,
                         highAprThresholdPercent = effective.HighAprThresholdPercent,
                     },
@@ -337,6 +343,8 @@ internal static class ManualCrudEndpoints
                     body.BillReminderLeadDays,
                     body.EmergencyFundFloorMonths,
                     body.HighAprThresholdPercent,
+                    body.StatementRemindersEnabled,
+                    body.StatementReminderCadence,
                     ct);
                 return message.StartsWith("Preferences saved", StringComparison.Ordinal)
                     ? Results.Ok(new { message })

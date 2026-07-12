@@ -25,29 +25,44 @@ public sealed class HouseholdSettingsTools(
                 rates.Select(r => $"1 {r.CurrencyCode} = {r.RateToDefault:0.####} {settings?.DefaultCurrencyCode ?? "USD"}")) + ".";
         return settings is null
             ? "No preferences saved yet — defaults apply: currency USD, time zone UTC, reminders 3 days ahead, " +
-              "emergency-fund floor 3 months, high-APR threshold 8%. " +
+              "monthly statement reminders on, emergency-fund floor 3 months, high-APR threshold 8%. " +
               "Change them with update_household_settings or the Settings tab." + ratesLine
             : $"Default currency: {settings.DefaultCurrencyCode}. " +
               $"Time zone: {settings.TimeZoneId ?? "UTC"} (today there: {settings.Today():yyyy-MM-dd}). " +
               $"Bill reminders: {settings.BillReminderLeadDays} day(s) ahead. " +
+              $"Statement reminders: {(settings.StatementRemindersEnabled ? $"{settings.StatementReminderCadence}" : "off")}. " +
               $"Emergency-fund floor: {settings.EmergencyFundFloorMonths:0.#} months. " +
               $"High-APR threshold: {settings.HighAprThresholdPercent:0.##}%." + ratesLine;
     }
 
-    [Description("Change the household's preferences: default currency (ISO), time zone (IANA id like 'America/Mexico_City'), and/or bill-reminder lead days. Side-effecting and requires approval.")]
+    [Description("Change the household's preferences: default currency (ISO), time zone (IANA id like 'America/Mexico_City'), bill-reminder lead days, and/or the statement-reminder schedule. Side-effecting and requires approval.")]
     public async Task<string> UpdateHouseholdSettings(
         [Description("ISO currency the household thinks in, e.g. MXN. Omit to leave unchanged.")] string? defaultCurrency = null,
         [Description("IANA time zone id, e.g. 'America/Mexico_City'. Omit to leave unchanged; 'UTC' resets.")] string? timeZone = null,
         [Description("Days before an expected recurring charge to remind (0–14). Omit to leave unchanged.")] int? billReminderLeadDays = null,
         [Description("Emergency-fund guideline floor in months of expenses (0–24). Omit to leave unchanged.")] decimal? emergencyFundFloorMonths = null,
         [Description("APR percent at/above which debt counts as high-interest (0–100). Omit to leave unchanged.")] decimal? highAprThresholdPercent = null,
+        [Description("Turn the recurring statement-upload reminder on or off. Omit to leave unchanged.")] bool? statementReminders = null,
+        [Description("How often the statement reminder fires: 'monthly' or 'weekly'. Omit to leave unchanged.")] string? statementReminderCadence = null,
         CancellationToken cancellationToken = default)
     {
         if (defaultCurrency is null && timeZone is null && billReminderLeadDays is null &&
-            emergencyFundFloorMonths is null && highAprThresholdPercent is null)
+            emergencyFundFloorMonths is null && highAprThresholdPercent is null &&
+            statementReminders is null && statementReminderCadence is null)
         {
             return "Nothing to change — pass defaultCurrency, timeZone, billReminderLeadDays, " +
-                   "emergencyFundFloorMonths, and/or highAprThresholdPercent.";
+                   "emergencyFundFloorMonths, highAprThresholdPercent, statementReminders, " +
+                   "and/or statementReminderCadence.";
+        }
+
+        string? normalizedStatementCadence = null;
+        if (statementReminderCadence is not null)
+        {
+            normalizedStatementCadence = HouseholdSettings.NormalizeStatementCadence(statementReminderCadence);
+            if (normalizedStatementCadence is null)
+            {
+                return $"'{statementReminderCadence}' is not a statement-reminder cadence — use 'monthly' or 'weekly'.";
+            }
         }
 
         if (emergencyFundFloorMonths is < 0 or > 24)
@@ -117,10 +132,21 @@ public sealed class HouseholdSettingsTools(
             settings.HighAprThresholdPercent = aprThreshold;
         }
 
+        if (statementReminders is { } remindersOn)
+        {
+            settings.StatementRemindersEnabled = remindersOn;
+        }
+
+        if (normalizedStatementCadence is not null)
+        {
+            settings.StatementReminderCadence = normalizedStatementCadence;
+        }
+
         await db.SaveChangesAsync(cancellationToken);
         return $"Preferences saved: currency {settings.DefaultCurrencyCode}, " +
                $"time zone {settings.TimeZoneId ?? "UTC"} (today there: {settings.Today():yyyy-MM-dd}), " +
                $"reminders {settings.BillReminderLeadDays} day(s) ahead, " +
+               $"statement reminders {(settings.StatementRemindersEnabled ? settings.StatementReminderCadence : "off")}, " +
                $"emergency floor {settings.EmergencyFundFloorMonths:0.#} months, " +
                $"high-APR at or above {settings.HighAprThresholdPercent:0.##}%.";
     }

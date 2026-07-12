@@ -76,10 +76,15 @@ public sealed class FinanceModule : IModule
         Icon = "wallet",
         // The digest rides the platform scheduler (one tenant-scoped run per day, catch-up-one
         // after downtime); time-sensitive bill reminders stay per-event in BillReminderService.
+        // The statement reminder rides the same seam: the scheduler ticks DAILY (the finest cadence
+        // the seam offers — there is no Monthly), but it emits once per household-configured period
+        // (monthly by default), gated by a per-tenant per-period marker (StatementReminderJobHandler).
         RecurringJobs =
         [
             new(DailyDigestJobHandler.JobKind, RecurringJobCadence.Daily,
                 "Sends each member's daily digest: over-budget categories and newly detected recurring charges."),
+            new(StatementReminderJobHandler.JobKind, RecurringJobCadence.Daily,
+                "Nudges each member to bring in a fresh statement once per period (monthly by default), or to confirm rolling steady income forward."),
         ],
         AgentInstructions =
             "You are Networthy, a household finance assistant. You help a household track accounts, " +
@@ -303,13 +308,13 @@ public sealed class FinanceModule : IModule
             new ToolDescriptor
             {
                 Name = "get_household_settings",
-                Description = "The household's preferences: default currency, time zone, reminder lead time.",
+                Description = "The household's preferences: default currency, time zone, reminder lead time, and statement-reminder cadence.",
                 Permission = Permissions.ForTool(Id, "get_household_settings"),
             },
             new ToolDescriptor
             {
                 Name = "update_household_settings",
-                Description = "Change the household's default currency, time zone, reminder lead time, emergency-fund floor, or high-APR threshold. Side-effecting: writes data and requires human approval.",
+                Description = "Change the household's default currency, time zone, reminder lead time, statement-reminder cadence (monthly/weekly, or off), emergency-fund floor, or high-APR threshold. Side-effecting: writes data and requires human approval.",
                 Permission = Permissions.ForTool(Id, "update_household_settings"),
                 RequiresApproval = true,
             },
@@ -704,10 +709,12 @@ public sealed class FinanceModule : IModule
                 [
                     new("defaultCurrencyCode", "Default currency"), new("timeZoneId", "Time zone"),
                     new("todayThere", "Today there"), new("billReminderLeadDays", "Reminder lead (days)"),
+                    new("statementReminders", "Statement reminders"),
+                    new("statementReminderCadence", "Statement cadence"),
                     new("emergencyFundFloorMonths", "Emergency floor (months)"),
                     new("highAprThresholdPercent", "High-APR threshold (%)"),
                 ],
-                Placeholder = "Defaults apply: USD, UTC, reminders 3 days ahead. Set your household's own here.",
+                Placeholder = "Defaults apply: USD, UTC, reminders 3 days ahead, monthly statement nudges. Set your household's own here.",
                 Editor = new TabEditor
                 {
                     UpsertEndpoint = "/api/finance/settings",
@@ -717,6 +724,8 @@ public sealed class FinanceModule : IModule
                         new("defaultCurrencyCode", "Default currency", Options: CurrencyCodes),
                         new("timeZoneId", "Time zone (leave unchosen for UTC)", Required: false, Options: TimeZoneIds),
                         new("billReminderLeadDays", "Bill reminder lead (days, 0-14)", Required: false, Numeric: true),
+                        new("statementRemindersEnabled", "Statement reminders on?", Required: false, Options: ["true", "false"]),
+                        new("statementReminderCadence", "Statement reminder cadence", Required: false, Options: ["monthly", "weekly"]),
                         new("emergencyFundFloorMonths", "Emergency-fund floor (months, 0-24)", Required: false, Numeric: true),
                         new("highAprThresholdPercent", "High-APR threshold (%, 0-100)", Required: false, Numeric: true),
                     ],
@@ -781,7 +790,7 @@ public sealed class FinanceModule : IModule
         // anyone else. Ids must match what the emitters publish — BillReminderService for
         // finance.bill, DailyDigestJobHandler for finance.budgets / finance.recurring, and the
         // PLATFORM for finance.approvals (its "{moduleId}.approvals", sent when an AI action
-        // queues for a human decision).
+        // queues for a human decision) and StatementReminderJobHandler for finance.statements.
         NotificationCategories =
         [
             new("finance.bill", "Bill reminders",
@@ -790,6 +799,8 @@ public sealed class FinanceModule : IModule
                 "The daily digest flags categories that went over their monthly budget."),
             new("finance.recurring", "New recurring charges",
                 "The daily digest flags charges that just became detectable."),
+            new("finance.statements", "Statement reminders",
+                "A once-per-period nudge to upload a fresh statement — or to confirm rolling steady income forward."),
             new("finance.approvals", "Approval requests",
                 "An assistant action is waiting for a human decision."),
         ],
@@ -819,6 +830,7 @@ public sealed class FinanceModule : IModule
         services.AddScoped<IStatementAiExtractor, PlatformDocumentStatementExtractor>();
         services.AddSingleton<Cortex.Application.Jobs.IJobHandler, StatementParseJobHandler>();
         services.AddSingleton<Cortex.Application.Jobs.IJobHandler, DailyDigestJobHandler>();
+        services.AddSingleton<Cortex.Application.Jobs.IJobHandler, StatementReminderJobHandler>();
         services.AddSingleton<IModuleToolSource, FinanceToolSource>();
         services.AddHostedService<NetWorthSnapshotService>();
     }
