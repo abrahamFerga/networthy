@@ -27,6 +27,7 @@ public sealed class FinanceDbContext(
     public DbSet<Goal> Goals => Set<Goal>();
     public DbSet<IncomeSource> IncomeSources => Set<IncomeSource>();
     public DbSet<BillReminder> BillReminders => Set<BillReminder>();
+    public DbSet<StatementReminder> StatementReminders => Set<StatementReminder>();
     public DbSet<HouseholdSettings> HouseholdSettings => Set<HouseholdSettings>();
     public DbSet<ExchangeRate> ExchangeRates => Set<ExchangeRate>();
 
@@ -146,12 +147,21 @@ public sealed class FinanceDbContext(
             b.HasQueryFilter(x => x.TenantId == tenantContext.TenantId);
         });
 
+        modelBuilder.Entity<StatementReminder>(b =>
+        {
+            b.ToTable("statement_reminders");
+            b.HasKey(x => x.Id);
+            b.HasIndex(x => new { x.TenantId, x.PeriodStart }).IsUnique(); // one nudge per period
+            b.HasQueryFilter(x => x.TenantId == tenantContext.TenantId);
+        });
+
         modelBuilder.Entity<HouseholdSettings>(b =>
         {
             b.ToTable("household_settings");
             b.HasKey(x => x.Id);
             b.Property(x => x.DefaultCurrencyCode).HasMaxLength(3).IsRequired();
             b.Property(x => x.TimeZoneId).HasMaxLength(64);
+            b.Property(x => x.StatementReminderCadence).HasMaxLength(16).IsRequired();
             b.Property(x => x.EmergencyFundFloorMonths).HasPrecision(5, 2);
             b.Property(x => x.HighAprThresholdPercent).HasPrecision(6, 3);
             b.HasIndex(x => x.TenantId).IsUnique(); // the singleton-per-tenant invariant
