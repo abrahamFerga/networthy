@@ -88,7 +88,7 @@ coverage/
 
 # Local Cortex package feed: ignore old versions, commit the CURRENT one so CI can restore.
 .packages/*
-!.packages/*0.1.0-alpha.19*
+!.packages/*0.1.0-alpha.20*
 !.packages/aspire.apphost.sdk.*
 src/Networthy.Host/data/
 

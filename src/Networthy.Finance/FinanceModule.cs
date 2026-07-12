@@ -74,6 +74,13 @@ public sealed class FinanceModule : IModule
         Version = "0.1.0",
         Description = "Household finances: accounts, transactions, budgets, statement import, and net worth — chat-first, with every AI action approval-gated and audited.",
         Icon = "wallet",
+        // The digest rides the platform scheduler (one tenant-scoped run per day, catch-up-one
+        // after downtime); time-sensitive bill reminders stay per-event in BillReminderService.
+        RecurringJobs =
+        [
+            new(DailyDigestJobHandler.JobKind, RecurringJobCadence.Daily,
+                "Sends each member's daily digest: over-budget categories and newly detected recurring charges."),
+        ],
         AgentInstructions =
             "You are Networthy, a household finance assistant. You help a household track accounts, " +
             "transactions, budgets, and net worth. NEVER fabricate a balance, transaction, or budget " +
@@ -765,13 +772,22 @@ public sealed class FinanceModule : IModule
             },
         ],
 
-        // Per-user mutable notification streams: declaring the category here lets each household
-        // member mute bill reminders for themselves (Notifications bell -> Preferences) without
-        // silencing anyone else. The id must match what BillReminderService publishes.
+        // Per-user mutable notification streams: declaring a category here lets each household
+        // member mute it for themselves (Notifications bell -> Preferences) without silencing
+        // anyone else. Ids must match what the emitters publish — BillReminderService for
+        // finance.bill, DailyDigestJobHandler for finance.budgets / finance.recurring, and the
+        // PLATFORM for finance.approvals (its "{moduleId}.approvals", sent when an AI action
+        // queues for a human decision).
         NotificationCategories =
         [
             new("finance.bill", "Bill reminders",
                 "Heads-up before a detected recurring charge (subscription, utility, loan payment) is due."),
+            new("finance.budgets", "Budget alerts",
+                "The daily digest flags categories that went over their monthly budget."),
+            new("finance.recurring", "New recurring charges",
+                "The daily digest flags charges that just became detectable."),
+            new("finance.approvals", "Approval requests",
+                "An assistant action is waiting for a human decision."),
         ],
     };
 
@@ -798,6 +814,7 @@ public sealed class FinanceModule : IModule
         services.AddHostedService<BudgetRolloverService>();
         services.AddScoped<IStatementAiExtractor, PlatformDocumentStatementExtractor>();
         services.AddSingleton<Cortex.Application.Jobs.IJobHandler, StatementParseJobHandler>();
+        services.AddSingleton<Cortex.Application.Jobs.IJobHandler, DailyDigestJobHandler>();
         services.AddSingleton<IModuleToolSource, FinanceToolSource>();
         services.AddHostedService<NetWorthSnapshotService>();
     }
