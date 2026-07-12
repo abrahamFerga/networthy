@@ -503,6 +503,10 @@ public sealed class FinanceModule : IModule
                     new("occurredOn", "Date"), new("description", "Description"), new("amount", "Amount"),
                     new("currencyCode", "Currency"), new("direction", "Direction"),
                     new("categoryName", "Category"), new("accountName", "Account"),
+                    // AI-originated rows must be visibly tagged where the household reads its
+                    // ledger (issue #49): "assistant" = chat-tool write, "manual" = form,
+                    // "upload"/"plaid" = imported bank data.
+                    new("source", "Source"),
                 ],
                 Placeholder = "No transactions yet. Add one here, capture it in Chat ('Log $6.50 coffee on Chase Checking'), or upload a bank statement and review the extracted lines.",
                 Editor = new TabEditor
@@ -872,6 +876,7 @@ public sealed class FinanceModule : IModule
                     direction = t.Direction,
                     categoryName = t.CategoryId is { } c && categoryNames.TryGetValue(c, out var name) ? name : null,
                     accountName = visibleAccounts[t.AccountId],
+                    source = t.Source,
                 }));
             })
             .RequireAuthorization(PermissionRequirement.PolicyName(ViewFinance))

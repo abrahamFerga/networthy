@@ -76,7 +76,10 @@ public sealed class TransactionTools(
             Description = description.Trim(),
             CategoryId = categoryId,
             Direction = normalizedDirection,
-            Source = "manual",
+            // "assistant", not "manual": this write happens through a chat tool, so the model
+            // chose the arguments — the AI-origin tag (issue #49) must survive even on the
+            // ungated quick-capture path. The human typing into a form is ManualCrudEndpoints.
+            Source = "assistant",
             CreatedByUserId = currentUser.UserId,
         };
         db.Transactions.Add(transaction);

@@ -50,6 +50,18 @@ public sealed class FinanceCatalogTests
     }
 
     [Fact]
+    public void TransactionsTab_ShowsWhereEachRowCameFrom()
+    {
+        var manifest = new FinanceModule().Manifest;
+
+        // AI-originated rows must be visibly tagged in the ledger the household actually
+        // reads (issue #49): the generic tab renders whatever the manifest declares, so the
+        // origin column disappearing here would silently remove the disclosure.
+        var transactions = manifest.Tabs.Single(t => t.Id == "transactions");
+        Assert.Contains(transactions.Columns, c => c.Field == "source");
+    }
+
+    [Fact]
     public void StarterCategories_AreUniqueAndNonEmpty()
     {
         Assert.NotEmpty(FinanceCatalog.StarterCategories);

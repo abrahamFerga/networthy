@@ -60,9 +60,11 @@ public sealed class FullJourneyTests(IntegrationFixture fixture)
         var netWorth = await accounts.GetNetWorth();
         Assert.Contains("USD", netWorth);
 
-        // 6. The activity log tells the story with sources.
+        // 6. The activity log tells the story with sources. The journey's transactions were
+        // logged through the chat tool, so they carry the AI-origin tag (issue #49), not
+        // "manual" — that word now belongs to the form endpoints alone.
         var activity = await services.GetRequiredService<ApprovalSurfaceTools>().GetActivityLog();
-        Assert.Contains("transaction (manual)", activity);
+        Assert.Contains("transaction (assistant)", activity);
         Assert.Contains("account created", activity);
         Assert.Contains("budget set", activity);
     }

@@ -11,6 +11,42 @@ public sealed class FinanceToolSource : IModuleToolSource
 {
     public string ModuleId => FinanceModule.Id;
 
+    // ── Approval-risk tiers (issue #49) ─────────────────────────────────────────────
+    // Risk is review-surface ceremony, never a gate: every RequiresApproval tool still
+    // blocks for a human either way. Uniform ceremony trains reviewers to rubber-stamp,
+    // so a tool is Low ONLY when its action can be undone by one equally-small action
+    // and cannot move money, delete records, or change what the household owes/owns.
+    // Anything structural, bulk, or ledger-rewriting keeps the High default (nothing
+    // downgrades silently). Per-tool decisions, guard-tested in RiskTierAndDisclosureTests:
+    //   categorize_transaction  LOW  — retags ONE transaction's category; the exact
+    //                                  correction is one more categorize call; balances
+    //                                  and the ledger never move.
+    //   contribute_to_goal      LOW  — a bookkeeping marker on one unlinked goal, never
+    //                                  a transaction; the tool itself accepts negative
+    //                                  corrections, so the undo is the same-sized call.
+    //   set_exchange_rate       LOW  — upserts the household's own conversion lens for
+    //                                  net-worth combination; re-setting the previous
+    //                                  rate (kept in the audit diff) restores it exactly.
+    //   create_account          HIGH — creates a structural record; changes what the
+    //                                  household owns/owes.
+    //   edit_transaction        HIGH — rewrites ledger fact (amount moves the account
+    //                                  balance), not just a tag.
+    //   set_budget              HIGH — a budget change is exactly the consequential
+    //                                  write the issue's full review card is for.
+    //   set_account_visibility  HIGH — standing privacy configuration: changes which
+    //                                  members can see an account.
+    //   import_statement        HIGH — admits an external batch into the review
+    //                                  pipeline; the start of a bulk operation.
+    //   approve_import_batch    HIGH — posts N lines as transactions and moves the
+    //                                  balance; bulk by definition.
+    //   set_goal                HIGH — creates/updates goal structure (target, date,
+    //                                  account link, assumed return).
+    //   update_account_terms    HIGH — changes debt terms (APR, minimum): what the
+    //                                  household owes per month.
+    //   set_income_source       HIGH — standing income configuration; drives goal
+    //                                  plans and cash-flow verdicts.
+    //   update_household_settings HIGH — currency/time-zone/thresholds recolor every
+    //                                  read in the product.
     public IReadOnlyList<ModuleTool> GetTools(IServiceProvider scopedServices)
     {
         var accounts = scopedServices.GetRequiredService<AccountTools>();
@@ -66,6 +102,8 @@ public sealed class FinanceToolSource : IModuleToolSource
                 Permission = Permissions.ForTool(ModuleId, "categorize_transaction"),
                 Function = AIFunctionFactory.Create(transactions.CategorizeTransaction, name: "categorize_transaction"),
                 RequiresApproval = true,
+                Risk = ApprovalRisk.Low, // one tag on one row; the undo is one more categorize call
+
             },
             new ModuleTool
             {
@@ -171,6 +209,8 @@ public sealed class FinanceToolSource : IModuleToolSource
                 Permission = Permissions.ForTool(ModuleId, "contribute_to_goal"),
                 Function = AIFunctionFactory.Create(goals.ContributeToGoal, name: "contribute_to_goal"),
                 RequiresApproval = true,
+                Risk = ApprovalRisk.Low, // a marker, never a transaction; negative corrections are the built-in undo
+
             },
             new ModuleTool
             {
@@ -245,6 +285,8 @@ public sealed class FinanceToolSource : IModuleToolSource
                 Permission = Permissions.ForTool(ModuleId, "set_exchange_rate"),
                 Function = AIFunctionFactory.Create(settings.SetExchangeRate, name: "set_exchange_rate"),
                 RequiresApproval = true,
+                Risk = ApprovalRisk.Low, // a display lens, not money; re-setting the audited old rate restores it exactly
+
             },
             new ModuleTool
             {
