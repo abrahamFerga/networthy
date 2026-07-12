@@ -32,7 +32,13 @@ public sealed class Transaction : TenantEntityBase
     /// <summary>income | expense.</summary>
     public required string Direction { get; set; }
 
-    /// <summary>upload | plaid | manual — where this transaction came from.</summary>
+    /// <summary>
+    /// manual | assistant | upload | plaid — where this transaction came from. "manual" is a
+    /// human typing into a form; "assistant" is any chat-tool write (the model chose the
+    /// arguments, so the AI origin must stay visible — issue #49); "upload" is a line born
+    /// from a human-approved statement batch; "plaid" is bank sync (its dedup filters on the
+    /// value). Rows written before the "assistant" value existed keep "manual".
+    /// </summary>
     public required string Source { get; set; }
 
     public Guid? CreatedByUserId { get; set; }

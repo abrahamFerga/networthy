@@ -68,7 +68,7 @@ public sealed class FinanceDbContext(
             b.Property(x => x.CurrencyCode).HasMaxLength(3).IsRequired();
             b.Property(x => x.Description).HasMaxLength(500).IsRequired();
             b.Property(x => x.Direction).HasMaxLength(8).IsRequired();
-            b.Property(x => x.Source).HasMaxLength(8).IsRequired();
+            b.Property(x => x.Source).HasMaxLength(16).IsRequired(); // "assistant" outgrew the original 8
             b.HasIndex(x => new { x.TenantId, x.OccurredOn });
             b.HasIndex(x => x.AccountId);
             b.HasIndex(x => x.CategoryId);
