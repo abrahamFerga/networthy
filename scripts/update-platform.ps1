@@ -7,13 +7,12 @@
 # What it does:
 #  1. Downloads every Cortex.*.nupkg from the release into .packages/ (removing the old version)
 #     and bumps the Version="…" references in src/**.csproj.
-#  2. With -WithUi: downloads cortex-ui-app.zip / cortex-admin-ui.zip into
-#     src/Networthy.Host/wwwroot/{app,admin}. These bundles resolve the product name at RUNTIME
-#     (Branding:ProductName — already "Networthy" in appsettings.json). The alternative,
-#     scripts/build-ui.ps1, builds from a Cortex checkout and BAKES the brand (including the
-#     static <title>); use that when you want no unbranded first paint or you're changing the
-#     frontend itself.
-#  3. Prints the follow-ups: restore, test, update .gitignore's version pin, commit.
+#  2. Downloads the @cortex/ui library tarball (cortex-ui-<version>.tgz) into .packages/ and
+#     points frontend/networthy-ui's dependency at it — the app bundle then rebuilds from the
+#     vendored library via scripts/build-ui.ps1, no Cortex checkout needed (ADR-0008).
+#  3. With -WithUi: downloads cortex-admin-ui.zip into src/Networthy.Host/wwwroot/admin (the
+#     admin console stays prebuilt; the APP bundle is always Networthy's own build).
+#  4. Prints the follow-ups: rebuild UI, restore, test, update .gitignore's pin, commit.
 #
 # Both .packages/ and wwwroot/ stay COMMITTED — a bare clone remains the whole product.
 
@@ -48,6 +47,24 @@ foreach ($p in $packages) {
     Write-Host "  + $file"
 }
 
+# The @cortex/ui LIBRARY tarball — frontend/networthy-ui's build input (ADR-0008), vendored like
+# the nupkgs so building the app bundle needs no Cortex checkout. The dev harness still prefers a
+# checkout's source when one sits next to this repo (vite.config.ts aliases it for live env/HMR).
+$oldTgz = Get-ChildItem $feed -Filter "cortex-ui-*.tgz" | Where-Object { $_.Name -ne "cortex-ui-$Version.tgz" }
+$oldTgz | Remove-Item -Force -Confirm:$false
+$tgz = "cortex-ui-$Version.tgz"
+Invoke-WebRequest "$base/$tgz" -OutFile (Join-Path $feed $tgz) -UseBasicParsing
+Write-Host "  + $tgz"
+
+# Point networthy-ui's dependency at the vendored tarball (the path encodes the version).
+$pkgJsonPath = Join-Path $repoRoot "frontend\networthy-ui\package.json"
+$pkgJson = Get-Content $pkgJsonPath -Raw
+$updatedPkg = $pkgJson -replace '("@cortex/ui":\s*")[^"]+(")', "`${1}file:../../.packages/$tgz`${2}"
+if ($updatedPkg -ne $pkgJson) {
+    Set-Content $pkgJsonPath $updatedPkg -NoNewline
+    Write-Host "  ~ networthy-ui package.json -> $tgz"
+}
+
 # Bump the pinned versions in the project files.
 $csprojs = Get-ChildItem (Join-Path $repoRoot "src") -Recurse -Filter *.csproj
 foreach ($proj in $csprojs) {
@@ -80,5 +97,6 @@ if ($WithUi) {
 
 Write-Host "`nNext:" -ForegroundColor Green
 Write-Host "  1. Update the version pin in .gitignore's '!.packages/*$Version*' negation line."
-Write-Host "  2. dotnet restore Networthy.slnx && dotnet test Networthy.slnx"
-Write-Host "  3. Commit .packages/, the csproj bumps$(if ($WithUi) { ', and wwwroot/' } else { '' })."
+Write-Host "  2. ./scripts/build-ui.ps1   (rebuilds the embedded app from the new @cortex/ui tarball)"
+Write-Host "  3. dotnet restore Networthy.slnx && dotnet test Networthy.slnx"
+Write-Host "  4. Commit .packages/, the csproj bumps, frontend/networthy-ui$(if ($WithUi) { ', and wwwroot/' } else { ', and wwwroot/app' })."
