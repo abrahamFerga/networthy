@@ -35,6 +35,38 @@ public sealed class FinanceModule : IModule
     /// directly, so no AI approval gate applies — RBAC is the gate.</summary>
     public const string ManageFinance = "finance.manage";
 
+    /// <summary>
+    /// ISO 4217 codes for the settings/onboarding currency pickers, derived from the runtime's
+    /// culture data (every specific culture's circulating currency) rather than a hand-maintained
+    /// table — free text here produced typos that silently excluded accounts from every
+    /// household-currency-scoped read (net worth, safe-to-spend, charts).
+    /// </summary>
+    internal static readonly string[] CurrencyCodes =
+        System.Globalization.CultureInfo.GetCultures(System.Globalization.CultureTypes.SpecificCultures)
+            .Select(c =>
+            {
+                try { return new System.Globalization.RegionInfo(c.Name).ISOCurrencySymbol; }
+                catch (ArgumentException) { return null; } // cultures with no region data
+            })
+            .Where(s => s is { Length: 3 } && s.All(char.IsAsciiLetterUpper))
+            .Distinct()
+            .Order()
+            .ToArray()!;
+
+    /// <summary>
+    /// IANA time-zone ids for the settings/onboarding pickers. The runtime enumerates its own
+    /// zone database; on Windows hosts the Windows ids convert to their primary IANA equivalent
+    /// so the stored value is IANA everywhere (what <c>HouseholdSettings.Today()</c> resolves).
+    /// </summary>
+    internal static readonly string[] TimeZoneIds =
+        TimeZoneInfo.GetSystemTimeZones()
+            .Select(tz => tz.HasIanaId ? tz.Id
+                : TimeZoneInfo.TryConvertWindowsIdToIanaId(tz.Id, out var iana) ? iana : null)
+            .Where(id => id is not null)
+            .Distinct()
+            .Order()
+            .ToArray()!;
+
     public ModuleManifest Manifest { get; } = new()
     {
         Id = Id,
@@ -328,8 +360,8 @@ public sealed class FinanceModule : IModule
                     Endpoint = "/api/finance/settings",
                     Fields =
                     [
-                        new("defaultCurrencyCode", "Default currency (ISO, e.g. MXN or USD)"),
-                        new("timeZoneId", "Time zone (IANA id, e.g. America/Mexico_City; empty = UTC)", Required: false),
+                        new("defaultCurrencyCode", "Default currency", Options: CurrencyCodes),
+                        new("timeZoneId", "Time zone (leave unchosen for UTC)", Required: false, Options: TimeZoneIds),
                     ],
                 },
                 new OnboardingStep
@@ -671,8 +703,8 @@ public sealed class FinanceModule : IModule
                     Permission = ManageFinance,
                     Fields =
                     [
-                        new("defaultCurrencyCode", "Default currency (ISO, e.g. MXN)"),
-                        new("timeZoneId", "Time zone (IANA id, e.g. America/Mexico_City; empty = UTC)", Required: false),
+                        new("defaultCurrencyCode", "Default currency", Options: CurrencyCodes),
+                        new("timeZoneId", "Time zone (leave unchosen for UTC)", Required: false, Options: TimeZoneIds),
                         new("billReminderLeadDays", "Bill reminder lead (days, 0-14)", Required: false, Numeric: true),
                         new("emergencyFundFloorMonths", "Emergency-fund floor (months, 0-24)", Required: false, Numeric: true),
                         new("highAprThresholdPercent", "High-APR threshold (%, 0-100)", Required: false, Numeric: true),

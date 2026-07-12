@@ -30,6 +30,33 @@ public sealed class PlatformSurfaceTests(IntegrationFixture fixture)
     }
 
     [Fact]
+    public async Task Settings_OffersCurrencyAndTimeZonePickers_AndRejectsJunkCurrency()
+    {
+        using var client = fixture.AdminClient();
+        var modules = await client.GetFromJsonAsync<JsonElement>("/api/platform/modules");
+        var finance = modules.EnumerateArray().Single(m => m.GetProperty("id").GetString() == "finance");
+        var settings = finance.GetProperty("tabs").EnumerateArray()
+            .Single(t => t.GetProperty("id").GetString() == "settings");
+        var fields = settings.GetProperty("editor").GetProperty("fields").EnumerateArray().ToList();
+
+        // Free text here produced typos that silently excluded accounts from every
+        // household-currency-scoped read — both fields now ship a picker vocabulary.
+        var currency = fields.Single(f => f.GetProperty("field").GetString() == "defaultCurrencyCode");
+        var currencyOptions = currency.GetProperty("options").EnumerateArray().Select(o => o.GetString()).ToList();
+        Assert.Contains("MXN", currencyOptions);
+        Assert.Contains("USD", currencyOptions);
+
+        var timeZone = fields.Single(f => f.GetProperty("field").GetString() == "timeZoneId");
+        var zoneOptions = timeZone.GetProperty("options").EnumerateArray().Select(o => o.GetString()).ToList();
+        Assert.Contains("America/Mexico_City", zoneOptions);
+        Assert.False(timeZone.GetProperty("required").GetBoolean()); // unchosen = UTC
+
+        // The endpoint enforces the same vocabulary — a picker alone wouldn't stop the API path.
+        var junk = await client.PostAsJsonAsync("/api/finance/settings", new { defaultCurrencyCode = "ZZZ" });
+        Assert.Equal(HttpStatusCode.BadRequest, junk.StatusCode);
+    }
+
+    [Fact]
     public async Task Overview_ComposesTheDashboardPayload_InOneRead()
     {
         using var client = fixture.AdminClient();
