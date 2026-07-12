@@ -34,11 +34,8 @@ no way to accidentally expose the unauthenticated mode as a "production" deploym
 ## AI assistant
 
 The assistant works out of the box with the keyless Mock provider (deterministic, offline —
-great for trying the product). For a real model, bring your own key; it never leaves your box:
-
-```bash
-AI_PROVIDER=OpenAI AI_MODEL=gpt-4o-mini AI_API_KEY=sk-... docker compose up -d
-```
+great for trying the product). For a real model, start Networthy and configure the tenant's
+provider/model/key under **Admin → AI Settings**. The key is stored write-only in the secret vault.
 
 Supported providers: OpenAI, AzureOpenAI, Ollama (fully local — pair a local model with
 self-hosting for a zero-cloud setup), and Mock.
