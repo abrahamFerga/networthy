@@ -13,8 +13,8 @@
 #   NETWORTHY_ENVIRONMENT=Production AUTH_AUTHORITY=https://<idp> AUTH_AUDIENCE=<aud> \
 #     docker compose up -d
 #
-# To use a real AI model instead of the Mock provider:
-#   AI_PROVIDER=OpenAI AI_MODEL=gpt-4o-mini AI_API_KEY=sk-... docker compose up -d
+# To use a commercial AI model, start the stack and configure the tenant's provider/model/key
+# under Admin → AI Settings. The key is stored write-only in Cortex's secret vault.
 
 services:
   db:
@@ -48,7 +48,6 @@ services:
       # AI provider (default: the dependency-free Mock — no key, works offline).
       Ai__Provider: ${AI_PROVIDER:-Mock}
       Ai__Model: ${AI_MODEL:-gpt-4o-mini}
-      Ai__ApiKey: ${AI_API_KEY:-}
       # Real-auth mode (Production): any OIDC JWT issuer.
       Auth__Authority: ${AUTH_AUTHORITY:-}
       Auth__Audience: ${AUTH_AUDIENCE:-}

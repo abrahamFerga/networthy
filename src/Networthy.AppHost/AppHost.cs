@@ -31,12 +31,10 @@ var auditDb = postgres.AddDatabase("cortex-audit");
 
 var redis = builder.AddRedis("cortex-redis");
 
-// AI + embedding providers stay parameters so a real model is a user-secret away:
-//   dotnet user-secrets --project src/Networthy.AppHost set "Parameters:ai-provider" "OpenAI"
-//   dotnet user-secrets --project src/Networthy.AppHost set "Parameters:ai-api-key"  "sk-..."
+// Deployment defaults stay keyless. Commercial provider credentials are configured per tenant
+// under Admin → AI Settings and stored write-only in Cortex's secret vault.
 var aiProvider = builder.AddParameter("ai-provider", "Mock", publishValueAsDefault: true);
 var aiModel = builder.AddParameter("ai-model", "gpt-4o-mini", publishValueAsDefault: true);
-var aiApiKey = builder.AddParameter("ai-api-key", "", secret: true);
 
 var api = builder.AddProject<Projects.Networthy_Host>("networthy-api")
     .WithReference(platformDb)
@@ -46,7 +44,6 @@ var api = builder.AddProject<Projects.Networthy_Host>("networthy-api")
     .WaitFor(auditDb)
     .WithEnvironment("Ai__Provider", aiProvider)
     .WithEnvironment("Ai__Model", aiModel)
-    .WithEnvironment("Ai__ApiKey", aiApiKey)
     .WithExternalHttpEndpoints();
 
 // ── Front-ends (Vite dev servers; the workspace is THIS repo's entry, not the stock shell) ──
