@@ -60,7 +60,11 @@ public sealed class HouseholdSettingsTools(
             return "highAprThresholdPercent must be between 0 and 100.";
         }
 
-        if (defaultCurrency is not null && defaultCurrency.Trim().Length != 3)
+        // Membership in the real ISO set, not just "3 letters" — a typo'd code stored here would
+        // silently exclude every account from the household-currency-scoped reads (net worth,
+        // safe-to-spend, charts). Same list the Settings/onboarding pickers offer.
+        if (defaultCurrency is not null &&
+            !FinanceModule.CurrencyCodes.Contains(defaultCurrency.Trim().ToUpperInvariant()))
         {
             return $"'{defaultCurrency}' is not an ISO currency code (e.g. USD, MXN, EUR).";
         }
