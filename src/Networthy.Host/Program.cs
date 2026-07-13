@@ -81,15 +81,18 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 }
 
-// Defense-in-depth for both embedded SPAs and every API response. The only inline script is
-// the identical, static theme bootstrap in the app/admin index pages; its SHA-256 hash is pinned
-// below so arbitrary inline script remains blocked.
+// Defense-in-depth for both embedded SPAs and every API response. The only inline script is the
+// static theme bootstrap in the app/admin index pages — logically identical, but the two SPAs ship
+// it from different HTML templates whose surrounding whitespace differs, so each page's script has
+// its own SHA-256. Both hashes are pinned below (app first, admin second) so arbitrary inline
+// script remains blocked. Re-pin these whenever scripts/build-ui.ps1 regenerates the index pages.
 app.Use(async (context, next) =>
 {
     var headers = context.Response.Headers;
     headers["Content-Security-Policy"] =
         "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; " +
-        "form-action 'self'; script-src 'self' 'sha256-XR26kU4TYAbwaRhWo9VIyJsEayScsVuLKJRfQiNyr6s='; " +
+        "form-action 'self'; script-src 'self' 'sha256-XR26kU4TYAbwaRhWo9VIyJsEayScsVuLKJRfQiNyr6s=' " +
+        "'sha256-cD2NZltQ435u82khslaWhtD4Ann5DZzrzni8XUm0KG0='; " +
         "style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'";
     headers["X-Content-Type-Options"] = "nosniff";
     headers["X-Frame-Options"] = "DENY";

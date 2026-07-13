@@ -12,7 +12,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Cortex.AspNetCore" Version="0.1.0-alpha.21" />
+    <PackageReference Include="Cortex.AspNetCore" Version="0.1.0-alpha.22" />
   </ItemGroup>
 
   <ItemGroup>
