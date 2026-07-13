@@ -11,26 +11,55 @@ permissions:
   contents: read
 
 # Networthy is a thin host + finance module on Cortex platform packages, restored from the
-# committed .packages feed (current version only) — CI is hermetic until the platform
-# publishes to a real feed. The UI ships from the Cortex packages, so there is no SPA to
-# build here, and dedicated-environment Terraform lives in the Cortex repo.
+# committed .packages feed (current version only). The branded frontend is also checked from
+# its locked source dependencies so vulnerable build tooling cannot silently return.
 jobs:
   build:
     name: Build & test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Setup .NET 10
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: '10.0.x'
 
       - name: Restore
         run: dotnet restore Networthy.slnx
 
+      - name: Audit .NET dependencies
+        run: |
+          report="$(dotnet list Networthy.slnx package --vulnerable --include-transitive --format json)"
+          echo "$report"
+          if echo "$report" | jq -e '[.. | objects | .vulnerabilities? // empty] | any(length > 0)' >/dev/null; then
+            echo "Vulnerable .NET packages detected."
+            exit 1
+          fi
+
       - name: Build (Release)
         run: dotnet build Networthy.slnx -c Release --no-restore
 
       - name: Test
         run: dotnet test Networthy.slnx -c Release --no-build --verbosity normal
+
+      - name: Setup pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.9.0 --activate
+
+      - name: Install frontend dependencies
+        working-directory: frontend/networthy-ui
+        run: pnpm install --frozen-lockfile
+
+      - name: Audit frontend dependencies
+        working-directory: frontend/networthy-ui
+        run: pnpm audit --audit-level=moderate
+
+      - name: Test frontend
+        working-directory: frontend/networthy-ui
+        run: pnpm test
+
+      - name: Build frontend
+        working-directory: frontend/networthy-ui
+        run: pnpm build

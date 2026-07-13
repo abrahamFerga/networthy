@@ -3,3 +3,9 @@
 # same policy as the Cortex frontend workspace.
 allowBuilds:
   esbuild: true
+
+# Keep transitive test-runner copies on patched builds too. Vitest accepts Vite 6 but pnpm can
+# otherwise retain an older compatible Vite 5 snapshot from the previous lockfile.
+overrides:
+  vite: 6.4.3
+  esbuild: 0.25.12

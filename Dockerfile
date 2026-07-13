@@ -21,6 +21,11 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
 EXPOSE 8080
 ENV ASPNETCORE_HTTP_PORTS=8080
+# Pull in security updates that may land between Microsoft base-image refreshes. No package
+# manager metadata remains in the shipped layer.
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && rm -rf /var/lib/apt/lists/*
 # Run as the built-in non-root user provided by the aspnet image.
 USER $APP_UID
 COPY --from=build /app/publish .

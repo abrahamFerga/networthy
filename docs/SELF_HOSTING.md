@@ -12,10 +12,10 @@ docker compose up -d
 # open http://localhost:8080  (admin console at /admin)
 ```
 
-That pulls `ghcr.io/abrahamferga/networthy` (no registry account needed — multi-arch, so x86
-servers and ARM boxes like a Raspberry Pi both work) plus a
-pgvector-enabled Postgres with a persistent volume. First start runs the database migrations
-and seeds the starter category taxonomy.
+That pulls `ghcr.io/abrahamferga/networthy` and its security-updated
+`ghcr.io/abrahamferga/networthy-postgres` companion (no registry account needed — both are
+multi-arch, so x86 servers and ARM boxes like a Raspberry Pi work) with a persistent database
+volume. First start runs the database migrations and seeds the starter category taxonomy.
 
 Building from source instead: clone the repo and `docker compose up -d --build`.
 
@@ -23,13 +23,19 @@ Building from source instead: clone the repo and `docker compose up -d --build`.
 
 | | Personal (default) | Secured |
 |---|---|---|
-| Audience | One household on a trusted home network | Anything reachable from the internet |
+| Audience | One household on the Docker host | Anything reachable from a LAN or the internet |
 | Sign-in | Built-in household identity (no IdP) | Your OIDC provider (JWT bearer) |
 | Setting | `ASPNETCORE_ENVIRONMENT=Development` (compose default) | `NETWORTHY_ENVIRONMENT=Production` + `AUTH_AUTHORITY` + `AUTH_AUDIENCE` |
 
-**Personal mode is not authentication.** It exists so a household can be up in one command on
-a LAN. The host **refuses to start** in Production without a real identity provider — there is
-no way to accidentally expose the unauthenticated mode as a "production" deployment.
+**Personal mode is not authentication.** The compose file therefore binds it to `127.0.0.1`
+by default. The host **refuses to start** in Production without a real identity provider.
+For a secured LAN or internet deployment, opt in to a non-loopback binding as well as OIDC:
+
+```bash
+NETWORTHY_ENVIRONMENT=Production NETWORTHY_BIND_ADDRESS=0.0.0.0 \
+  ALLOWED_HOSTS=finance.example.com AUTH_AUTHORITY=https://<idp> \
+  AUTH_AUDIENCE=<audience> docker compose up -d
+```
 
 ## AI assistant
 
@@ -62,6 +68,8 @@ plus `FILES_AZURE_CONNECTION` at a storage account to keep them in Azure Blob in
 - **Pin a version**: `NETWORTHY_VERSION=0.2.0 docker compose up -d` (releases are tagged).
 - **Back up**: the `networthy-data` volume is the entire state; `pg_dump` works as usual.
 - **Change the port**: `NETWORTHY_PORT=9090 docker compose up -d`.
+- **Listen beyond localhost**: set `NETWORTHY_BIND_ADDRESS=0.0.0.0` only with secured
+  Production mode, `ALLOWED_HOSTS`, and OIDC configured as above.
 - **Postgres password**: `POSTGRES_PASSWORD=... docker compose up -d` (set before first start).
 
 ## Why there's also a paid option
