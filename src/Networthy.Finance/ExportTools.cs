@@ -224,7 +224,9 @@ public sealed class ExportTools(
             ]));
         }
 
-        foreach (var b in await db.ImportBatches.Where(b => b.CreatedAt >= since).ToListAsync(cancellationToken))
+        foreach (var b in await db.ImportBatches
+                     .Where(b => b.CreatedAt >= since && visible.Contains(b.AccountId))
+                     .ToListAsync(cancellationToken))
         {
             events.Add((b.CreatedAt,
             [
@@ -280,12 +282,19 @@ public static class ExportMath
         DateOnly Date, string Account, string Category, string Direction,
         decimal Amount, string Currency, string Description);
 
-    /// <summary>RFC-4180 escaping: fields containing commas, quotes, or newlines are quoted,
-    /// with embedded quotes doubled. Everything else passes through untouched.</summary>
-    public static string EscapeCsvField(string field) =>
-        field.Contains(',') || field.Contains('"') || field.Contains('\n') || field.Contains('\r')
-            ? $"\"{field.Replace("\"", "\"\"")}\""
+    /// <summary>Spreadsheet-safe RFC-4180 escaping. User-controlled values that could be
+    /// interpreted as formulas are prefixed with an apostrophe before normal CSV quoting.</summary>
+    public static string EscapeCsvField(string field)
+    {
+        var firstNonSpace = field.AsSpan().TrimStart(' ');
+        var safe = firstNonSpace.Length > 0 && firstNonSpace[0] is '=' or '+' or '-' or '@' or '\t' or '\r' or '\n'
+            ? $"'{field}"
             : field;
+
+        return safe.Contains(',') || safe.Contains('"') || safe.Contains('\n') || safe.Contains('\r')
+            ? $"\"{safe.Replace("\"", "\"\"")}\""
+            : safe;
+    }
 
     /// <summary>A complete CSV document: header line, then one line per row, every field escaped.</summary>
     public static string BuildCsv(IReadOnlyList<string> header, IEnumerable<IReadOnlyList<string>> rows)

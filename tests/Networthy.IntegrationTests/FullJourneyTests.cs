@@ -8,7 +8,7 @@ namespace Networthy.IntegrationTests;
 
 /// <summary>
 /// The household's whole journey, end to end against real Postgres: accounts → transactions →
-/// budgets (with the OVER flag) → affordability → net-worth snapshot + trend → activity log.
+/// budgets (with the OVER flag) → affordability → net-worth snapshot + current total → activity log.
 /// Tool methods are invoked as the platform's approval pipeline invokes them post-approval;
 /// the gate mechanism itself is exercised in ChatAndApprovalTests.
 /// </summary>
@@ -54,7 +54,8 @@ public sealed class FullJourneyTests(IntegrationFixture fixture)
         Assert.Contains("liquid", verdict);
         Assert.Contains("No —", await affordability.CanIAfford(1_000_000));
 
-        // 5. Net worth: snapshot sweep writes today's rows; trend reads back.
+        // 5. Net worth: snapshot sweep writes today's admin rows; the member-safe tool reads
+        // the current total from only the caller-visible accounts.
         var written = await NetWorthSnapshotService.SweepOnceAsync(services);
         Assert.True(written >= 1);
         var netWorth = await accounts.GetNetWorth();
@@ -77,16 +78,43 @@ public sealed class FullJourneyTests(IntegrationFixture fixture)
         var services = scope.ServiceProvider;
         var db = services.GetRequiredService<FinanceDbContext>();
 
-        db.Accounts.Add(new Account
+        var privateAccount = new Account
         {
-            TenantId = tenantId, Name = "Private stash", Type = "cash", CurrencyCode = "USD",
-            CachedBalance = 500, RestrictedToUserId = ownerId,
-        });
-        db.Accounts.Add(new Account
+            TenantId = tenantId,
+            Name = "Private stash",
+            Type = "cash",
+            CurrencyCode = "USD",
+            CachedBalance = 500,
+            RestrictedToUserId = ownerId,
+        };
+        var sharedAccount = new Account
         {
-            TenantId = tenantId, Name = "Shared savings", Type = "savings", CurrencyCode = "USD",
+            TenantId = tenantId,
+            Name = "Shared savings",
+            Type = "savings",
+            CurrencyCode = "USD",
             CachedBalance = 1000,
-        });
+        };
+        db.Accounts.AddRange(privateAccount, sharedAccount);
+        db.ImportBatches.AddRange(
+            new StatementImportBatch
+            {
+                TenantId = tenantId,
+                AccountId = privateAccount.Id,
+                SourceFileId = Guid.NewGuid(),
+                FileName = "private-statement.csv",
+                Status = "parsed",
+                ExtractedLinesJson = "[]",
+            },
+            new StatementImportBatch
+            {
+                TenantId = tenantId,
+                AccountId = sharedAccount.Id,
+                SourceFileId = Guid.NewGuid(),
+                FileName = "shared-statement.csv",
+                Status = "parsed",
+                ExtractedLinesJson = "[]",
+            });
         await db.SaveChangesAsync();
 
         // The owner sees both…
@@ -100,5 +128,11 @@ public sealed class FullJourneyTests(IntegrationFixture fixture)
         var theirs = await services.GetRequiredService<AccountTools>().ListAccounts();
         Assert.DoesNotContain("Private stash", theirs);
         Assert.Contains("Shared savings", theirs);
+
+        // Pending-import metadata follows the same visibility rule; otherwise a filename and
+        // failure details could disclose the existence of another member's private account.
+        var theirImports = await services.GetRequiredService<StatementImportTools>().ListImportBatches();
+        Assert.DoesNotContain("private-statement.csv", theirImports);
+        Assert.Contains("shared-statement.csv", theirImports);
     }
 }

@@ -107,8 +107,14 @@ public sealed class GoalsAndReviewTests(IntegrationFixture fixture)
         member.DefaultRequestHeaders.Add("X-Dev-Tenant", "dev");
         member.DefaultRequestHeaders.Add("X-Dev-Roles", "household-member");
 
-        var approve = await member.PostAsync("/api/finance/imports/latest/approve", null);
-        Assert.Equal(HttpStatusCode.Forbidden, approve.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await member.GetAsync("/api/finance/imports/batches")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await member.GetAsync("/api/finance/imports/latest/lines")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await member.PostAsync("/api/finance/imports/latest/approve", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await member.GetAsync("/api/finance/net-worth/history")).StatusCode);
     }
 
     [Fact]

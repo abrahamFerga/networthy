@@ -14,6 +14,18 @@ namespace Networthy.IntegrationTests;
 public sealed class PlatformSurfaceTests(IntegrationFixture fixture)
 {
     [Fact]
+    public async Task ForgedHostHeader_IsRejected()
+    {
+        using var client = fixture.Factory.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/alive");
+        request.Headers.Host = "attacker.example";
+
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
     public async Task Platform_ServesTheFinanceModule_WithItsTabs()
     {
         using var client = fixture.AdminClient();
@@ -150,8 +162,19 @@ public sealed class PlatformSurfaceTests(IntegrationFixture fixture)
         // The embedded SPA (scripts/build-ui.ps1) serves from the host itself — same origin as
         // the API, no registry, branded at build time.
         using var client = fixture.Factory.CreateClient();
-        var html = await client.GetStringAsync("/");
+        var response = await client.GetAsync("/");
+        response.EnsureSuccessStatusCode();
+        var html = await response.Content.ReadAsStringAsync();
         Assert.Contains("<title>Networthy</title>", html);
+        Assert.Equal("nosniff", response.Headers.GetValues("X-Content-Type-Options").Single());
+        Assert.Equal("DENY", response.Headers.GetValues("X-Frame-Options").Single());
+        Assert.Contains("frame-ancestors 'none'",
+            response.Headers.GetValues("Content-Security-Policy").Single());
+
+        using var admin = fixture.AdminClient();
+        var api = await admin.GetAsync("/api/platform/modules");
+        api.EnsureSuccessStatusCode();
+        Assert.Contains("no-store", api.Headers.CacheControl!.ToString());
     }
 
     private HttpClient ClientFor(string role)

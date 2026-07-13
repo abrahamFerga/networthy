@@ -154,7 +154,7 @@ public sealed class AccountTools(
         return sb.ToString();
     }
 
-    [Description("The household's net worth: every visible account summed per currency, with the recent trend when snapshots exist.")]
+    [Description("The household's current net worth: every account visible to the caller, summed per currency.")]
     public async Task<string> GetNetWorth(CancellationToken cancellationToken = default)
     {
         var accounts = (await db.Accounts.ToListAsync(cancellationToken))
@@ -193,24 +193,6 @@ public sealed class AccountTools(
                 sb.AppendLine(
                     $"Not combined: {unconvertedTotal:N2} {unconvertedCurrency} — no saved rate " +
                     $"(set_exchange_rate {unconvertedCurrency} to include it).");
-            }
-        }
-
-        var since = (await household.TodayAsync(cancellationToken)).AddDays(-30);
-        var snapshots = await db.NetWorthSnapshots
-            .Where(s => s.TakenOn >= since)
-            .OrderBy(s => s.TakenOn)
-            .ToListAsync(cancellationToken);
-        if (snapshots.Count > 0)
-        {
-            foreach (var group in snapshots.GroupBy(s => s.CurrencyCode))
-            {
-                var first = group.First();
-                var last = group.Last();
-                var delta = last.NetWorth - first.NetWorth;
-                sb.AppendLine(
-                    $"Trend ({group.Key}, since {first.TakenOn:yyyy-MM-dd}): " +
-                    $"{(delta >= 0 ? "+" : "")}{delta:N2}");
             }
         }
 
