@@ -1,0 +1,7 @@
+# Networthy's database image: upstream pgvector/Postgres plus currently available OS security
+# updates. Keeping the official entrypoint preserves its ownership and initialization behavior.
+FROM pgvector/pgvector:pg17-trixie
+
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && rm -rf /var/lib/apt/lists/*

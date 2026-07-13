@@ -34,7 +34,7 @@ public static class SafeToSpendMath
 /// <summary>
 /// The Overview tab's single composed read: one GET, one payload, every figure traceable to the
 /// same queries the individual tabs run (budgets/spent mirrors the budgets tab, the net-worth
-/// series mirrors the trend tab, upcoming bills mirror the recurring tab). Composed server-side
+/// current net worth honors account visibility, upcoming bills mirror the recurring tab). Composed server-side
 /// so the dashboard can't drift from the tabs it summarizes.
 /// </summary>
 internal static class OverviewEndpoint
@@ -64,31 +64,27 @@ internal static class OverviewEndpoint
                     .Where(t => visibleIds.Contains(t.AccountId))
                     .ToList();
                 var budgetRows = budgets.Select(b => new
-                    {
-                        categoryName = categoryNames.GetValueOrDefault(b.CategoryId, "(deleted)"),
-                        spent = monthExpenses
+                {
+                    categoryName = categoryNames.GetValueOrDefault(b.CategoryId, "(deleted)"),
+                    spent = monthExpenses
                             .Where(t => t.CategoryId == b.CategoryId &&
                                         t.CurrencyCode.Equals(b.CurrencyCode, StringComparison.OrdinalIgnoreCase))
                             .Sum(t => t.Amount),
-                        target = b.TargetAmount,
-                        currencyCode = b.CurrencyCode,
-                    })
+                    target = b.TargetAmount,
+                    currencyCode = b.CurrencyCode,
+                })
                     .OrderByDescending(x => x.target)
                     .ToList();
                 var safeToSpend = SafeToSpendMath.Compute(
                     budgetRows.Where(b => b.currencyCode.Equals(currencyCode, StringComparison.OrdinalIgnoreCase))
                         .Select(b => (b.target, b.spent)).ToList());
 
-                // ── Net worth: live total from visible accounts; sparkline from tenant snapshots ──
+                // ── Net worth: live total from visible accounts. Tenant-wide snapshots are
+                // admin-only because their aggregates can include another member's private account. ──
                 var netWorthTotal = accounts
                     .Where(a => a.CurrencyCode.Equals(currencyCode, StringComparison.OrdinalIgnoreCase))
                     .Sum(a => a.CachedBalance);
-                var trend = (await db.NetWorthSnapshots
-                        .Where(s => s.CurrencyCode == currencyCode && s.TakenOn >= today.AddDays(-90))
-                        .OrderBy(s => s.TakenOn)
-                        .ToListAsync(cancellationToken))
-                    .Select(s => s.NetWorth)
-                    .ToList();
+                IReadOnlyList<decimal> trend = [];
 
                 // ── Upcoming bills (same detection the recurring tab runs), soonest first ──
                 var upcoming = (await RecurringTools.DetectAsync(db, currentUser.UserId, today, cancellationToken))

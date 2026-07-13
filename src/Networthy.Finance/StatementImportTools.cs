@@ -114,8 +114,11 @@ public sealed class StatementImportTools(
     [Description("List every import batch that has not been approved yet (file name, when it was imported, status, line count). Read-only — use this to enumerate what's pending when several statements are in flight, then pick one by file name for review_import_batch or approve_import_batch.")]
     public async Task<string> ListImportBatches(CancellationToken cancellationToken = default)
     {
+        var visibleAccountIds = db.Accounts
+            .Where(a => a.RestrictedToUserId == null || a.RestrictedToUserId == currentUser.UserId)
+            .Select(a => a.Id);
         var batches = await db.ImportBatches
-            .Where(b => b.Status != "approved")
+            .Where(b => b.Status != "approved" && visibleAccountIds.Contains(b.AccountId))
             .OrderByDescending(b => b.CreatedAt)
             .Take(50)
             .ToListAsync(cancellationToken);

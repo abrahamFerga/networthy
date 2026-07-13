@@ -4,8 +4,8 @@ namespace Networthy.Finance.Tests;
 
 /// <summary>
 /// The CSV builder is pure so the escaping rules — the part spreadsheet imports live or die
-/// on — are pinned without a database. RFC-4180: quote when a field contains a comma, quote,
-/// or newline; double embedded quotes; touch nothing else.
+/// on — are pinned without a database. RFC-4180 quoting is combined with formula-injection
+/// neutralization because these exports are commonly opened directly in spreadsheet apps.
 /// </summary>
 public sealed class ExportMathTests
 {
@@ -18,6 +18,10 @@ public sealed class ExportMathTests
     [InlineData("line\nbreak", "\"line\nbreak\"")]
     [InlineData("carriage\rreturn", "\"carriage\rreturn\"")]
     [InlineData("\"", "\"\"\"\"")]
+    [InlineData("=1+1", "'=1+1")]
+    [InlineData("+SUM(A1:A2)", "'+SUM(A1:A2)")]
+    [InlineData("  @cmd", "'  @cmd")]
+    [InlineData("\t=1+1", "'\t=1+1")]
     public void EscapeCsvField_QuotesExactlyWhatNeedsQuoting(string field, string expected) =>
         Assert.Equal(expected, ExportMath.EscapeCsvField(field));
 

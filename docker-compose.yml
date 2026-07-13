@@ -5,12 +5,14 @@
 #
 # DEFAULT MODE IS "PERSONAL": ASPNETCORE_ENVIRONMENT=Development enables the built-in
 # household sign-in (no identity provider) and the keyless Mock AI assistant. That is
-# perfect for one household on a trusted home network and NOT protected by real
-# authentication — do not expose this mode to the internet.
+# perfect for one household on the machine running Docker and NOT protected by real
+# authentication. The default port binding is loopback-only so this mode is not exposed
+# to the LAN or internet by accident.
 #
 # To secure an exposed deployment, point it at any OIDC identity provider and flip to
 # Production (auth becomes required; the host refuses to start without it):
-#   NETWORTHY_ENVIRONMENT=Production AUTH_AUTHORITY=https://<idp> AUTH_AUDIENCE=<aud> \
+#   NETWORTHY_ENVIRONMENT=Production NETWORTHY_BIND_ADDRESS=0.0.0.0 \
+#     ALLOWED_HOSTS=finance.example.com AUTH_AUTHORITY=https://<idp> AUTH_AUDIENCE=<aud> \
 #     docker compose up -d
 #
 # To use a commercial AI model, start the stack and configure the tenant's provider/model/key
@@ -19,7 +21,11 @@
 services:
   db:
     # pgvector-enabled Postgres — the platform's RAG migration needs the vector extension.
-    image: pgvector/pgvector:pg17
+    # Networthy's thin wrapper applies OS security updates to the upstream image at release time.
+    image: ghcr.io/abrahamferga/networthy-postgres:${NETWORTHY_VERSION:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile.postgres
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-networthy-local-only}
     volumes:
@@ -37,12 +43,17 @@ services:
       db:
         condition: service_healthy
     ports:
-      - "${NETWORTHY_PORT:-8080}:8080"
+      # Personal mode has no real authentication, so bind only to the local machine by
+      # default. An internet/LAN deployment must opt in and use Production + OIDC.
+      - "${NETWORTHY_BIND_ADDRESS:-127.0.0.1}:${NETWORTHY_PORT:-8080}:8080"
     volumes:
       # Uploaded statements (Local file provider) survive container replacement.
       - networthy-files:/app/data
     environment:
       ASPNETCORE_ENVIRONMENT: ${NETWORTHY_ENVIRONMENT:-Development}
+      # ASP.NET host filtering blocks forged Host headers/DNS rebinding. Set this to the
+      # public hostname (semicolon-separated for several) in a secured deployment.
+      AllowedHosts: ${ALLOWED_HOSTS:-localhost;127.0.0.1}
       ConnectionStrings__cortex-platform: Host=db;Port=5432;Database=cortex_platform;Username=postgres;Password=${POSTGRES_PASSWORD:-networthy-local-only}
       ConnectionStrings__cortex-audit: Host=db;Port=5432;Database=cortex_audit;Username=postgres;Password=${POSTGRES_PASSWORD:-networthy-local-only}
       # AI provider (default: the dependency-free Mock — no key, works offline).
