@@ -1,12 +1,12 @@
 %% C4 Component (L3) — inside Networthy.Host
 graph TB
     subgraph host["Networthy.Host"]
-        subgraph platform["Cortex platform (NuGet packages)"]
-            auth["AuthN/RBAC/Multi-tenancy<br/>(Cortex.AspNetCore, Cortex.Infrastructure)"]
+        subgraph platform["Plenipo platform (NuGet packages)"]
+            auth["AuthN/RBAC/Multi-tenancy<br/>(Plenipo.AspNetCore, Plenipo.Infrastructure)"]
             agentrunner["Authorized agent runner<br/>+ approval gate + audit log"]
             jobqueue["Background job queue<br/>(IJobQueue/IJobHandler)"]
             connectorsdk["Connector SDK<br/>(IConnector, IConnectorSettings)"]
-            domainui_host["UseCortexDomainUi /<br/>UseCortexAdminConsole"]
+            domainui_host["UsePlenipoDomainUi /<br/>UsePlenipoAdminConsole"]
         end
 
         subgraph finance["Networthy.Finance module"]
@@ -14,12 +14,15 @@ graph TB
             txntools["TransactionTools<br/>(categorize, search,<br/>LogOwn quick-capture)"]
             importtools["StatementImportTools<br/>+ StatementParseJobHandler"]
             budgettools["BudgetTools<br/>(targets, spent-vs-budget)"]
-            householdtools["HouseholdTools<br/>(member invite,<br/>visibility scoping)"]
-            approvaltools["ApprovalSurfaceTools<br/>(pending approvals,<br/>AI activity log)"]
+            householdtools["HouseholdTools<br/>(visibility scoping —<br/>member invites are the<br/>platform's Admin→Users UI)"]
+            approvaltools["ApprovalSurfaceTools<br/>(pending approvals,<br/>activity log)"]
+            v1tools["Goal/Health/IncomeSource/<br/>Recurring/HouseholdSettings/<br/>Export/Affordability tools<br/>(Delivered since v1, SPEC.md)"]
+            readmodels["Overview/Spending/CashFlow/<br/>UpcomingBills endpoints<br/>(v2 dashboard reads, ADR-0008)"]
+            manualcrud["ManualCrudEndpoints<br/>(RBAC-gated REST writes,<br/>no approval gate)"]
             financedb[("FinanceDbContext<br/>(EF Core, tenant-filtered)")]
         end
 
-        plaidconnector["PlaidConnector<br/>(Networthy.Connectors.Plaid — this repo,<br/>NOT Networthy.Finance, NOT Cortex core)"]
+        plaidconnector["PlaidConnector<br/>(Networthy.Connectors.Plaid — this repo,<br/>NOT Networthy.Finance, NOT Plenipo core)"]
     end
 
     auth --> finance
@@ -28,12 +31,17 @@ graph TB
     agentrunner --> budgettools
     agentrunner --> householdtools
     agentrunner --> approvaltools
+    agentrunner --> v1tools
     jobqueue --> importtools
     connectorsdk --> plaidconnector
-    plaidconnector -->|synced transactions| txntools
+    plaidconnector -->|pull-only sync,<br/>no inbound webhook yet| txntools
     importtools -->|approved lines| txntools
     accounttools --> financedb
     txntools --> financedb
     budgettools --> financedb
     householdtools --> financedb
+    v1tools --> financedb
+    readmodels --> financedb
+    manualcrud -->|RBAC-gated writes,<br/>human acting directly| financedb
     domainui_host -->|GET reads, tab data endpoints| finance
+    domainui_host -->|POST/DELETE manual CRUD| manualcrud

@@ -12,12 +12,12 @@ importers:
 
   .:
     dependencies:
-      '@cortex/ui':
-        specifier: file:../../.packages/cortex-ui-0.1.0-alpha.20.tgz
-        version: file:../../.packages/cortex-ui-0.1.0-alpha.20.tgz(@microsoft/signalr@8.0.17)(@tanstack/react-query@5.101.2(react@18.3.1))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react-router-dom@6.30.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react@18.3.1)
       '@microsoft/signalr':
         specifier: ^8.0.7
         version: 8.0.17
+      '@plenipo/ui':
+        specifier: 0.1.0-alpha.22
+        version: 0.1.0-alpha.22(@microsoft/signalr@8.0.17)(@tanstack/react-query@5.101.2(react@18.3.1))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react-router-dom@6.30.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react@18.3.1)
       '@tanstack/react-query':
         specifier: ^5.59.16
         version: 5.101.2(react@18.3.1)
@@ -179,16 +179,6 @@ packages:
   '@bramus/specificity@2.4.2':
     resolution: {integrity: sha512-ctxtJ/eA+t+6q2++vj5j7FYX3nRu311q1wfYH3xjlLOsczhlhxAg2FWNUXhpGvAw3BWo1xBcvOV6/YLc2r5FJw==}
     hasBin: true
-
-  '@cortex/ui@file:../../.packages/cortex-ui-0.1.0-alpha.20.tgz':
-    resolution: {integrity: sha512-qyUjRPlg0CdIMKzQlwpK2/NbFEb1TzVkzpRFhG8IUlHluRKI9R3IOhgt7Mx84pUwON+v0bPY67b6LdlhTCiOZw==, tarball: file:../../.packages/cortex-ui-0.1.0-alpha.20.tgz}
-    version: 0.1.0-alpha.20
-    peerDependencies:
-      '@microsoft/signalr': '>=8'
-      '@tanstack/react-query': '>=5'
-      react: '>=18'
-      react-dom: '>=18'
-      react-router-dom: '>=6'
 
   '@csstools/color-helpers@6.1.0':
     resolution: {integrity: sha512-064IFJdjTfUqnjpCVpMOdbr8FLQBhinbZj6yRv2An2E41O/pLEXqfFRWqGq/SxlE5PEUYTlvWsG2r8MswAVvkg==}
@@ -421,6 +411,15 @@ packages:
   '@nodelib/fs.walk@1.2.8':
     resolution: {integrity: sha512-oGB+UxlgWcgQkgwo8GcEGwemoTFt3FIO9ababBmaGwXIoBKZ+GTy0pP185beGg7Llih/NSHSV2XAs1lnznocSg==}
     engines: {node: '>= 8'}
+
+  '@plenipo/ui@0.1.0-alpha.22':
+    resolution: {integrity: sha512-LU0bcUiTl1Fd6P0NuCrO6zekjRJuZO4YX0DtqSXKknYM4hOOLAjDazR5mXw8RMSNi4aVuA/OSM4eOpSCx/pzWg==}
+    peerDependencies:
+      '@microsoft/signalr': '>=8'
+      '@tanstack/react-query': '>=5'
+      react: '>=18'
+      react-dom: '>=18'
+      react-router-dom: '>=6'
 
   '@remix-run/router@1.23.3':
     resolution: {integrity: sha512-4An71tdz9X8+3sI4Qqqd2LWd9vS39J7sqd9EU4Scw7TJE/qB10Flv/UuqbPVgfQV9XoK8Np6jNquZitnZq5i+Q==}
@@ -1858,19 +1857,6 @@ snapshots:
     dependencies:
       css-tree: 3.2.1
 
-  '@cortex/ui@file:../../.packages/cortex-ui-0.1.0-alpha.20.tgz(@microsoft/signalr@8.0.17)(@tanstack/react-query@5.101.2(react@18.3.1))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react-router-dom@6.30.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react@18.3.1)':
-    dependencies:
-      '@microsoft/signalr': 8.0.17
-      '@tanstack/react-query': 5.101.2(react@18.3.1)
-      react: 18.3.1
-      react-dom: 18.3.1(react@18.3.1)
-      react-markdown: 9.1.0(@types/react@18.3.31)(react@18.3.1)
-      react-router-dom: 6.30.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      remark-gfm: 4.0.1
-    transitivePeerDependencies:
-      - '@types/react'
-      - supports-color
-
   '@csstools/color-helpers@6.1.0': {}
 
   '@csstools/css-calc@3.2.1(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.0))(@csstools/css-tokenizer@4.0.0)':
@@ -2017,6 +2003,19 @@ snapshots:
     dependencies:
       '@nodelib/fs.scandir': 2.1.5
       fastq: 1.20.1
+
+  '@plenipo/ui@0.1.0-alpha.22(@microsoft/signalr@8.0.17)(@tanstack/react-query@5.101.2(react@18.3.1))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react-router-dom@6.30.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react@18.3.1)':
+    dependencies:
+      '@microsoft/signalr': 8.0.17
+      '@tanstack/react-query': 5.101.2(react@18.3.1)
+      react: 18.3.1
+      react-dom: 18.3.1(react@18.3.1)
+      react-markdown: 9.1.0(@types/react@18.3.31)(react@18.3.1)
+      react-router-dom: 6.30.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      remark-gfm: 4.0.1
+    transitivePeerDependencies:
+      - '@types/react'
+      - supports-color
 
   '@remix-run/router@1.23.3': {}
 

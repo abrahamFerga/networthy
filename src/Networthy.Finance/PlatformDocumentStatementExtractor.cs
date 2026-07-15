@@ -1,4 +1,4 @@
-using Cortex.Application.Documents;
+using Plenipo.Application.Documents;
 
 namespace Networthy.Finance;
 

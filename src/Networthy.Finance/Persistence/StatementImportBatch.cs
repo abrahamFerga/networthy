@@ -1,4 +1,4 @@
-using Cortex.Core.Entities;
+using Plenipo.Core.Entities;
 
 namespace Networthy.Finance.Persistence;
 

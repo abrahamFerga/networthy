@@ -1,4 +1,4 @@
-using Cortex.Core.Multitenancy;
+using Plenipo.Core.Multitenancy;
 using Microsoft.EntityFrameworkCore;
 
 namespace Networthy.Finance.Persistence;
@@ -11,10 +11,10 @@ namespace Networthy.Finance.Persistence;
 /// </summary>
 public sealed class FinanceDbContext(
     DbContextOptions<FinanceDbContext> options,
-    ITenantContext tenantContext) : Cortex.Modules.Sdk.ModuleDbContext(options)
+    ITenantContext tenantContext) : Plenipo.Modules.Sdk.ModuleDbContext(options)
 {
     /// <summary>Connection shared with the platform database (separate schema).</summary>
-    public const string ConnectionName = "cortex-platform";
+    public const string ConnectionName = "plenipo-platform";
     public const string Schema = "finance";
 
     public DbSet<Category> Categories => Set<Category>();

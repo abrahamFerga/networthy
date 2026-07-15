@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Networthy's domain module — the household-finance vertical, implemented as a Cortex
-       module (IModule + manifest). The Cortex platform (packages below) supplies auth,
+  <!-- Networthy's domain module — the household-finance vertical, implemented as a Plenipo
+       module (IModule + manifest). The Plenipo platform (packages below) supplies auth,
        multi-tenancy, RBAC, audit, chat/agents, document tools, jobs, and connectors; this
        project owns ONLY the finance domain: accounts, transactions, categories, budgets,
        statement import, household visibility. (ADR-0001) -->
@@ -22,9 +22,9 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.9" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.2" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.9" PrivateAssets="all" />
-    <PackageReference Include="Cortex.Core" Version="0.1.0-alpha.20" />
-    <PackageReference Include="Cortex.Application" Version="0.1.0-alpha.20" />
-    <PackageReference Include="Cortex.Modules.Sdk" Version="0.1.0-alpha.20" />
+    <PackageReference Include="Plenipo.Core" Version="0.1.0-alpha.22" />
+    <PackageReference Include="Plenipo.Application" Version="0.1.0-alpha.22" />
+    <PackageReference Include="Plenipo.Modules.Sdk" Version="0.1.0-alpha.22" />
   </ItemGroup>
 
 </Project>

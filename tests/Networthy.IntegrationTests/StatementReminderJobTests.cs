@@ -1,6 +1,6 @@
 using System.Net.Http.Json;
 using System.Text.Json;
-using Cortex.Application.Jobs;
+using Plenipo.Application.Jobs;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Networthy.Finance;

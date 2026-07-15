@@ -1,6 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { initTheme } from "@cortex/ui";
+import { initTheme } from "@plenipo/ui";
 import App from "./App";
 import "./index.css";
 

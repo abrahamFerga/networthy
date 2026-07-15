@@ -1,5 +1,5 @@
-using Cortex.Application.Authorization;
-using Cortex.Modules.Sdk;
+using Plenipo.Application.Authorization;
+using Plenipo.Modules.Sdk;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -13,7 +13,7 @@ namespace Networthy.Finance;
 /// <summary>
 /// The household-finance vertical (see SPEC.md / ARCH.md): accounts and transactions as the
 /// core domain, budgets on top, statements imported with human review, and a chat-first
-/// assistant as the primary interface. A household is a Cortex tenant; the platform's RBAC,
+/// assistant as the primary interface. A household is a Plenipo tenant; the platform's RBAC,
 /// approval gate, audit log, jobs, and channels apply with no platform changes (ADR-0001).
 /// Every record-changing tool is approval-gated except <c>log_own_transaction</c> (ADR-0005).
 /// </summary>
@@ -835,9 +835,9 @@ public sealed class FinanceModule : IModule
         services.AddHostedService<BillReminderService>();
         services.AddHostedService<BudgetRolloverService>();
         services.AddScoped<IStatementAiExtractor, PlatformDocumentStatementExtractor>();
-        services.AddSingleton<Cortex.Application.Jobs.IJobHandler, StatementParseJobHandler>();
-        services.AddSingleton<Cortex.Application.Jobs.IJobHandler, DailyDigestJobHandler>();
-        services.AddSingleton<Cortex.Application.Jobs.IJobHandler, StatementReminderJobHandler>();
+        services.AddSingleton<Plenipo.Application.Jobs.IJobHandler, StatementParseJobHandler>();
+        services.AddSingleton<Plenipo.Application.Jobs.IJobHandler, DailyDigestJobHandler>();
+        services.AddSingleton<Plenipo.Application.Jobs.IJobHandler, StatementReminderJobHandler>();
         services.AddSingleton<IModuleToolSource, FinanceToolSource>();
         services.AddHostedService<NetWorthSnapshotService>();
     }
@@ -859,7 +859,7 @@ public sealed class FinanceModule : IModule
         group.MapUpcomingBillsEndpoint();
 
         group.MapGet("/accounts", async (
-                FinanceDbContext db, Cortex.Core.Identity.ICurrentUser currentUser,
+                FinanceDbContext db, Plenipo.Core.Identity.ICurrentUser currentUser,
                 CancellationToken cancellationToken) =>
             {
                 var accounts = (await db.Accounts.OrderBy(a => a.Name).Take(200).ToListAsync(cancellationToken))
@@ -880,7 +880,7 @@ public sealed class FinanceModule : IModule
             .WithName("Finance_Accounts");
 
         group.MapGet("/transactions", async (
-                FinanceDbContext db, Cortex.Core.Identity.ICurrentUser currentUser,
+                FinanceDbContext db, Plenipo.Core.Identity.ICurrentUser currentUser,
                 CancellationToken cancellationToken) =>
             {
                 var visibleAccounts = (await db.Accounts.ToListAsync(cancellationToken))
@@ -907,7 +907,7 @@ public sealed class FinanceModule : IModule
             .WithName("Finance_Transactions");
 
         group.MapGet("/budgets", async (
-                FinanceDbContext db, Cortex.Core.Identity.ICurrentUser currentUser,
+                FinanceDbContext db, Plenipo.Core.Identity.ICurrentUser currentUser,
                 HouseholdContext household, CancellationToken cancellationToken) =>
             {
                 if (!BudgetMath.TryParseMonth(null, await household.TodayAsync(cancellationToken), out var period))
@@ -951,7 +951,7 @@ public sealed class FinanceModule : IModule
             .WithName("Finance_Budgets");
 
         group.MapGet("/debts", async (
-                FinanceDbContext db, Cortex.Core.Identity.ICurrentUser currentUser,
+                FinanceDbContext db, Plenipo.Core.Identity.ICurrentUser currentUser,
                 CancellationToken cancellationToken) =>
             {
                 var debts = (await db.Accounts.OrderBy(a => a.Name).ToListAsync(cancellationToken))
@@ -993,7 +993,7 @@ public sealed class FinanceModule : IModule
             .WithName("Finance_NetWorthHistory");
 
         group.MapGet("/recurring", async (
-                FinanceDbContext db, Cortex.Core.Identity.ICurrentUser currentUser,
+                FinanceDbContext db, Plenipo.Core.Identity.ICurrentUser currentUser,
                 HouseholdContext household, CancellationToken cancellationToken) =>
             {
                 var charges = await RecurringTools.DetectAsync(
@@ -1030,7 +1030,7 @@ public sealed class FinanceModule : IModule
             .WithName("Finance_IncomeSources");
 
         group.MapGet("/goals", async (
-                FinanceDbContext db, Cortex.Core.Identity.ICurrentUser currentUser,
+                FinanceDbContext db, Plenipo.Core.Identity.ICurrentUser currentUser,
                 HouseholdContext household, CancellationToken cancellationToken) =>
             {
                 var goals = await db.Goals.OrderBy(g => g.Name).ToListAsync(cancellationToken);
@@ -1221,7 +1221,7 @@ public sealed class FinanceModule : IModule
 
         group.MapPost("/categories", async (
                 UpsertCategoryRequest body, FinanceDbContext db,
-                Cortex.Core.Multitenancy.ITenantContext tenant, CancellationToken cancellationToken) =>
+                Plenipo.Core.Multitenancy.ITenantContext tenant, CancellationToken cancellationToken) =>
             {
                 var name = body.Name.Trim();
                 if (name.Length == 0)
@@ -1379,7 +1379,7 @@ public sealed class FinanceModule : IModule
 
     public async Task SeedAsync(IServiceProvider services, CancellationToken cancellationToken = default)
     {
-        var tenant = services.GetRequiredService<Cortex.Core.Multitenancy.ITenantContext>();
+        var tenant = services.GetRequiredService<Plenipo.Core.Multitenancy.ITenantContext>();
         if (!tenant.HasTenant)
         {
             return;

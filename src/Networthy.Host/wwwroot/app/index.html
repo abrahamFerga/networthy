@@ -6,18 +6,18 @@
     <!-- Networthy resolves at build time; build-ui.ps1 sets it to "Networthy". -->
     <title>Networthy</title>
     <!-- Apply the stored theme before the bundle loads so a dark-mode reload never flashes light.
-         Keep in sync with @cortex/ui's theme storage key. -->
+         Keep in sync with @plenipo/ui's theme storage key. -->
     <script>
       try {
-        var t = localStorage.getItem("cortex.theme");
+        var t = localStorage.getItem("plenipo.theme");
         if (t === "dark" || ((t === null || t === "system") && matchMedia("(prefers-color-scheme: dark)").matches))
           document.documentElement.classList.add("dark");
       } catch (e) {}
     </script>
-    <script type="module" crossorigin src="/assets/index-C-1hPLPi.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-BZhhB63Y.css">
+    <script type="module" crossorigin src="/assets/index-Cp_sqYjg.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-Ck-3Jbt4.css">
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"></div>
   </body>
 </html>

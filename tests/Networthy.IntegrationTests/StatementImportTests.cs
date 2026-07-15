@@ -1,6 +1,6 @@
 using System.Text;
-using Cortex.Application.Documents;
-using Cortex.Application.Files;
+using Plenipo.Application.Documents;
+using Plenipo.Application.Files;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Networthy.Finance;

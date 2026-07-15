@@ -1,7 +1,7 @@
 using System.ComponentModel;
 using System.Text;
-using Cortex.Application.Approvals;
-using Cortex.Core.Identity;
+using Plenipo.Application.Approvals;
+using Plenipo.Core.Identity;
 using Microsoft.EntityFrameworkCore;
 using Networthy.Finance.Persistence;
 

@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BudgetsTab } from "./BudgetsTab";
-import type { ModuleTabProps } from "@cortex/ui";
+import type { ModuleTabProps } from "@plenipo/ui";
 
 // The budgets tab as the server declares it — including the editor, whose affordances the
 // custom component must NOT lose by composing GenericTab underneath the bars.

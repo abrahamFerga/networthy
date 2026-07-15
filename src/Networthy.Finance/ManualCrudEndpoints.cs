@@ -1,7 +1,7 @@
 using System.Globalization;
-using Cortex.Application.Authorization;
-using Cortex.Core.Identity;
-using Cortex.Core.Multitenancy;
+using Plenipo.Application.Authorization;
+using Plenipo.Core.Identity;
+using Plenipo.Core.Multitenancy;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;

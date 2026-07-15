@@ -76,8 +76,8 @@ jobs:
           for i in $(seq 1 30); do docker exec pg pg_isready -U postgres && break; sleep 2; done
           docker run -d --network smoke --name app -p 8080:8080 \
             -e ASPNETCORE_ENVIRONMENT=Development \
-            -e "ConnectionStrings__cortex-platform=Host=pg;Port=5432;Database=cortex_platform;Username=postgres;Password=postgres" \
-            -e "ConnectionStrings__cortex-audit=Host=pg;Port=5432;Database=cortex_audit;Username=postgres;Password=postgres" \
+            -e "ConnectionStrings__plenipo-platform=Host=pg;Port=5432;Database=plenipo_platform;Username=postgres;Password=postgres" \
+            -e "ConnectionStrings__plenipo-audit=Host=pg;Port=5432;Database=plenipo_audit;Username=postgres;Password=postgres" \
             "ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/networthy:${GITHUB_REF_NAME#v}"
           for i in $(seq 1 60); do curl -fsS http://localhost:8080/alive && break; sleep 2; done
           curl -fsS http://localhost:8080/alive

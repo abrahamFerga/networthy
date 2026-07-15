@@ -1,5 +1,5 @@
-using Cortex.Application.Authorization;
-using Cortex.Core.Identity;
+using Plenipo.Application.Authorization;
+using Plenipo.Core.Identity;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;

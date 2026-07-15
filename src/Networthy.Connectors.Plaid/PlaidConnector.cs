@@ -1,5 +1,5 @@
-using Cortex.Connectors.Sdk;
-using Cortex.Modules.Sdk;
+using Plenipo.Connectors.Sdk;
+using Plenipo.Modules.Sdk;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -7,7 +7,7 @@ namespace Networthy.Connectors.Plaid;
 
 /// <summary>
 /// The product-owned Plaid connector (ADR-0007): bank-account linking and transaction sync,
-/// defined in the Networthy repo against the Cortex connector SDK — not in Cortex core, because
+/// defined in the Networthy repo against the Plenipo connector SDK — not in Plenipo core, because
 /// bank linking is finance-domain-specific. Service-auth (ADR-0006): the household admin
 /// configures the Plaid credentials as tenant-level settings under Integrations; the platform
 /// stores secrets write-only and protected at rest. Bank linking is always OPT-IN — statement
@@ -61,20 +61,20 @@ public sealed class PlaidConnector : IConnector
             {
                 Name = "list_plaid_accounts",
                 Description = "List the linked Plaid item's accounts and their Networthy mapping status.",
-                Permission = Cortex.Application.Authorization.Permissions.ForConnectorTool(ConnectorId, "list_plaid_accounts"),
+                Permission = Plenipo.Application.Authorization.Permissions.ForConnectorTool(ConnectorId, "list_plaid_accounts"),
             },
             new ToolDescriptor
             {
                 Name = "link_plaid_account",
                 Description = "Bind a Plaid account to a Networthy account (created if absent). Side-effecting: writes data and requires human approval.",
-                Permission = Cortex.Application.Authorization.Permissions.ForConnectorTool(ConnectorId, "link_plaid_account"),
+                Permission = Plenipo.Application.Authorization.Permissions.ForConnectorTool(ConnectorId, "link_plaid_account"),
                 RequiresApproval = true,
             },
             new ToolDescriptor
             {
                 Name = "sync_plaid_transactions",
                 Description = "Pull recent transactions from linked Plaid accounts (deduplicated). Side-effecting: imports external data and requires human approval.",
-                Permission = Cortex.Application.Authorization.Permissions.ForConnectorTool(ConnectorId, "sync_plaid_transactions"),
+                Permission = Plenipo.Application.Authorization.Permissions.ForConnectorTool(ConnectorId, "sync_plaid_transactions"),
                 RequiresApproval = true,
             },
         ],

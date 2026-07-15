@@ -1,5 +1,5 @@
-using Cortex.Application.Jobs;
-using Cortex.Application.Notifications;
+using Plenipo.Application.Jobs;
+using Plenipo.Application.Notifications;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Networthy.Finance.Persistence;

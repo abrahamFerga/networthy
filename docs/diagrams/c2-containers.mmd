@@ -6,10 +6,10 @@ graph TB
     end
 
     subgraph networthy["Networthy system"]
-        spa["Domain UI<br/>(container: React SPA)<br/>@cortex/ui app shell,<br/>Networthy-branded"]
-        adminui["Admin console<br/>(container: React SPA)<br/>@cortex/admin-ui, served at /admin"]
-        host["Networthy.Host<br/>(container: ASP.NET Core)<br/>Cortex platform + Networthy.Finance module<br/>REST reads, AG-UI/SignalR chat, webhooks"]
-        db[("Postgres<br/>(container: database)<br/>cortex-platform + cortex-audit")]
+        spa["Domain UI<br/>(container: React SPA)<br/>@plenipo/ui app shell,<br/>Networthy-branded"]
+        adminui["Admin console<br/>(container: React SPA)<br/>@plenipo/admin-ui, served at /admin"]
+        host["Networthy.Host<br/>(container: ASP.NET Core)<br/>Plenipo platform + Networthy.Finance module<br/>REST reads + manual-CRUD writes,<br/>AG-UI/SignalR chat"]
+        db[("Postgres<br/>(container: database)<br/>plenipo-platform + plenipo-audit")]
         redis[("Redis<br/>(container: cache)<br/>SignalR backplane,<br/>rate-limit windows")]
         blob[("Azure Blob Storage<br/>(container: file store)<br/>statement uploads,<br/>generated documents")]
     end
@@ -32,7 +32,7 @@ graph TB
     host --> db
     host --> redis
     host --> blob
-    host -->|Link, Transactions API,<br/>item webhooks| plaid
+    host -->|Link, Transactions API<br/>(pull-only — no inbound<br/>webhook yet)| plaid
     host -->|categorization,<br/>chat completions| ai
     host -->|scanned-statement OCR| ocr
     host -->|budget recaps| smtp

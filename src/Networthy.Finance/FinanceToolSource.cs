@@ -1,5 +1,5 @@
-using Cortex.Application.Authorization;
-using Cortex.Modules.Sdk;
+using Plenipo.Application.Authorization;
+using Plenipo.Modules.Sdk;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 

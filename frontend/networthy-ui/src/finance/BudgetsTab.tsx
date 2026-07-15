@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { apiGet, GenericTab, ProgressBar, type ModuleTabProps } from "@cortex/ui";
+import { apiGet, GenericTab, ProgressBar, type ModuleTabProps } from "@plenipo/ui";
 
 /**
  * The Budgets tab (issue #46, ADR-0008): every budgeted category as a ProgressBar — color plus

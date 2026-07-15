@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SpendingTab } from "./SpendingTab";
-import type { ModuleTabProps } from "@cortex/ui";
+import type { ModuleTabProps } from "@plenipo/ui";
 
 const tab: ModuleTabProps["tab"] = {
   id: "spending",

@@ -6,10 +6,10 @@
     <!-- %VITE_BRAND_NAME% resolves at build time; build-ui.ps1 sets it to "Networthy". -->
     <title>%VITE_BRAND_NAME%</title>
     <!-- Apply the stored theme before the bundle loads so a dark-mode reload never flashes light.
-         Keep in sync with @cortex/ui's theme storage key. -->
+         Keep in sync with @plenipo/ui's theme storage key. -->
     <script>
       try {
-        var t = localStorage.getItem("cortex.theme");
+        var t = localStorage.getItem("plenipo.theme");
         if (t === "dark" || ((t === null || t === "system") && matchMedia("(prefers-color-scheme: dark)").matches))
           document.documentElement.classList.add("dark");
       } catch (e) {}
