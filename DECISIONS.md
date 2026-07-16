@@ -397,15 +397,15 @@ Two changes land together, both forced by upstream.
 rename (`Cortex.*` → `Plenipo.*`, `@cortex/ui` → `@plenipo/ui`, `AddCortexPlatform()` →
 `AddPlenipoPlatform()`, `<CortexApp>` → `<PlenipoApp>`, the `cortex-platform`/`cortex-audit`
 databases → `plenipo-*`), with no behavioural change. Every reference in this repo moved with it.
-Releases are consumed from **`Plenipo/Plenipo`** (not the pre-rename `abrahamFerga/Cortex`, which
-now redirects to `abrahamFerga/Plenipo` — a separate, older mirror; see the note below).
+Releases are consumed from **`abrahamFerga/Plenipo`** — the original platform repo, renamed in
+place (`abrahamFerga/Cortex` still redirects there).
 
 **The UI channel.** The tarball this ADR's previous amendment depends on **no longer exists**.
 Plenipo's `publish.yml` stopped attaching `<ui>-<version>.tgz` to releases and now publishes the
 library to the **public npm registry** with provenance, naming this ADR explicitly as the reason
 ("product hosts that build their own app entry on the moduleUi seam … now install it with
 `pnpm add @plenipo/ui`"). So `frontend/networthy-ui` takes a plain registry dependency
-(`"@plenipo/ui": "0.1.0-alpha.22"`), and `update-platform.ps1` repoints the *version* rather than
+(`"@plenipo/ui": "0.1.0-alpha.23"`), and `update-platform.ps1` repoints the *version* rather than
 downloading a tarball.
 
 Consequences of the channel change, stated plainly because it narrows a property this ADR claimed:
@@ -427,11 +427,17 @@ Consequences of the channel change, stated plainly because it narrows a property
 fights upstream's stated direction, keeps a ~214 kB binary churning in git, and buys nothing the
 committed `wwwroot/` bundles don't already give a bare clone.
 
-**Operational note — two platform repos exist.** `abrahamFerga/Cortex` was renamed in place to
-`abrahamFerga/Plenipo` and still holds the historical `alpha.14`–`alpha.21` releases (with the old
-`Cortex.*` assets). `Plenipo/Plenipo` is a mirror pushed at the rename commit and is the canonical
-home going forward — it carries `alpha.22`, the first release built from renamed source. The two
-have diverged; only `Plenipo/Plenipo` should be released from.
+**Operational note — one platform repo.** `abrahamFerga/Cortex` was renamed in place to
+**`abrahamFerga/Plenipo`**, which is the single source for the platform: it holds the historical
+`alpha.14`–`alpha.21` releases (with the old `Cortex.*` assets) and, from **`alpha.23`** onward, the
+renamed `Plenipo.*` releases. `update-platform.ps1` defaults to it.
+
+A short-lived `Plenipo/Plenipo` org mirror briefly carried `alpha.22` — the first release built from
+renamed source — while the rename was being sorted out. The org was retired and its two fixes
+(the package.json repo URLs and the `--tag` that lets a prerelease publish at all) are folded into
+this repo's history. `alpha.23` re-homes those artifacts here and is otherwise identical to
+`alpha.22`; the orphaned `@plenipo/ui@0.1.0-alpha.22` remains on npm with a provenance attestation
+naming the deleted org, which is why nothing should depend on it.
 
 ---
 

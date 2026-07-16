@@ -142,7 +142,7 @@ PR #44) replaced it with a **vendored tarball** (`file:../../.packages/cortex-ui
 — a pre-rename name, from before the platform became Plenipo). Both are now history: as of the
 **2026-07-15 amendment** to ADR-0008, upstream publishes the library to the public npm registry and
 no longer attaches a tarball to releases, so `frontend/networthy-ui` takes a plain registry
-dependency (`"@plenipo/ui": "0.1.0-alpha.22"`) and needs no checkout and no vendored tarball. See
+dependency (`"@plenipo/ui": "0.1.0-alpha.23"`) and needs no checkout and no vendored tarball. See
 the 2026-07-15 amendment in DECISIONS.md for the full consequences.
 
 ## Module list

@@ -16,8 +16,8 @@ importers:
         specifier: ^8.0.7
         version: 8.0.17
       '@plenipo/ui':
-        specifier: 0.1.0-alpha.22
-        version: 0.1.0-alpha.22(@microsoft/signalr@8.0.17)(@tanstack/react-query@5.101.2(react@18.3.1))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react-router-dom@6.30.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react@18.3.1)
+        specifier: 0.1.0-alpha.23
+        version: 0.1.0-alpha.23(@microsoft/signalr@8.0.17)(@tanstack/react-query@5.101.2(react@18.3.1))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react-router-dom@6.30.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react@18.3.1)
       '@tanstack/react-query':
         specifier: ^5.59.16
         version: 5.101.2(react@18.3.1)
@@ -412,8 +412,8 @@ packages:
     resolution: {integrity: sha512-oGB+UxlgWcgQkgwo8GcEGwemoTFt3FIO9ababBmaGwXIoBKZ+GTy0pP185beGg7Llih/NSHSV2XAs1lnznocSg==}
     engines: {node: '>= 8'}
 
-  '@plenipo/ui@0.1.0-alpha.22':
-    resolution: {integrity: sha512-LU0bcUiTl1Fd6P0NuCrO6zekjRJuZO4YX0DtqSXKknYM4hOOLAjDazR5mXw8RMSNi4aVuA/OSM4eOpSCx/pzWg==}
+  '@plenipo/ui@0.1.0-alpha.23':
+    resolution: {integrity: sha512-cnZBQVj1ini5P31ZeIP7ET57T65nEyqDFJlcT7bEiUPP21C8O92RZbi0y0bPFvpeny3mYnarqXiwL2awPbH4lg==}
     peerDependencies:
       '@microsoft/signalr': '>=8'
       '@tanstack/react-query': '>=5'
@@ -2004,7 +2004,7 @@ snapshots:
       '@nodelib/fs.scandir': 2.1.5
       fastq: 1.20.1
 
-  '@plenipo/ui@0.1.0-alpha.22(@microsoft/signalr@8.0.17)(@tanstack/react-query@5.101.2(react@18.3.1))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react-router-dom@6.30.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react@18.3.1)':
+  '@plenipo/ui@0.1.0-alpha.23(@microsoft/signalr@8.0.17)(@tanstack/react-query@5.101.2(react@18.3.1))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react-router-dom@6.30.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react@18.3.1)':
     dependencies:
       '@microsoft/signalr': 8.0.17
       '@tanstack/react-query': 5.101.2(react@18.3.1)

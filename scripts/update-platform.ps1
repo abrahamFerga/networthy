@@ -1,8 +1,8 @@
 # Updates the vendored Plenipo platform from a GitHub Release — no Plenipo checkout, no
 # registry auth (release assets download anonymously).
 #
-#   ./scripts/update-platform.ps1 -Version 0.1.0-alpha.22          # nupkgs into .packages/
-#   ./scripts/update-platform.ps1 -Version 0.1.0-alpha.22 -WithUi  # + brand-agnostic admin bundle
+#   ./scripts/update-platform.ps1 -Version 0.1.0-alpha.23          # nupkgs into .packages/
+#   ./scripts/update-platform.ps1 -Version 0.1.0-alpha.23 -WithUi  # + brand-agnostic admin bundle
 #
 # What it does:
 #  1. Downloads every Plenipo.*.nupkg from the release into .packages/ (removing the old version)
@@ -21,7 +21,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$Version,
     [switch]$WithUi,
-    [string]$Repo = "Plenipo/Plenipo"
+    [string]$Repo = "abrahamFerga/Plenipo"
 )
 
 $ErrorActionPreference = "Stop"

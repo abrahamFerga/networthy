@@ -9,7 +9,7 @@ allowBuilds:
 # with npm provenance attestation, so the quarantine buys us nothing and would block same-day
 # platform bumps. Exempt the exact version only — a new pin is required per bump, deliberately.
 minimumReleaseAgeExclude:
-  - '@plenipo/ui@0.1.0-alpha.22'
+  - '@plenipo/ui@0.1.0-alpha.23'
 
 # Keep transitive test-runner copies on patched builds too. Vitest accepts Vite 6 but pnpm can
 # otherwise retain an older compatible Vite 5 snapshot from the previous lockfile.

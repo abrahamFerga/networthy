@@ -22,9 +22,9 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.9" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.2" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.9" PrivateAssets="all" />
-    <PackageReference Include="Plenipo.Core" Version="0.1.0-alpha.22" />
-    <PackageReference Include="Plenipo.Application" Version="0.1.0-alpha.22" />
-    <PackageReference Include="Plenipo.Modules.Sdk" Version="0.1.0-alpha.22" />
+    <PackageReference Include="Plenipo.Core" Version="0.1.0-alpha.23" />
+    <PackageReference Include="Plenipo.Application" Version="0.1.0-alpha.23" />
+    <PackageReference Include="Plenipo.Modules.Sdk" Version="0.1.0-alpha.23" />
   </ItemGroup>
 
 </Project>
