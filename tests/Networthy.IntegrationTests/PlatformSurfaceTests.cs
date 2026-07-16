@@ -54,19 +54,31 @@ public sealed class PlatformSurfaceTests(IntegrationFixture fixture)
         // Free text here produced typos that silently excluded accounts from every
         // household-currency-scoped read — both fields now ship a picker vocabulary.
         var currency = fields.Single(f => f.GetProperty("field").GetString() == "defaultCurrencyCode");
-        var currencyOptions = currency.GetProperty("options").EnumerateArray().Select(o => o.GetString()).ToList();
+        var currencyOptions = OptionValues(currency);
         Assert.Contains("MXN", currencyOptions);
         Assert.Contains("USD", currencyOptions);
 
         var timeZone = fields.Single(f => f.GetProperty("field").GetString() == "timeZoneId");
-        var zoneOptions = timeZone.GetProperty("options").EnumerateArray().Select(o => o.GetString()).ToList();
-        Assert.Contains("America/Mexico_City", zoneOptions);
+        Assert.Contains("America/Mexico_City", OptionValues(timeZone)); // the stored value stays IANA
         Assert.False(timeZone.GetProperty("required").GetBoolean()); // unchosen = UTC
+
+        // …but nobody should have to read an underscore, and nobody should hunt for the zone they
+        // are already in: the label is humanised and the shell opens on the browser's own zone.
+        var mexicoCity = timeZone.GetProperty("options").EnumerateArray()
+            .Single(o => o.GetProperty("value").GetString() == "America/Mexico_City");
+        Assert.Equal("America / Mexico City", mexicoCity.GetProperty("label").GetString());
+        Assert.Equal("browser-timezone", timeZone.GetProperty("defaultFrom").GetString());
 
         // The endpoint enforces the same vocabulary — a picker alone wouldn't stop the API path.
         var junk = await client.PostAsJsonAsync("/api/finance/settings", new { defaultCurrencyCode = "ZZZ" });
         Assert.Equal(HttpStatusCode.BadRequest, junk.StatusCode);
     }
+
+    /// <summary>An option is {value,label} on the wire: the value posts, the label is read.</summary>
+    private static List<string?> OptionValues(JsonElement field) =>
+        field.GetProperty("options").EnumerateArray()
+            .Select(o => o.GetProperty("value").GetString())
+            .ToList();
 
     [Fact]
     public async Task Overview_ComposesTheDashboardPayload_InOneRead()

@@ -67,6 +67,17 @@ public sealed class FinanceModule : IModule
             .Order()
             .ToArray()!;
 
+    /// <summary>
+    /// The same ids, wearing something readable. The IANA id is what we STORE — it is the value
+    /// <c>HouseholdSettings.Today()</c> resolves and the only spelling the endpoint accepts — but
+    /// "America/Mexico_City" is not a thing to make a person read. The label keeps the area, since
+    /// it disambiguates (Europe/Madrid vs America/Madrid) and keeps the sorted list grouped.
+    /// </summary>
+    internal static readonly TabEditorOption[] TimeZoneOptions =
+        TimeZoneIds
+            .Select(id => new TabEditorOption(id, id.Replace('_', ' ').Replace("/", " / ")))
+            .ToArray();
+
     public ModuleManifest Manifest { get; } = new()
     {
         Id = Id,
@@ -374,8 +385,11 @@ public sealed class FinanceModule : IModule
                     Endpoint = "/api/finance/settings",
                     Fields =
                     [
-                        new("defaultCurrencyCode", "Default currency", Options: CurrencyCodes),
-                        new("timeZoneId", "Time zone (leave unchosen for UTC)", Required: false, Options: TimeZoneIds),
+                        new("defaultCurrencyCode", "Default currency", Options: [.. CurrencyCodes]),
+                        // Starts on wherever the browser says the user is; still theirs to change,
+                        // and still optional — unset stays UTC, it just isn't the opening offer.
+                        new("timeZoneId", "Time zone", Required: false, Options: TimeZoneOptions,
+                            DefaultFrom: FieldDefaultSources.BrowserTimeZone),
                     ],
                 },
                 new OnboardingStep
@@ -390,7 +404,7 @@ public sealed class FinanceModule : IModule
                         new("type", "Type", Options: ["checking", "savings", "credit", "cash"]),
                         // Same closed list as the household's default currency — a free-text ISO code
                         // invites "usd"/"Dollars"/typos that fail server validation after the fact.
-                        new("currencyCode", "Currency", Options: CurrencyCodes),
+                        new("currencyCode", "Currency", Options: [.. CurrencyCodes]),
                         new("cachedBalance", "Current balance (negative = owed)", Numeric: true),
                         new("institutionName", "Institution", Required: false),
                     ],
@@ -431,7 +445,7 @@ public sealed class FinanceModule : IModule
                     Fields =
                     [
                         new("name", "Loan name (e.g. 'House mortgage')"),
-                        new("currencyCode", "Currency", Options: CurrencyCodes),
+                        new("currencyCode", "Currency", Options: [.. CurrencyCodes]),
                         new("cachedBalance", "Amount owed", Numeric: true),
                         new("interestRateApr", "Interest rate (APR %)", Required: false, Numeric: true),
                         new("minimumMonthlyPayment", "Minimum monthly payment", Required: false, Numeric: true),
@@ -494,7 +508,7 @@ public sealed class FinanceModule : IModule
                     [
                         new("name", "Account name"),
                         new("type", "Type", Options: ["checking", "savings", "credit", "cash", "loan"]),
-                        new("currencyCode", "Currency", Options: CurrencyCodes),
+                        new("currencyCode", "Currency", Options: [.. CurrencyCodes]),
                         new("cachedBalance", "Balance (negative = owed; edits post an adjustment)", Numeric: true),
                         new("institutionName", "Institution (optional)", Required: false),
                         new("interestRateApr", "APR % (credit/loan, optional)", Required: false, Numeric: true),
@@ -558,7 +572,7 @@ public sealed class FinanceModule : IModule
                         new("categoryName", "Category", OptionsEndpoint: "/api/finance/categories", OptionsField: "name"),
                         new("target", "Monthly target", Numeric: true),
                         new("currencyCode", "Currency (blank = household default)", Required: false,
-                            Options: CurrencyCodes),
+                            Options: [.. CurrencyCodes]),
                     ],
                 },
             },
@@ -597,7 +611,7 @@ public sealed class FinanceModule : IModule
                         new("amount", "Amount per paycheck", Numeric: true),
                         new("cadence", "Cadence", Options: ["weekly", "biweekly", "semimonthly", "monthly"]),
                         new("currencyCode", "Currency (blank = household default)", Required: false,
-                            Options: CurrencyCodes),
+                            Options: [.. CurrencyCodes]),
                         new("accountName", "Lands in account (optional)", Required: false, OptionsEndpoint: "/api/finance/accounts", OptionsField: "name"),
                     ],
                 },
@@ -674,7 +688,7 @@ public sealed class FinanceModule : IModule
                         new("name", "Goal name"),
                         new("target", "Target amount", Numeric: true),
                         new("currencyCode", "Currency (blank = household default)", Required: false,
-                            Options: CurrencyCodes),
+                            Options: [.. CurrencyCodes]),
                         new("targetDate", "Target date (yyyy-MM-dd, optional)", Required: false),
                         new("accountName", "Tracked account (optional - its balance becomes the progress)", Required: false, OptionsEndpoint: "/api/finance/accounts", OptionsField: "name"),
                     ],
@@ -733,8 +747,11 @@ public sealed class FinanceModule : IModule
                     Permission = ManageFinance,
                     Fields =
                     [
-                        new("defaultCurrencyCode", "Default currency", Options: CurrencyCodes),
-                        new("timeZoneId", "Time zone (leave unchosen for UTC)", Required: false, Options: TimeZoneIds),
+                        new("defaultCurrencyCode", "Default currency", Options: [.. CurrencyCodes]),
+                        // Starts on wherever the browser says the user is; still theirs to change,
+                        // and still optional — unset stays UTC, it just isn't the opening offer.
+                        new("timeZoneId", "Time zone", Required: false, Options: TimeZoneOptions,
+                            DefaultFrom: FieldDefaultSources.BrowserTimeZone),
                         new("billReminderLeadDays", "Bill reminder lead (days, 0-14)", Required: false, Numeric: true),
                         new("statementRemindersEnabled", "Statement reminders on?", Required: false, Options: ["true", "false"]),
                         new("statementReminderCadence", "Statement reminder cadence", Required: false, Options: ["monthly", "weekly"]),
