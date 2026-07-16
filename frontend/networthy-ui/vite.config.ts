@@ -21,18 +21,20 @@ export default defineConfig(({ command }) => {
   // consuming the dist — the same bytes that ship embedded in Networthy.Host.
   const aliasToSource = command === "serve" && !process.env.VITEST && existsSync(plenipoUiSrc);
 
-  // Dev server, no checkout: the published @plenipo/ui dist is built with VITE_API_BASE="", and
-  // that empty base is FROZEN into it — setting VITE_API_BASE here cannot move the library's own
-  // calls. So the shell asks for /api/... and /hubs/... same-origin, which on this dev server is
-  // Vite, not the API: every request 404s and the dashboard renders "Can't reach the Plenipo API".
-  // Proxy those prefixes to the real API so the prebuilt library works with no checkout at all.
-  // (When aliasToSource wins, the library compiles against the live env and calls the API
-  // absolutely, so the proxy simply goes unused.)
+  // Dev server, no checkout: the published @plenipo/ui dist bakes its env at LIBRARY build time —
+  // VITE_API_BASE="" and the admin link as a bare "/admin" are FROZEN into it, so setting those
+  // vars here cannot move them. The shell therefore asks for /api/..., /hubs/... and /admin
+  // same-origin, which on this dev server is Vite, not the API: the dashboard 404s ("Can't reach
+  // the Plenipo API") and Admin ↗ silently re-serves the workspace via Vite's SPA fallback.
+  // Proxy those prefixes to the API — which also serves the committed wwwroot/admin bundle — so the
+  // prebuilt library works with no checkout at all. (When aliasToSource wins, the library compiles
+  // against the live env and uses absolute URLs, so the proxy simply goes unused.)
   const apiTarget = process.env.VITE_API_BASE?.trim();
   const proxy = apiTarget
     ? {
         "/api": { target: apiTarget, changeOrigin: true, secure: false },
         "/hubs": { target: apiTarget, changeOrigin: true, secure: false, ws: true },
+        "/admin": { target: apiTarget, changeOrigin: true, secure: false },
       }
     : undefined;
 
