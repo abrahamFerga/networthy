@@ -144,7 +144,7 @@ reason found to reopen any of them.
 
 Both roles bind to capabilities, not UI screens — a member with a connector-scoped grant could
 still not touch billing, for instance, if that's ever split out. `system_admin` (platform-level,
-not household-level) remains non-customizable, per Cortex's standing rule.
+not household-level) remains non-customizable, per Plenipo's standing rule.
 
 ## Regulatory constraints
 
@@ -188,12 +188,12 @@ v1's open questions (scale target, statement-format priority) were resolved duri
 architecture/build and don't recur here. New for v2:
 
 1. Do the dashboard and visualization must-haves require new generic component types in the
-   shared Cortex UI package (a card-grid tab kind, a proportional/categorical chart kind, a
+   shared Plenipo UI package (a card-grid tab kind, a proportional/categorical chart kind, a
    budget-progress-bar primitive, mobile card-mode for the data table, a notification-inbox
-   primitive) — meaning a companion change in the Cortex repo — or should Networthy build these
+   primitive) — meaning a companion change in the Plenipo repo — or should Networthy build these
    as bespoke, product-owned SPA components? This is the single highest-leverage open question
    for the whole v2 round; carried into `PLAN.md` for `design-architecture` to resolve.
-2. Is two-factor/passkey authentication a Cortex-platform authentication capability (benefiting
+2. Is two-factor/passkey authentication a Plenipo-platform authentication capability (benefiting
    every product built on the platform) or Networthy-specific? ADR-0001's precedent (generic
    capabilities live in the platform) leans platform.
 3. The power-user API introduces the first REST *write* surface in the system — a deliberate

@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import { CortexApp, defineModule } from "@cortex/ui";
+import { PlenipoApp, defineModule } from "@plenipo/ui";
 import { BudgetsTab } from "./finance/BudgetsTab";
 import { OverviewTab } from "./finance/OverviewTab";
 import { RecurringTab } from "./finance/RecurringTab";
 import { SpendingTab } from "./finance/SpendingTab";
 
-// Networthy's app entry (ADR-0008): the stock Cortex shell plus the finance tabs that need
+// Networthy's app entry (ADR-0008): the stock Plenipo shell plus the finance tabs that need
 // more than the generic rendering — the Overview dashboard, and issue #46's month-picking
 // Spending donut, budget progress bars, and bills calendar (each of which still composes
 // GenericTab for the server-driven part). Every other tab stays fully server-driven.
@@ -40,5 +40,5 @@ export default function App() {
     document.title = brandName;
   }, [brandName]);
 
-  return <CortexApp moduleUi={[finance]} branding={{ name: brandName }} />;
+  return <PlenipoApp moduleUi={[finance]} branding={{ name: brandName }} />;
 }

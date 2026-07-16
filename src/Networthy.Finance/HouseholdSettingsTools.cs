@@ -1,5 +1,5 @@
 using System.ComponentModel;
-using Cortex.Core.Multitenancy;
+using Plenipo.Core.Multitenancy;
 using Microsoft.EntityFrameworkCore;
 using Networthy.Finance.Persistence;
 

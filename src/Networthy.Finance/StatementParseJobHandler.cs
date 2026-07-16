@@ -1,7 +1,7 @@
 using System.Text;
 using System.Text.Json;
-using Cortex.Application.Files;
-using Cortex.Application.Jobs;
+using Plenipo.Application.Files;
+using Plenipo.Application.Jobs;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Networthy.Finance.Persistence;

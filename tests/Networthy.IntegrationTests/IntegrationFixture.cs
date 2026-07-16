@@ -1,5 +1,5 @@
-using Cortex.Infrastructure.Context;
-using Cortex.Infrastructure.Persistence;
+using Plenipo.Infrastructure.Context;
+using Plenipo.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
@@ -12,7 +12,7 @@ namespace Networthy.IntegrationTests;
 /// <summary>
 /// The real host on a throwaway Postgres: platform + finance migrations run, the dev tenant and
 /// category taxonomy seed, the job processor and hosted services start. Everything is real
-/// except the AI provider (Mock) — the same keyless posture the Cortex platform's own suite uses.
+/// except the AI provider (Mock) — the same keyless posture the Plenipo platform's own suite uses.
 /// </summary>
 public sealed class IntegrationFixture : IAsyncLifetime
 {
@@ -26,14 +26,14 @@ public sealed class IntegrationFixture : IAsyncLifetime
 
         _postgres = new PostgreSqlBuilder()
             .WithImage("pgvector/pgvector:pg16") // the platform's RAG migration needs the vector extension
-            .WithDatabase("cortex_platform")
+            .WithDatabase("plenipo_platform")
             .WithUsername("postgres")
             .WithPassword("postgres")
             .Build();
         await _postgres.StartAsync();
 
-        Environment.SetEnvironmentVariable("ConnectionStrings__cortex-platform", _postgres.GetConnectionString());
-        Environment.SetEnvironmentVariable("ConnectionStrings__cortex-audit", _postgres.GetConnectionString());
+        Environment.SetEnvironmentVariable("ConnectionStrings__plenipo-platform", _postgres.GetConnectionString());
+        Environment.SetEnvironmentVariable("ConnectionStrings__plenipo-audit", _postgres.GetConnectionString());
 
         Factory = new NetworthyAppFactory();
 
@@ -46,8 +46,8 @@ public sealed class IntegrationFixture : IAsyncLifetime
 
     public async Task DisposeAsync()
     {
-        Environment.SetEnvironmentVariable("ConnectionStrings__cortex-platform", null);
-        Environment.SetEnvironmentVariable("ConnectionStrings__cortex-audit", null);
+        Environment.SetEnvironmentVariable("ConnectionStrings__plenipo-platform", null);
+        Environment.SetEnvironmentVariable("ConnectionStrings__plenipo-audit", null);
 
         if (Factory is not null)
         {

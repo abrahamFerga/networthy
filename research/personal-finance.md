@@ -59,7 +59,7 @@ open.
 The last row is the whole point: **nobody in this market gates AI actions behind human approval
 or keeps an audit trail of what the AI did to your financial data.** That's not a feature gap in
 their roadmaps — it's a category nobody in personal finance is competing in, because it's a
-Cortex platform primitive (RBAC before the model, approval gates on every write, append-only
+Plenipo platform primitive (RBAC before the model, approval gates on every write, append-only
 audit) that a from-scratch fintech simply doesn't have for free.
 
 ## Synthesized capabilities
@@ -93,7 +93,7 @@ audit) that a from-scratch fintech simply doesn't have for free.
 - **Household / shared-tenant budgeting** — multiple users sharing one household's accounts,
   budgets, and net worth, with per-user visibility controls — ships in v1 given how close to
   universal this is outside the solo/Apple-only tools (Monarch, YNAB, Firefly III, Actual all
-  have it). Maps onto Cortex's existing multi-tenant + RBAC primitives directly: a household is
+  have it). Maps onto Plenipo's existing multi-tenant + RBAC primitives directly: a household is
   a tenant, members are users with roles.
 
 ### Differentiator (v1)
@@ -123,7 +123,7 @@ audit) that a from-scratch fintech simply doesn't have for free.
   "can I spend this?", not a dashboard to interpret. Worth a chat-first equivalent: an assistant
   that answers "can I afford X?" directly.
 - **Weekly/monthly recap pushes** (Monarch) — proactive summaries beat requiring the user to
-  open the app; maps directly onto Cortex's existing notification-channel seam.
+  open the app; maps directly onto Plenipo's existing notification-channel seam.
 - **Household sharing** (Monarch, YNAB, Firefly III, Actual) is near-universal outside the
   Apple-only/solo tools — multi-tenant-with-shared-household is a real requirement, not a
   nice-to-have.
@@ -160,7 +160,7 @@ None outstanding — see Answers below.
    build in now, expensive to retrofit later.
 2. **Bank linking**: Plaid ships in v1, alongside statement upload — not gated behind it. Upload
    stays the privacy-preserving default; Plaid is opt-in for users who want live sync.
-3. **Household budgeting**: ships in v1. A household is a Cortex tenant; members are users with
+3. **Household budgeting**: ships in v1. A household is a Plenipo tenant; members are users with
    roles (e.g. an "adult"/"dependent" split is plausible, refined at Spec time). Solo use is the
    one-person-household case, not a separate mode.
 

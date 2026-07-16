@@ -1,12 +1,12 @@
 using System.ComponentModel;
-using Cortex.Core.Identity;
+using Plenipo.Core.Identity;
 using Microsoft.EntityFrameworkCore;
 using Networthy.Finance.Persistence;
 
 namespace Networthy.Finance;
 
 /// <summary>
-/// Household sharing (SPEC must-have #6). A household IS a Cortex tenant, so membership,
+/// Household sharing (SPEC must-have #6). A household IS a Plenipo tenant, so membership,
 /// invites, and role assignment are the platform's existing Admin → Users surface with the
 /// product roles seeded in Networthy.Host (household-admin / household-member) — no duplicate
 /// user machinery here. What the module owns is the per-member visibility scope on accounts:

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { GenericTab, type ModuleTabProps } from "@cortex/ui";
+import { GenericTab, type ModuleTabProps } from "@plenipo/ui";
 
 /**
  * The Spending tab (issue #46, ADR-0008): the shell's server-driven donut — capped segments,

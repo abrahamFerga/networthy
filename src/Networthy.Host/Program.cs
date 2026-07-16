@@ -1,14 +1,14 @@
-using Cortex.Application.Authorization;
-using Cortex.Application.Commerce;
-using Cortex.AspNetCore.Connectors;
-using Cortex.AspNetCore.Hosting;
-using Cortex.AspNetCore.Modules;
+using Plenipo.Application.Authorization;
+using Plenipo.Application.Commerce;
+using Plenipo.AspNetCore.Connectors;
+using Plenipo.AspNetCore.Hosting;
+using Plenipo.AspNetCore.Modules;
 using Networthy.Connectors.Plaid;
 using Networthy.Finance;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Networthy — a single-vertical household-finance system built ENTIRELY on the
-// Cortex base platform (ADR-0001). This host is deliberately thin: install the
+// Plenipo base platform (ADR-0001). This host is deliberately thin: install the
 // platform, install the finance module, install the product-owned Plaid
 // connector (ADR-0007), declare what the product sells and its roles. Domain
 // logic lives in Networthy.Finance; platform behavior lives in the packages.
@@ -16,17 +16,17 @@ using Networthy.Finance;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.AddCortexPlatform();
+builder.AddPlenipoPlatform();
 
-builder.AddCortexModule<FinanceModule>();
+builder.AddPlenipoModule<FinanceModule>();
 
 // The product-owned, domain-specific connector (ADR-0007): defined in THIS repo against
-// Cortex.Connectors.Sdk, registered exactly like a built-in. Default-off; a household
+// Plenipo.Connectors.Sdk, registered exactly like a built-in. Default-off; a household
 // admin enables and configures it under Integrations.
-builder.AddCortexConnector<PlaidConnector>();
+builder.AddPlenipoConnector<PlaidConnector>();
 
 // What this product sells (the plan — not checkout metadata — decides what a purchase grants).
-builder.Services.AddCortexProduct(new ProductOffering
+builder.Services.AddPlenipoProduct(new ProductOffering
 {
     ProductId = "networthy",
     Plans =
@@ -39,7 +39,7 @@ builder.Services.AddCortexProduct(new ProductOffering
 
 // The household roles (SPEC.md's RBAC model). Seeded into every tenant's editable baseline;
 // a household admin refines them per tenant afterwards. system_admin stays non-customizable.
-builder.Services.AddCortexRole("household-admin",
+builder.Services.AddPlenipoRole("household-admin",
 [
     "chat.use", "chat.conversations.view", "files.upload", "files.read",
     "tools.documents.read_document", "tools.documents.list_documents",
@@ -50,7 +50,7 @@ builder.Services.AddCortexRole("household-admin",
     FinanceModule.ViewFinance, FinanceModule.ManageCategories, FinanceModule.ReviewImports,
     FinanceModule.ManageFinance,
 ]);
-builder.Services.AddCortexRole("household-member",
+builder.Services.AddPlenipoRole("household-member",
 [
     "chat.use", "chat.conversations.view", "files.read",
     // Reads + the one ungated quick-capture write (ADR-0005). No account/category/budget
@@ -82,17 +82,19 @@ if (!app.Environment.IsDevelopment())
 }
 
 // Defense-in-depth for both embedded SPAs and every API response. The only inline script is the
-// static theme bootstrap in the app/admin index pages — logically identical, but the two SPAs ship
-// it from different HTML templates whose surrounding whitespace differs, so each page's script has
-// its own SHA-256. Both hashes are pinned below (app first, admin second) so arbitrary inline
-// script remains blocked. Re-pin these whenever scripts/build-ui.ps1 regenerates the index pages.
+// static theme bootstrap in the app/admin index pages; pinning its SHA-256 keeps arbitrary inline
+// script blocked. As of Plenipo alpha.22 both SPAs emit that bootstrap byte-identically, so a
+// single hash covers both pages (earlier releases needed one hash each, because the two HTML
+// templates differed in surrounding whitespace).
+// Re-pin whenever scripts/build-ui.ps1 or update-platform.ps1 regenerates the index pages —
+// a stale hash silently blocks the bootstrap in the browser, which no backend test will catch.
+// Recompute: node -e '...' hashing each index.html's inline <script> body (see docs/HOSTED.md).
 app.Use(async (context, next) =>
 {
     var headers = context.Response.Headers;
     headers["Content-Security-Policy"] =
         "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; " +
-        "form-action 'self'; script-src 'self' 'sha256-XR26kU4TYAbwaRhWo9VIyJsEayScsVuLKJRfQiNyr6s=' " +
-        "'sha256-cD2NZltQ435u82khslaWhtD4Ann5DZzrzni8XUm0KG0='; " +
+        "form-action 'self'; script-src 'self' 'sha256-+m9pIRNuKx9R4L5EDpgWAnYpvljdrRZ3jeEG7FXszAE='; " +
         "style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'";
     headers["X-Content-Type-Options"] = "nosniff";
     headers["X-Frame-Options"] = "DENY";
@@ -108,7 +110,7 @@ app.Use(async (context, next) =>
     await next();
 });
 
-await app.RunCortexPlatformAsync();
+await app.RunPlenipoPlatformAsync();
 
 /// <summary>Exposed so integration tests can host this app via WebApplicationFactory&lt;Program&gt;.</summary>
 public partial class Program;

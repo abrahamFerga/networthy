@@ -1,9 +1,9 @@
 using System.ComponentModel;
 using System.Globalization;
 using System.Text;
-using Cortex.Application.Documents;
-using Cortex.Application.Files;
-using Cortex.Core.Identity;
+using Plenipo.Application.Documents;
+using Plenipo.Application.Files;
+using Plenipo.Core.Identity;
 using Microsoft.EntityFrameworkCore;
 using Networthy.Finance.Persistence;
 

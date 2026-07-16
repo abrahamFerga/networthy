@@ -1,4 +1,4 @@
-using Cortex.Application.Notifications;
+using Plenipo.Application.Notifications;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;

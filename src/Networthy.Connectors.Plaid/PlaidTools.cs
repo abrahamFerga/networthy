@@ -1,10 +1,10 @@
 using System.ComponentModel;
 using System.Text;
-using Cortex.Application.Authorization;
-using Cortex.Connectors.Sdk;
-using Cortex.Core.Identity;
-using Cortex.Core.Multitenancy;
-using Cortex.Modules.Sdk;
+using Plenipo.Application.Authorization;
+using Plenipo.Connectors.Sdk;
+using Plenipo.Core.Identity;
+using Plenipo.Core.Multitenancy;
+using Plenipo.Modules.Sdk;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;

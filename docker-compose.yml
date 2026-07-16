@@ -16,7 +16,7 @@
 #     docker compose up -d
 #
 # To use a commercial AI model, start the stack and configure the tenant's provider/model/key
-# under Admin → AI Settings. The key is stored write-only in Cortex's secret vault.
+# under Admin → AI Settings. The key is stored write-only in Plenipo's secret vault.
 
 services:
   db:
@@ -54,8 +54,8 @@ services:
       # ASP.NET host filtering blocks forged Host headers/DNS rebinding. Set this to the
       # public hostname (semicolon-separated for several) in a secured deployment.
       AllowedHosts: ${ALLOWED_HOSTS:-localhost;127.0.0.1}
-      ConnectionStrings__cortex-platform: Host=db;Port=5432;Database=cortex_platform;Username=postgres;Password=${POSTGRES_PASSWORD:-networthy-local-only}
-      ConnectionStrings__cortex-audit: Host=db;Port=5432;Database=cortex_audit;Username=postgres;Password=${POSTGRES_PASSWORD:-networthy-local-only}
+      ConnectionStrings__plenipo-platform: Host=db;Port=5432;Database=plenipo_platform;Username=postgres;Password=${POSTGRES_PASSWORD:-networthy-local-only}
+      ConnectionStrings__plenipo-audit: Host=db;Port=5432;Database=plenipo_audit;Username=postgres;Password=${POSTGRES_PASSWORD:-networthy-local-only}
       # AI provider (default: the dependency-free Mock — no key, works offline).
       Ai__Provider: ${AI_PROVIDER:-Mock}
       Ai__Model: ${AI_MODEL:-gpt-4o-mini}
@@ -65,7 +65,7 @@ services:
       # File storage: Local (volume below) or AzureBlob (bring a connection string).
       Files__Provider: ${FILES_PROVIDER:-Local}
       Files__AzureBlobConnectionString: ${FILES_AZURE_CONNECTION:-}
-      Files__AzureBlobContainer: ${FILES_AZURE_CONTAINER:-cortex-files}
+      Files__AzureBlobContainer: ${FILES_AZURE_CONTAINER:-plenipo-files}
       # OCR for scanned (image-only) statements: set all three to enable Azure
       # Document Intelligence. Left empty, scanned PDFs report that no OCR engine
       # is configured — digital PDFs/CSV/OFX never need this.

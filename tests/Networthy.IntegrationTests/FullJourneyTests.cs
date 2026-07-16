@@ -123,7 +123,7 @@ public sealed class FullJourneyTests(IntegrationFixture fixture)
         Assert.Contains("(private)", owned);
 
         // …another member sees only the shared one.
-        var context = services.GetRequiredService<Cortex.Infrastructure.Context.RequestContext>();
+        var context = services.GetRequiredService<Plenipo.Infrastructure.Context.RequestContext>();
         context.SetUser(Guid.NewGuid(), "other-member", "Other Member");
         var theirs = await services.GetRequiredService<AccountTools>().ListAccounts();
         Assert.DoesNotContain("Private stash", theirs);

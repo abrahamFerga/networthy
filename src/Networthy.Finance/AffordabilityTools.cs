@@ -1,6 +1,6 @@
 using System.ComponentModel;
 using System.Globalization;
-using Cortex.Core.Identity;
+using Plenipo.Core.Identity;
 using Microsoft.EntityFrameworkCore;
 using Networthy.Finance.Persistence;
 

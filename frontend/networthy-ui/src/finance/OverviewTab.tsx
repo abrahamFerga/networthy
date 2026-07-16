@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { apiGet, ProgressBar, StatTile, type ModuleTabProps } from "@cortex/ui";
+import { apiGet, ProgressBar, StatTile, type ModuleTabProps } from "@plenipo/ui";
 
 /**
  * The household command center (epic 8, ADR-0008) — one composed fetch, rendered with the

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { apiGet, GenericTab, type ModuleTabProps } from "@cortex/ui";
+import { apiGet, GenericTab, type ModuleTabProps } from "@plenipo/ui";
 
 /**
  * The Recurring tab (issue #46, ADR-0008): the next 60 days of expected bills on a month-grid

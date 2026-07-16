@@ -79,7 +79,7 @@ public sealed class RecurringTests(IntegrationFixture fixture)
 
         // The heads-up persisted to the recipient's in-app inbox (asserted at the store, since
         // the recipient is whichever household member logged the charges).
-        var platform = services.GetRequiredService<Cortex.Infrastructure.Persistence.PlatformDbContext>();
+        var platform = services.GetRequiredService<Plenipo.Infrastructure.Persistence.PlatformDbContext>();
         var note = await platform.UserNotifications.IgnoreQueryFilters()
             .Where(n => n.TenantId == tenantId && n.Title.Contains("GYM MEMBERSHIP"))
             .FirstAsync();

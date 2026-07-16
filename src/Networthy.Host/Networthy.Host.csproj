@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
-  <!-- THE PRODUCT: a thin host on the Cortex platform packages (ADR-0001). One
-       AddCortexPlatform() call brings RBAC, multi-tenancy, audit, chat (AG-UI + SignalR),
+  <!-- THE PRODUCT: a thin host on the Plenipo platform packages (ADR-0001). One
+       AddPlenipoPlatform() call brings RBAC, multi-tenancy, audit, chat (AG-UI + SignalR),
        document tools, jobs, and the admin API; then the finance module and the connectors
        this product ships with. -->
   <PropertyGroup>
@@ -12,7 +12,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Cortex.AspNetCore" Version="0.1.0-alpha.22" />
+    <PackageReference Include="Plenipo.AspNetCore" Version="0.1.0-alpha.23" />
   </ItemGroup>
 
   <ItemGroup>

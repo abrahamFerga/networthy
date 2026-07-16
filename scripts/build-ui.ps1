@@ -1,19 +1,19 @@
 # Builds the Networthy web UI and embeds it into the host.
 #
-# The app bundle is Networthy's OWN entry (frontend/networthy-ui — the Cortex shell plus the
-# custom finance tabs, ADR-0008). It depends on @cortex/ui from the VENDORED tarball in
-# .packages/ (put there by scripts/update-platform.ps1), so no Cortex checkout is needed to
-# build it. A checkout is only used when present: the dev harness aliases @cortex/ui to its
-# source (vite.config.ts), and -WithAdmin rebuilds the admin console from it (normally the
-# admin bundle vendors prebuilt from the release instead).
+# The app bundle is Networthy's OWN entry (frontend/networthy-ui — the Plenipo shell plus the
+# custom finance tabs, ADR-0008). It depends on @plenipo/ui from the public npm registry (pinned
+# by scripts/update-platform.ps1), so no Plenipo checkout is needed to build it. A checkout is
+# only used when present: the dev harness aliases @plenipo/ui to its source (vite.config.ts),
+# and -WithAdmin rebuilds the admin console from it (normally the admin bundle vendors prebuilt
+# from the release instead).
 # Outputs are COMMITTED (like .packages/) so a clone runs without pnpm.
 # Re-run this script after vendoring a new platform version or editing frontend/networthy-ui.
 #
-# Usage:  ./scripts/build-ui.ps1 [-WithAdmin] [-CortexRepo <path>]
+# Usage:  ./scripts/build-ui.ps1 [-WithAdmin] [-PlenipoRepo <path>]
 
 param(
     [switch]$WithAdmin,
-    [string]$CortexRepo = (Join-Path $PSScriptRoot "..\..\Cortex")
+    [string]$PlenipoRepo = (Join-Path $PSScriptRoot "..\..\Plenipo")
 )
 
 $ErrorActionPreference = "Stop"
@@ -21,12 +21,12 @@ $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $networthyUi = Join-Path $repoRoot "frontend\networthy-ui"
 
 # Networthy branding + same-origin API base ("" -> relative /api/... calls; the host serves both).
-# The vendored @cortex/ui dist was already built with VITE_API_BASE="" by the Cortex release
+# The published @plenipo/ui dist was already built with VITE_API_BASE="" by the Plenipo release
 # workflow; setting it here too keeps the app's own env consistent.
 $env:VITE_BRAND_NAME = "Networthy"
 $env:VITE_API_BASE = ""
 try {
-    Write-Host "Installing networthy-ui deps (@cortex/ui from the vendored .packages/ tarball)..." -ForegroundColor Cyan
+    Write-Host "Installing networthy-ui deps (@plenipo/ui from the npm registry)..." -ForegroundColor Cyan
     pnpm -C $networthyUi install
     if ($LASTEXITCODE -ne 0) { throw "networthy-ui install failed" }
 
@@ -35,15 +35,20 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "networthy-ui build failed" }
 
     if ($WithAdmin) {
-        $frontend = Join-Path (Resolve-Path $CortexRepo) "frontend"
-        if (-not (Test-Path (Join-Path $frontend "admin-ui\package.json"))) {
-            throw "No Cortex frontend at '$frontend' — -WithAdmin needs a checkout (or vendor the prebuilt admin bundle via update-platform.ps1 -WithUi instead)."
+        # Test-Path BEFORE Resolve-Path: with $ErrorActionPreference = "Stop", resolving a missing
+        # path throws a raw "Cannot find path" before the friendly guard below can explain itself.
+        if (-not (Test-Path $PlenipoRepo)) {
+            throw "No Plenipo checkout at '$PlenipoRepo' — -WithAdmin needs one (pass -PlenipoRepo <path>, or vendor the prebuilt admin bundle via update-platform.ps1 -WithUi instead)."
         }
-        Write-Host "Building @cortex/admin-ui from the checkout (same-origin API)..." -ForegroundColor Cyan
+        $frontend = Join-Path (Resolve-Path $PlenipoRepo) "frontend"
+        if (-not (Test-Path (Join-Path $frontend "admin-ui\package.json"))) {
+            throw "No Plenipo frontend at '$frontend' — -WithAdmin needs a checkout (or vendor the prebuilt admin bundle via update-platform.ps1 -WithUi instead)."
+        }
+        Write-Host "Building @plenipo/admin-ui from the checkout (same-origin API)..." -ForegroundColor Cyan
         pnpm -C $frontend install
         if ($LASTEXITCODE -ne 0) { throw "pnpm install failed" }
         pnpm -C (Join-Path $frontend "admin-ui") build
-        if ($LASTEXITCODE -ne 0) { throw "@cortex/admin-ui build failed" }
+        if ($LASTEXITCODE -ne 0) { throw "@plenipo/admin-ui build failed" }
     }
 }
 finally {
@@ -51,21 +56,21 @@ finally {
     Remove-Item Env:VITE_API_BASE -ErrorAction SilentlyContinue
 }
 
-# Tripwire: a bundle carrying the library's localhost:8080 dev fallback means the vendored
-# @cortex/ui dist was built without VITE_API_BASE="" — fail loudly instead of shipping a dead
+# Tripwire: a bundle carrying the library's localhost:8080 dev fallback means the published
+# @plenipo/ui dist was built without VITE_API_BASE="" — fail loudly instead of shipping a dead
 # app (every API call would leave the host's origin).
 $leaked = Get-ChildItem (Join-Path $networthyUi "dist\assets\*.js") |
     Select-String -Pattern "localhost:8080" -List
 if ($leaked) {
-    throw "networthy-ui bundle contains the localhost:8080 API fallback — the vendored @cortex/ui " +
-        "library was built without VITE_API_BASE=`"`"; fix the Cortex release (publish.yml) or re-vendor."
+    throw "networthy-ui bundle contains the localhost:8080 API fallback — the published @plenipo/ui " +
+        "library was built without VITE_API_BASE=`"`"; fix the Plenipo release (publish.yml) or re-pin."
 }
 
 $targets = @(
     @{ Source = Join-Path $networthyUi "dist"; Target = Join-Path $repoRoot "src\Networthy.Host\wwwroot\app"; Name = "domain UI (networthy-ui)" }
 )
 if ($WithAdmin) {
-    $targets += @{ Source = Join-Path (Resolve-Path $CortexRepo) "frontend\admin-ui\dist"; Target = Join-Path $repoRoot "src\Networthy.Host\wwwroot\admin"; Name = "admin console" }
+    $targets += @{ Source = Join-Path (Resolve-Path $PlenipoRepo) "frontend\admin-ui\dist"; Target = Join-Path $repoRoot "src\Networthy.Host\wwwroot\admin"; Name = "admin console" }
 }
 
 foreach ($pair in $targets) {

@@ -1,10 +1,10 @@
 using System.ComponentModel;
 using System.Text;
 using System.Text.Json;
-using Cortex.Application.Files;
-using Cortex.Application.Jobs;
-using Cortex.Core.Identity;
-using Cortex.Core.Multitenancy;
+using Plenipo.Application.Files;
+using Plenipo.Application.Jobs;
+using Plenipo.Core.Identity;
+using Plenipo.Core.Multitenancy;
 using Microsoft.EntityFrameworkCore;
 using Networthy.Finance.Persistence;
 

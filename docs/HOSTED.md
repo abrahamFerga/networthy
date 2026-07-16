@@ -30,7 +30,7 @@ Notes on the model:
 
 ## What turns the machinery on (operator checklist)
 
-Billing is **off by default** — a fresh deployment has no webhook surface at all. The Cortex
+Billing is **off by default** — a fresh deployment has no webhook surface at all. The Plenipo
 commerce layer activates from configuration (secrets via user-secrets locally, Key Vault /
 environment in production — never appsettings):
 
@@ -44,12 +44,12 @@ Commerce:Prices:networthy:dedicated price_…
 Commerce:CheckoutSuccessUrl         https://…/welcome
 Commerce:CheckoutCancelUrl          https://…/pricing
 Commerce:Dedicated:Owner            abrahamFerga       (dedicated tier only)
-Commerce:Dedicated:Repo             Cortex
+Commerce:Dedicated:Repo             Plenipo
 Commerce:Dedicated:Workflow         deploy-customer.yml
 Commerce:Dedicated:Token            (SECRET — fine-grained PAT, actions:write)
 ```
 
-The flow from there is platform machinery, already integration-tested in Cortex: Stripe
+The flow from there is platform machinery, already integration-tested in Plenipo: Stripe
 Checkout (metadata carries product/plan/org/admin) → signed webhook → durable event inbox →
 provisioning worker → tenant + admin + seat limit + AI budget live in one transaction; the
 `dedicated` plan dispatches the Terraform `deploy-customer` workflow instead. Suspension

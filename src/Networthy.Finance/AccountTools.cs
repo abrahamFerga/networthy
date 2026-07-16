@@ -1,7 +1,7 @@
 using System.ComponentModel;
 using System.Text;
-using Cortex.Core.Identity;
-using Cortex.Core.Multitenancy;
+using Plenipo.Core.Identity;
+using Plenipo.Core.Multitenancy;
 using Microsoft.EntityFrameworkCore;
 using Networthy.Finance.Persistence;
 

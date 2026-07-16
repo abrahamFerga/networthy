@@ -1,4 +1,4 @@
-using Cortex.Core.Multitenancy;
+using Plenipo.Core.Multitenancy;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
 
@@ -10,7 +10,7 @@ public sealed class FinanceDbContextFactory : IDesignTimeDbContextFactory<Financ
     public FinanceDbContext CreateDbContext(string[] args)
     {
         var options = new DbContextOptionsBuilder<FinanceDbContext>()
-            .UseNpgsql("Host=localhost;Database=cortex_platform;Username=postgres;Password=postgres")
+            .UseNpgsql("Host=localhost;Database=plenipo_platform;Username=postgres;Password=postgres")
             .Options;
 
         return new FinanceDbContext(options, new DesignTimeTenantContext());

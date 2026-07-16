@@ -1,4 +1,4 @@
-# Networthy — the self-contained product image: Cortex platform (vendored packages) +
+# Networthy — the self-contained product image: Plenipo platform (vendored packages) +
 # finance module + Plaid connector + the embedded branded web UI. Build context is the
 # repository root:
 #   docker build -t networthy .
