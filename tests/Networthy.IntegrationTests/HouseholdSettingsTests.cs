@@ -88,6 +88,36 @@ public sealed class HouseholdSettingsTests(IntegrationFixture fixture)
         return null;
     }
 
+    /// <summary>
+    /// The Settings form defaults the time zone from the browser only when none is stored — so the
+    /// GET must report an unset zone as empty, not coerce it to "UTC". (The effective "today" still
+    /// treats a null zone as UTC; that's carried by <c>todayThere</c>, not by masking the field.)
+    /// </summary>
+    [Fact]
+    public async Task UnsetTimeZone_ReadsBackEmpty_SoTheFormCanDefaultFromTheBrowser()
+    {
+        var (scope, _, _) = await fixture.AuthorizedScopeAsync();
+        using var _scope = scope;
+        var db = scope.ServiceProvider.GetRequiredService<Networthy.Finance.Persistence.FinanceDbContext>();
+        var settings = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions
+            .FirstAsync(db.HouseholdSettings);
+        var restore = settings.TimeZoneId;
+        settings.TimeZoneId = null;
+        await db.SaveChangesAsync();
+        try
+        {
+            using var admin = fixture.AdminClient();
+            var row = (await admin.GetFromJsonAsync<JsonElement>("/api/finance/settings")).EnumerateArray().Single();
+            Assert.Equal(JsonValueKind.Null, row.GetProperty("timeZoneId").ValueKind);
+            Assert.Matches(@"^\d{4}-\d{2}-\d{2}$", row.GetProperty("todayThere").GetString()); // still resolves
+        }
+        finally
+        {
+            settings.TimeZoneId = restore;
+            await db.SaveChangesAsync();
+        }
+    }
+
     [Fact]
     public async Task TimeZone_Defines_TheHouseholdsToday()
     {
@@ -120,6 +150,46 @@ public sealed class HouseholdSettingsTests(IntegrationFixture fixture)
         Assert.Contains(expected.ToString("yyyy-MM-dd"), logged);
 
         await tools.UpdateHouseholdSettings(timeZone: "UTC"); // restore
+    }
+
+    /// <summary>
+    /// A full settings-form Save, exactly as the shell posts it: option-select values arrive as
+    /// STRINGS ("true"/"false" for the On/Off toggle), not JSON booleans. Binding those to a bool?
+    /// made every save 500; the endpoint now parses the string. Guards the whole round-trip.
+    /// </summary>
+    [Fact]
+    public async Task SettingsForm_SavesEveryField_IncludingTheStringValuedToggle()
+    {
+        using var admin = fixture.AdminClient();
+        try
+        {
+            var save = await admin.PostAsJsonAsync("/api/finance/settings", new
+            {
+                defaultCurrencyCode = "USD",
+                timeZoneId = "America/Mexico_City",
+                billReminderLeadDays = 7,
+                statementRemindersEnabled = "false", // a string, the way the On/Off select posts
+                statementReminderCadence = "weekly",
+                emergencyFundFloorMonths = 4,
+                highAprThresholdPercent = 12,
+            });
+            Assert.Equal(HttpStatusCode.OK, save.StatusCode);
+
+            var row = (await admin.GetFromJsonAsync<JsonElement>("/api/finance/settings")).EnumerateArray().Single();
+            Assert.Equal("America/Mexico_City", row.GetProperty("timeZoneId").GetString());
+            Assert.Equal(7, row.GetProperty("billReminderLeadDays").GetInt32());
+            Assert.False(row.GetProperty("statementRemindersEnabled").GetBoolean()); // the string parsed to bool
+            Assert.Equal("weekly", row.GetProperty("statementReminderCadence").GetString());
+        }
+        finally
+        {
+            // Restore the shared tenant's defaults for the rest of the collection.
+            await admin.PostAsJsonAsync("/api/finance/settings", new
+            {
+                defaultCurrencyCode = "USD", timeZoneId = "UTC", billReminderLeadDays = 3,
+                statementRemindersEnabled = "true", statementReminderCadence = "monthly",
+            });
+        }
     }
 
     [Fact]
