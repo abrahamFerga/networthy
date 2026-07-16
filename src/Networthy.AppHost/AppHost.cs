@@ -91,10 +91,13 @@ if (builder.ExecutionContext.IsRunMode && ToolExistsOnPath("pnpm"))
     }
     else
     {
+        // No checkout → no admin dev server. The workspace's "Admin ↗" link is a relative /admin
+        // frozen into the published @plenipo/ui dist (VITE_ADMIN_URL cannot move it from here), so
+        // vite.config.ts proxies /admin to the API, which serves the committed wwwroot/admin bundle.
         Console.WriteLine(
             $"[Networthy.AppHost] Admin console dev server skipped — no Plenipo checkout at " +
-            $"'{plenipoRepo}' (set \"PlenipoRepoPath\"). networthy-ui still runs, and the API still " +
-            "serves the committed admin bundle from wwwroot/admin.");
+            $"'{plenipoRepo}' (set \"PlenipoRepoPath\"). networthy-ui still runs, and its /admin is " +
+            "proxied to the API's committed bundle from wwwroot/admin.");
     }
 
     api.WithEnvironment($"Cors__Origins__{corsIndex++}", "http://localhost:5173")
