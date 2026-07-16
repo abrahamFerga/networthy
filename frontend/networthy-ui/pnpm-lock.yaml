@@ -16,8 +16,8 @@ importers:
         specifier: ^10.0.0
         version: 10.0.0
       '@plenipo/ui':
-        specifier: 0.1.0-alpha.23
-        version: 0.1.0-alpha.23(@microsoft/signalr@10.0.0)(@tanstack/react-query@5.101.2(react@18.3.1))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react-router-dom@6.30.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react@18.3.1)
+        specifier: 0.1.0-alpha.25
+        version: 0.1.0-alpha.25(@microsoft/signalr@10.0.0)(@tanstack/react-query@5.101.2(react@18.3.1))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react-router-dom@6.30.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react@18.3.1)
       '@tanstack/react-query':
         specifier: ^5.59.16
         version: 5.101.2(react@18.3.1)
@@ -412,8 +412,8 @@ packages:
     resolution: {integrity: sha512-oGB+UxlgWcgQkgwo8GcEGwemoTFt3FIO9ababBmaGwXIoBKZ+GTy0pP185beGg7Llih/NSHSV2XAs1lnznocSg==}
     engines: {node: '>= 8'}
 
-  '@plenipo/ui@0.1.0-alpha.23':
-    resolution: {integrity: sha512-cnZBQVj1ini5P31ZeIP7ET57T65nEyqDFJlcT7bEiUPP21C8O92RZbi0y0bPFvpeny3mYnarqXiwL2awPbH4lg==}
+  '@plenipo/ui@0.1.0-alpha.25':
+    resolution: {integrity: sha512-VIX1RDbx+BJ3Qj7FGvPgr6vr5Tne/0Ordj1mG/SZwUO57VGqcti2vhhhEMktd9oKjol7EkCdmhreeTB0MaCDBw==}
     peerDependencies:
       '@microsoft/signalr': '>=8'
       '@tanstack/react-query': '>=5'
@@ -2107,7 +2107,7 @@ snapshots:
       '@nodelib/fs.scandir': 2.1.5
       fastq: 1.20.1
 
-  '@plenipo/ui@0.1.0-alpha.23(@microsoft/signalr@10.0.0)(@tanstack/react-query@5.101.2(react@18.3.1))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react-router-dom@6.30.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react@18.3.1)':
+  '@plenipo/ui@0.1.0-alpha.25(@microsoft/signalr@10.0.0)(@tanstack/react-query@5.101.2(react@18.3.1))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react-router-dom@6.30.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react@18.3.1)':
     dependencies:
       '@microsoft/signalr': 10.0.0
       '@tanstack/react-query': 5.101.2(react@18.3.1)

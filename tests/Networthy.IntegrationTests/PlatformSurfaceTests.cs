@@ -42,30 +42,62 @@ public sealed class PlatformSurfaceTests(IntegrationFixture fixture)
     }
 
     [Fact]
-    public async Task Settings_OffersCurrencyAndTimeZonePickers_AndRejectsJunkCurrency()
+    public async Task Settings_IsASingletonForm_WithGuessedCurrencyAndReadableTimeZone()
     {
         using var client = fixture.AdminClient();
         var modules = await client.GetFromJsonAsync<JsonElement>("/api/platform/modules");
         var finance = modules.EnumerateArray().Single(m => m.GetProperty("id").GetString() == "finance");
         var settings = finance.GetProperty("tabs").EnumerateArray()
             .Single(t => t.GetProperty("id").GetString() == "settings");
+
+        // One household's config, not a list — the shell renders it as a form, not a table+Add.
+        Assert.True(settings.GetProperty("singleton").GetBoolean());
+
         var fields = settings.GetProperty("editor").GetProperty("fields").EnumerateArray().ToList();
 
-        // Free text here produced typos that silently excluded accounts from every
-        // household-currency-scoped read — both fields now ship a picker vocabulary.
+        // Currency is a picker (free text let typos silently exclude accounts) and opens on the
+        // currency the browser's locale suggests — a guess, still the user's to change.
         var currency = fields.Single(f => f.GetProperty("field").GetString() == "defaultCurrencyCode");
-        var currencyOptions = currency.GetProperty("options").EnumerateArray().Select(o => o.GetString()).ToList();
+        var currencyOptions = OptionValues(currency);
         Assert.Contains("MXN", currencyOptions);
         Assert.Contains("USD", currencyOptions);
+        Assert.Equal("browser-currency", currency.GetProperty("defaultFrom").GetString());
+        Assert.Equal("Currency & time", currency.GetProperty("group").GetString());
 
         var timeZone = fields.Single(f => f.GetProperty("field").GetString() == "timeZoneId");
-        var zoneOptions = timeZone.GetProperty("options").EnumerateArray().Select(o => o.GetString()).ToList();
-        Assert.Contains("America/Mexico_City", zoneOptions);
-        Assert.False(timeZone.GetProperty("required").GetBoolean()); // unchosen = UTC
+        Assert.Contains("America/Mexico_City", OptionValues(timeZone)); // stored value stays IANA
+        Assert.False(timeZone.GetProperty("required").GetBoolean());    // blank = UTC
+        Assert.Equal("browser-timezone", timeZone.GetProperty("defaultFrom").GetString());
+        // …but the label is readable, not an underscore.
+        var mexicoCity = timeZone.GetProperty("options").EnumerateArray()
+            .Single(o => o.GetProperty("value").GetString() == "America/Mexico_City");
+        Assert.Equal("America / Mexico City", mexicoCity.GetProperty("label").GetString());
 
         // The endpoint enforces the same vocabulary — a picker alone wouldn't stop the API path.
         var junk = await client.PostAsJsonAsync("/api/finance/settings", new { defaultCurrencyCode = "ZZZ" });
         Assert.Equal(HttpStatusCode.BadRequest, junk.StatusCode);
+    }
+
+    [Fact]
+    public async Task SetupWizard_AsksForCurrencyOnly_TimeZoneMovedToSettings()
+    {
+        using var client = fixture.AdminClient();
+        var modules = await client.GetFromJsonAsync<JsonElement>("/api/platform/modules");
+        var finance = modules.EnumerateArray().Single(m => m.GetProperty("id").GetString() == "finance");
+
+        var basics = finance.GetProperty("onboarding").GetProperty("steps").EnumerateArray()
+            .Single(s => s.GetProperty("id").GetString() == "basics");
+        var basicsFields = basics.GetProperty("fields").EnumerateArray()
+            .Select(f => f.GetProperty("field").GetString()).ToList();
+
+        // The wizard asks one question, not two: currency (guessed from the browser), no time zone —
+        // it defaults from the browser in Settings, so first-run doesn't make anyone pick a zone.
+        Assert.Contains("defaultCurrencyCode", basicsFields);
+        Assert.DoesNotContain("timeZoneId", basicsFields);
+
+        var currency = basics.GetProperty("fields").EnumerateArray()
+            .Single(f => f.GetProperty("field").GetString() == "defaultCurrencyCode");
+        Assert.Equal("browser-currency", currency.GetProperty("defaultFrom").GetString());
     }
 
     [Fact]
@@ -185,4 +217,10 @@ public sealed class PlatformSurfaceTests(IntegrationFixture fixture)
         client.DefaultRequestHeaders.Add("X-Dev-Roles", role);
         return client;
     }
+
+    /// <summary>An option is {value,label} on the wire: the value posts, the label is read.</summary>
+    private static List<string?> OptionValues(JsonElement field) =>
+        field.GetProperty("options").EnumerateArray()
+            .Select(o => o.GetProperty("value").GetString())
+            .ToList();
 }

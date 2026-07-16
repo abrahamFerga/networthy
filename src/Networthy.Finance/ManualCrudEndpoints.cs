@@ -34,7 +34,10 @@ internal static class ManualCrudEndpoints
     internal sealed record SettingsUpsert(
         string DefaultCurrencyCode, string? TimeZoneId, int? BillReminderLeadDays,
         decimal? EmergencyFundFloorMonths, decimal? HighAprThresholdPercent,
-        bool? StatementRemindersEnabled, string? StatementReminderCadence);
+        // A string, not a bool: the form renders this as an On/Off SELECT whose option values are
+        // "true"/"false", and posts the value as a string. Binding it to bool? made System.Text.Json
+        // 500 on every settings save. Parsed to bool? in the handler.
+        string? StatementRemindersEnabled, string? StatementReminderCadence);
 
     internal sealed record ExchangeRateUpsert(string CurrencyCode, decimal RateToDefault);
 
@@ -321,7 +324,10 @@ internal static class ManualCrudEndpoints
                     {
                         id = settings?.Id,
                         defaultCurrencyCode = effective.DefaultCurrencyCode,
-                        timeZoneId = effective.TimeZoneId ?? "UTC",
+                        // Raw, not coerced to "UTC": an unset zone must read back as empty so the
+                        // Settings form can offer the browser's zone as its default. The EFFECTIVE
+                        // "today" (which does treat null as UTC) is carried by todayThere below.
+                        timeZoneId = effective.TimeZoneId,
                         todayThere = effective.Today().ToString("yyyy-MM-dd"),
                         billReminderLeadDays = effective.BillReminderLeadDays,
                         statementRemindersEnabled = effective.StatementRemindersEnabled,
@@ -340,13 +346,14 @@ internal static class ManualCrudEndpoints
         group.MapPost("/settings", async (
                 SettingsUpsert body, HouseholdSettingsTools tools, CancellationToken ct) =>
             {
+                bool? remindersOn = bool.TryParse(body.StatementRemindersEnabled, out var on) ? on : null;
                 var message = await tools.UpdateHouseholdSettings(
                     body.DefaultCurrencyCode,
                     body.TimeZoneId ?? "UTC",
                     body.BillReminderLeadDays,
                     body.EmergencyFundFloorMonths,
                     body.HighAprThresholdPercent,
-                    body.StatementRemindersEnabled,
+                    remindersOn,
                     body.StatementReminderCadence,
                     ct);
                 return message.StartsWith("Preferences saved", StringComparison.Ordinal)
