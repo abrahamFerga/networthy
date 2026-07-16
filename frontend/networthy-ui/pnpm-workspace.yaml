@@ -5,9 +5,10 @@ allowBuilds:
   esbuild: true
 
 # pnpm quarantines freshly-published versions (minimumReleaseAge) as supply-chain protection.
-# @plenipo/ui is our own first-party platform library, published from Plenipo/Plenipo's publish.yml
-# with npm provenance attestation, so the quarantine buys us nothing and would block same-day
-# platform bumps. Exempt the exact version only — a new pin is required per bump, deliberately.
+# @plenipo/ui is our own first-party platform library, published from abrahamFerga/Plenipo's
+# publish.yml with npm provenance attestation, so the quarantine buys us nothing and would block
+# same-day platform bumps. Exempt the exact version only — a new pin is required per bump,
+# deliberately.
 minimumReleaseAgeExclude:
   - '@plenipo/ui@0.1.0-alpha.23'
 
