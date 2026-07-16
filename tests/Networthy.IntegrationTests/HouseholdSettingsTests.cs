@@ -96,9 +96,17 @@ public sealed class HouseholdSettingsTests(IntegrationFixture fixture)
         var services = scope.ServiceProvider;
         var tools = services.GetRequiredService<HouseholdSettingsTools>();
 
-        // Pick whichever extreme zone is currently on a DIFFERENT date than UTC.
+        // Pick whichever extreme zone is currently on a DIFFERENT date than UTC — ASK, don't guess
+        // from the clock. This used to read `utcNow.Hour >= 12 ? Kiritimati : Pago_Pago`, which is
+        // wrong for exactly one hour a day: at 11:xx UTC, Pago_Pago (UTC-11) has just rolled onto
+        // the SAME date, so the assertion below failed every day between 11:00 and 11:59 UTC and
+        // reddened whatever PR happened to run then. One of the two extremes always differs — at
+        // 11:xx UTC that's Kiritimati (UTC+14, already tomorrow) — so let the zones answer.
         var utcNow = DateTime.UtcNow;
-        var zone = utcNow.Hour >= 12 ? "Pacific/Kiritimati" : "Pacific/Pago_Pago"; // UTC+14 / UTC-11
+        var utcToday = DateOnly.FromDateTime(utcNow);
+        var zone = Networthy.Finance.Persistence.HouseholdSettings.TodayIn("Pacific/Pago_Pago") != utcToday
+            ? "Pacific/Pago_Pago"   // UTC-11: still yesterday
+            : "Pacific/Kiritimati"; // UTC+14: already tomorrow
         var saved = await tools.UpdateHouseholdSettings(timeZone: zone);
         Assert.Contains(zone, saved);
 
