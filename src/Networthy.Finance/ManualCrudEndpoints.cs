@@ -252,7 +252,8 @@ internal static class ManualCrudEndpoints
 
         // ── Budgets (current month) ─────────────────────────────────────────────────
         group.MapPost("/budgets", async (
-                BudgetUpsert body, FinanceDbContext db, ITenantContext tenant, CancellationToken ct) =>
+                BudgetUpsert body, FinanceDbContext db, ITenantContext tenant,
+                HouseholdContext household, CancellationToken ct) =>
             {
                 if (body.Target <= 0)
                 {
@@ -267,7 +268,9 @@ internal static class ManualCrudEndpoints
                 }
 
                 BudgetMath.TryParseMonth(null, out var period); // the tab manages the current month
-                var currency = (string.IsNullOrWhiteSpace(body.CurrencyCode) ? "USD" : body.CurrencyCode.Trim()).ToUpperInvariant();
+                // Blank means "the currency this household thinks in" — the same resolution every
+                // chat tool uses. Hardcoding USD here silently gave an MXN household a USD budget.
+                var currency = await household.ResolveCurrencyAsync(body.CurrencyCode, ct);
                 var existing = await db.Budgets.FirstOrDefaultAsync(
                     b => b.CategoryId == category.Id && b.PeriodMonth == period && b.CurrencyCode == currency, ct);
                 if (existing is null)
@@ -409,9 +412,11 @@ internal static class ManualCrudEndpoints
                 IncomeSourceUpsert body, IncomeSourceTools tools, CancellationToken ct) =>
             {
                 // Same validation/upsert logic as the chat tool; the form is the human directly.
+                // Pass the currency through untouched: the tool documents null as "the household
+                // default", so coercing blank to USD here defeated that resolution entirely.
                 var message = await tools.SetIncomeSource(
                     body.Name, (double)body.Amount, body.Cadence,
-                    string.IsNullOrWhiteSpace(body.CurrencyCode) ? "USD" : body.CurrencyCode,
+                    string.IsNullOrWhiteSpace(body.CurrencyCode) ? null : body.CurrencyCode,
                     body.AccountName, ct);
                 return message.StartsWith("Income ", StringComparison.Ordinal)
                     ? Results.Ok(new { message })
@@ -438,7 +443,7 @@ internal static class ManualCrudEndpoints
         // ── Goals ───────────────────────────────────────────────────────────────────
         group.MapPost("/goals", async (
                 GoalUpsert body, FinanceDbContext db, ITenantContext tenant, ICurrentUser user,
-                CancellationToken ct) =>
+                HouseholdContext household, CancellationToken ct) =>
             {
                 var name = body.Name.Trim();
                 if (name.Length == 0 || body.Target <= 0)
@@ -470,7 +475,7 @@ internal static class ManualCrudEndpoints
                     accountId = account.Id;
                 }
 
-                var currency = (string.IsNullOrWhiteSpace(body.CurrencyCode) ? "USD" : body.CurrencyCode.Trim()).ToUpperInvariant();
+                var currency = await household.ResolveCurrencyAsync(body.CurrencyCode, ct);
                 var existing = await db.Goals.FirstOrDefaultAsync(g => EF.Functions.ILike(g.Name, name), ct);
                 if (existing is null)
                 {
