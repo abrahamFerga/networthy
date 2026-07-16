@@ -388,7 +388,9 @@ public sealed class FinanceModule : IModule
                     [
                         new("name", "Account name"),
                         new("type", "Type", Options: ["checking", "savings", "credit", "cash"]),
-                        new("currencyCode", "Currency (ISO, e.g. USD)"),
+                        // Same closed list as the household's default currency — a free-text ISO code
+                        // invites "usd"/"Dollars"/typos that fail server validation after the fact.
+                        new("currencyCode", "Currency", Options: CurrencyCodes),
                         new("cachedBalance", "Current balance (negative = owed)", Numeric: true),
                         new("institutionName", "Institution", Required: false),
                     ],
@@ -429,7 +431,7 @@ public sealed class FinanceModule : IModule
                     Fields =
                     [
                         new("name", "Loan name (e.g. 'House mortgage')"),
-                        new("currencyCode", "Currency (ISO, e.g. USD)"),
+                        new("currencyCode", "Currency", Options: CurrencyCodes),
                         new("cachedBalance", "Amount owed", Numeric: true),
                         new("interestRateApr", "Interest rate (APR %)", Required: false, Numeric: true),
                         new("minimumMonthlyPayment", "Minimum monthly payment", Required: false, Numeric: true),
@@ -492,7 +494,7 @@ public sealed class FinanceModule : IModule
                     [
                         new("name", "Account name"),
                         new("type", "Type", Options: ["checking", "savings", "credit", "cash", "loan"]),
-                        new("currencyCode", "Currency (ISO, e.g. USD)"),
+                        new("currencyCode", "Currency", Options: CurrencyCodes),
                         new("cachedBalance", "Balance (negative = owed; edits post an adjustment)", Numeric: true),
                         new("institutionName", "Institution (optional)", Required: false),
                         new("interestRateApr", "APR % (credit/loan, optional)", Required: false, Numeric: true),
@@ -555,7 +557,8 @@ public sealed class FinanceModule : IModule
                     [
                         new("categoryName", "Category", OptionsEndpoint: "/api/finance/categories", OptionsField: "name"),
                         new("target", "Monthly target", Numeric: true),
-                        new("currencyCode", "Currency (default USD)", Required: false),
+                        new("currencyCode", "Currency (blank = household default)", Required: false,
+                            Options: CurrencyCodes),
                     ],
                 },
             },
@@ -593,7 +596,8 @@ public sealed class FinanceModule : IModule
                         new("name", "Income name (e.g. 'ACME payroll')"),
                         new("amount", "Amount per paycheck", Numeric: true),
                         new("cadence", "Cadence", Options: ["weekly", "biweekly", "semimonthly", "monthly"]),
-                        new("currencyCode", "Currency (default USD)", Required: false),
+                        new("currencyCode", "Currency (blank = household default)", Required: false,
+                            Options: CurrencyCodes),
                         new("accountName", "Lands in account (optional)", Required: false, OptionsEndpoint: "/api/finance/accounts", OptionsField: "name"),
                     ],
                 },
@@ -669,7 +673,8 @@ public sealed class FinanceModule : IModule
                     [
                         new("name", "Goal name"),
                         new("target", "Target amount", Numeric: true),
-                        new("currencyCode", "Currency (default USD)", Required: false),
+                        new("currencyCode", "Currency (blank = household default)", Required: false,
+                            Options: CurrencyCodes),
                         new("targetDate", "Target date (yyyy-MM-dd, optional)", Required: false),
                         new("accountName", "Tracked account (optional - its balance becomes the progress)", Required: false, OptionsEndpoint: "/api/finance/accounts", OptionsField: "name"),
                     ],

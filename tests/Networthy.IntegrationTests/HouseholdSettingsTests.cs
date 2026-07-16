@@ -38,6 +38,56 @@ public sealed class HouseholdSettingsTests(IntegrationFixture fixture)
         await services.GetRequiredService<HouseholdSettingsTools>().UpdateHouseholdSettings(defaultCurrency: "USD");
     }
 
+    /// <summary>
+    /// The "Forms" half of the test above, which only ever exercised the tools. The tab editors and
+    /// the setup wizard post over HTTP with the currency left blank, and each of these endpoints
+    /// substituted a literal "USD" — handing an MXN household USD budgets, goals and income while
+    /// the chat tools resolved the default correctly.
+    /// </summary>
+    [Fact]
+    public async Task DefaultCurrency_FlowsThrough_TheFormsHttpEndpoints()
+    {
+        var (scope, _, _) = await fixture.AuthorizedScopeAsync();
+        using var _scope = scope;
+        var tools = scope.ServiceProvider.GetRequiredService<HouseholdSettingsTools>();
+        await tools.UpdateHouseholdSettings(defaultCurrency: "mxn");
+
+        using var admin = fixture.AdminClient();
+        try
+        {
+            Assert.Equal(HttpStatusCode.OK, (await admin.PostAsJsonAsync("/api/finance/budgets",
+                new { categoryName = "Groceries", target = 5_000 })).StatusCode);
+            Assert.Equal("MXN", await CurrencyOfAsync(admin, "/api/finance/budgets", "categoryName", "Groceries"));
+
+            Assert.Equal(HttpStatusCode.OK, (await admin.PostAsJsonAsync("/api/finance/goals",
+                new { name = "Fondo de emergencia", target = 60_000 })).StatusCode);
+            Assert.Equal("MXN", await CurrencyOfAsync(admin, "/api/finance/goals", "name", "Fondo de emergencia"));
+
+            Assert.Equal(HttpStatusCode.OK, (await admin.PostAsJsonAsync("/api/finance/income-sources",
+                new { name = "Sueldo", amount = 40_000, cadence = "monthly" })).StatusCode);
+            Assert.Equal("MXN", await CurrencyOfAsync(admin, "/api/finance/income-sources", "name", "Sueldo"));
+        }
+        finally
+        {
+            await tools.UpdateHouseholdSettings(defaultCurrency: "USD"); // restore the shared tenant
+        }
+    }
+
+    private static async Task<string?> CurrencyOfAsync(
+        HttpClient client, string url, string keyField, string key)
+    {
+        var rows = await client.GetFromJsonAsync<JsonElement>(url);
+        foreach (var row in rows.EnumerateArray())
+        {
+            if (string.Equals(row.GetProperty(keyField).GetString(), key, StringComparison.OrdinalIgnoreCase))
+            {
+                return row.GetProperty("currencyCode").GetString();
+            }
+        }
+
+        return null;
+    }
+
     [Fact]
     public async Task TimeZone_Defines_TheHouseholdsToday()
     {
