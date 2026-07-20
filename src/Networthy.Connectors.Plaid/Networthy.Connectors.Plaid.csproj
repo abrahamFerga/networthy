@@ -11,7 +11,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.AI" Version="10.7.0" />
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.8.0" />
     <PackageReference Include="Plenipo.Connectors.Sdk" Version="0.1.0-alpha.25" />
     <PackageReference Include="Plenipo.Application" Version="0.1.0-alpha.25" />
     <PackageReference Include="Plenipo.Modules.Sdk" Version="0.1.0-alpha.25" />
