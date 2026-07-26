@@ -22,11 +22,19 @@ public sealed class AdminExtensionTests(IntegrationFixture fixture)
 
         var finance = extensions.EnumerateArray()
             .Single(e => e.GetProperty("id").GetString() == "finance");
-        var tab = Assert.Single(finance.GetProperty("tabs").EnumerateArray());
-        Assert.Equal("exchange-rates", tab.GetProperty("id").GetString());
-        Assert.Equal("/api/finance/settings/rates", tab.GetProperty("dataEndpoint").GetString());
+        var tabs = finance.GetProperty("tabs").EnumerateArray().ToList();
+
+        var rates = tabs.Single(t => t.GetProperty("id").GetString() == "exchange-rates");
+        Assert.Equal("/api/finance/settings/rates", rates.GetProperty("dataEndpoint").GetString());
         // The editor ships to the admin — add/edit/delete straight from the generic page.
-        Assert.Equal("currencyCode", tab.GetProperty("editor").GetProperty("keyField").GetString());
+        Assert.Equal("currencyCode", rates.GetProperty("editor").GetProperty("keyField").GetString());
+
+        // Document scanning is a read-only singleton status view — OCR engines are configured
+        // as connectors under Integrations, so the page deliberately ships no editor.
+        var scanning = tabs.Single(t => t.GetProperty("id").GetString() == "document-scanning");
+        Assert.Equal("/api/finance/settings/ocr", scanning.GetProperty("dataEndpoint").GetString());
+        Assert.True(scanning.GetProperty("singleton").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, scanning.GetProperty("editor").ValueKind);
 
         // A household member (no finance.manage) is not told the page exists at all.
         using var member = MemberClient("it-ext-member");

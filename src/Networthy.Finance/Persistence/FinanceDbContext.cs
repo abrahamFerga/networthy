@@ -83,8 +83,11 @@ public sealed class FinanceDbContext(
             b.ToTable("statement_import_batches");
             b.HasKey(x => x.Id);
             b.Property(x => x.FileName).HasMaxLength(300).IsRequired();
-            b.Property(x => x.Status).HasMaxLength(12).IsRequired();
+            b.Property(x => x.Status).HasMaxLength(16).IsRequired(); // "needs-account" is 13
             b.Property(x => x.FailureReason).HasMaxLength(1000);
+            b.Property(x => x.DetectedInstitution).HasMaxLength(200);
+            b.Property(x => x.DetectedAccountMask).HasMaxLength(24);
+            b.Property(x => x.DetectedCurrency).HasMaxLength(3);
             b.HasIndex(x => new { x.TenantId, x.Status });
             b.HasOne<Account>().WithMany().HasForeignKey(x => x.AccountId).OnDelete(DeleteBehavior.Cascade);
             b.HasQueryFilter(x => x.TenantId == tenantContext.TenantId);

@@ -23,10 +23,10 @@ public sealed class StatementImportTools(
     ITenantContext tenant,
     ICurrentUser currentUser)
 {
-    [Description("Import an uploaded bank statement (CSV/OFX/QFX; the file id comes from the message's attachment block). Extraction runs in the background; review with review_import_batch before anything posts. Side-effecting and requires approval.")]
+    [Description("Import an uploaded bank statement (CSV/OFX/QFX/PDF; the file id comes from the message's attachment block). The account name is OPTIONAL: leave it out and Networthy detects which account the statement belongs to (asking before creating anything). Extraction runs in the background; review with review_import_batch before anything posts. Side-effecting and requires approval.")]
     public async Task<string> ImportStatement(
         [Description("The stored file id (a GUID) of the uploaded statement.")] string fileId,
-        [Description("The account name this statement belongs to.")] string accountName,
+        [Description("Optional: the account name this statement belongs to. Omit to auto-detect from the statement itself.")] string? accountName = null,
         CancellationToken cancellationToken = default)
     {
         if (!Guid.TryParse(fileId, out var id))
@@ -40,17 +40,28 @@ public sealed class StatementImportTools(
             return $"No stored file with id {id} exists. Attach the statement first.";
         }
 
-        var account = await db.Accounts.FirstOrDefaultAsync(
-            a => EF.Functions.ILike(a.Name, accountName.Trim()), cancellationToken);
-        if (account is null || !account.IsVisibleTo(currentUser.UserId))
+        Account? account = null;
+        if (!string.IsNullOrWhiteSpace(accountName))
         {
-            return $"No account named '{accountName}' exists (or it is private to another member). Use list_accounts.";
+            account = await db.Accounts.FirstOrDefaultAsync(
+                a => EF.Functions.ILike(a.Name, accountName.Trim()), cancellationToken);
+            if (account is null || !account.IsVisibleTo(currentUser.UserId))
+            {
+                // An explicit name that misses is far more often a typo than an intent to create:
+                // suggest instead of importing into limbo, and offer the detect path.
+                var visible = await VisibleAccountsAsync(cancellationToken);
+                var closest = SuggestAccountNames(accountName, visible);
+                return $"No account named '{accountName}' exists (or it is private to another member)."
+                       + (closest.Count > 0 ? $" Did you mean {string.Join(" or ", closest.Select(n => $"'{n}'"))}?" : "")
+                       + " Re-run with an existing name, or import WITHOUT an account and Networthy will "
+                       + "detect it from the statement (and ask before creating anything).";
+            }
         }
 
         var batch = new StatementImportBatch
         {
             TenantId = tenant.RequireTenantId(),
-            AccountId = account.Id,
+            AccountId = account?.Id,
             SourceFileId = stored.Id,
             FileName = stored.FileName,
             Status = "queued",
@@ -62,8 +73,61 @@ public sealed class StatementImportTools(
         await jobs.EnqueueAsync(FinanceModule.Id, StatementParseJobHandler.JobKind,
             new StatementParseArgs(batch.Id), cancellationToken);
 
-        return $"Import of '{stored.FileName}' into '{account.Name}' is queued for extraction. " +
-               "Once parsed, review the lines with review_import_batch — nothing posts until you approve.";
+        return account is null
+            ? $"Import of '{stored.FileName}' is queued for extraction. Networthy will detect which account " +
+              "it belongs to — an unambiguous match is used directly; otherwise the batch waits and " +
+              "assign_import_account picks or creates the account. Nothing posts until you approve."
+            : $"Import of '{stored.FileName}' into '{account.Name}' is queued for extraction. " +
+              "Once parsed, review the lines with review_import_batch — nothing posts until you approve.";
+    }
+
+    [Description("Attach an account to an import batch that is waiting for one (status needs-account): name an existing account, or set createIfMissing to create it — the new account inherits the statement's detected institution and masked number. Side-effecting and requires approval.")]
+    public async Task<string> AssignImportAccount(
+        [Description("The account to import into (existing, or the name for a new one).")] string accountName,
+        [Description("Create the account when no existing one matches the name. Default false.")] bool createIfMissing = false,
+        [Description("Type for a NEWLY created account: checking, savings, credit, cash, or loan. Default checking.")] string? accountType = null,
+        [Description("Optional file name (or part of it) to pick a specific waiting batch; defaults to the most recent.")] string? fileName = null,
+        CancellationToken cancellationToken = default)
+    {
+        var trimmed = accountName.Trim();
+        if (trimmed.Length == 0)
+        {
+            return "Give the account a name — an existing account's, or the name the new one should have.";
+        }
+
+        var batch = await FindBatchAsync(fileName, cancellationToken, status: "needs-account");
+        if (batch is null)
+        {
+            return "No import batch is waiting for an account. list_import_batches shows what's pending.";
+        }
+
+        var account = await db.Accounts.FirstOrDefaultAsync(
+            a => EF.Functions.ILike(a.Name, trimmed), cancellationToken);
+        if (account is not null && !account.IsVisibleTo(currentUser.UserId))
+        {
+            return $"'{account.Name}' is private to another member — pick a different account.";
+        }
+
+        if (account is null)
+        {
+            if (!createIfMissing)
+            {
+                var visible = await VisibleAccountsAsync(cancellationToken);
+                var closest = SuggestAccountNames(trimmed, visible);
+                return $"No account named '{trimmed}' exists."
+                       + (closest.Count > 0 ? $" Did you mean {string.Join(" or ", closest.Select(n => $"'{n}'"))}?" : "")
+                       + $" To create it for this statement ({DetectedLabel(batch)}), call again with createIfMissing.";
+            }
+
+            account = await CreateAccountFromDetectionAsync(batch, trimmed, accountType, cancellationToken);
+        }
+
+        batch.AccountId = account.Id;
+        batch.Status = "parsed";
+        await db.SaveChangesAsync(cancellationToken);
+
+        return $"'{batch.FileName}' will import into '{account.Name}'. " +
+               "Review the lines with review_import_batch — nothing posts until you approve.";
     }
 
     [Description("Show an import batch's extracted lines (dates, amounts, suggested categories) for review before approval. Defaults to the most recent batch.")]
@@ -93,7 +157,20 @@ public sealed class StatementImportTools(
             return $"'{batch.FileName}' parsed but produced no lines — the file may be empty or a summary-only export.";
         }
 
-        var sb = new StringBuilder($"Extracted from '{batch.FileName}' ({lines.Count} line(s)) — review, then approve_import_batch:\n");
+        var sb = new StringBuilder();
+        if (batch.Status == "needs-account")
+        {
+            // The "ask before creating" moment: say what the statement looks like and lay out
+            // both resolutions — an existing account, or creating the detected one.
+            sb.AppendLine($"'{batch.FileName}' looks like a statement from {DetectedLabel(batch)}, and no " +
+                          "existing account matches. Before these lines can be reviewed for posting, pick where " +
+                          "they belong: assign_import_account with an existing account's name, or with " +
+                          "createIfMissing to create it (the new account inherits the detected institution " +
+                          "and masked number).");
+        }
+
+        sb.AppendLine($"Extracted from '{batch.FileName}' ({lines.Count} line(s))" +
+                      (batch.Status == "parsed" ? " — review, then approve_import_batch:" : ":"));
         foreach (var line in lines.Take(40))
         {
             sb.AppendLine($"- {line.Date:yyyy-MM-dd} · {(line.Direction == "income" ? "+" : "-")}{line.Amount:N2} · {line.Description}" +
@@ -108,6 +185,15 @@ public sealed class StatementImportTools(
         var expense = lines.Where(l => l.Direction == "expense").Sum(l => l.Amount);
         var income = lines.Where(l => l.Direction == "income").Sum(l => l.Amount);
         sb.Append($"Totals: -{expense:N2} expense, +{income:N2} income.");
+
+        var overlap = await FindOverlappingApprovedBatchAsync(batch, cancellationToken);
+        if (overlap is not null)
+        {
+            sb.Append($"\n⚠ Heads-up: '{overlap.FileName}' was already approved for this account covering " +
+                      $"{overlap.LinesFrom:yyyy-MM-dd} → {overlap.LinesTo:yyyy-MM-dd}, which overlaps this " +
+                      "statement's period — approving both may post the same transactions twice.");
+        }
+
         return sb.ToString();
     }
 
@@ -118,7 +204,9 @@ public sealed class StatementImportTools(
             .Where(a => a.RestrictedToUserId == null || a.RestrictedToUserId == currentUser.UserId)
             .Select(a => a.Id);
         var batches = await db.ImportBatches
-            .Where(b => b.Status != "approved" && visibleAccountIds.Contains(b.AccountId))
+            // Account-less batches are pre-assignment by definition — nothing account-private to hide.
+            .Where(b => b.Status != "approved"
+                        && (b.AccountId == null || visibleAccountIds.Contains(b.AccountId.Value)))
             .OrderByDescending(b => b.CreatedAt)
             .Take(50)
             .ToListAsync(cancellationToken);
@@ -134,6 +222,7 @@ public sealed class StatementImportTools(
             {
                 "parsed" => $"{Deserialize(batch.ExtractedLinesJson).Count} line(s) awaiting review",
                 "queued" => "still being extracted",
+                "needs-account" => $"needs an account — looks like {DetectedLabel(batch)}; resolve with assign_import_account",
                 "failed" => $"failed: {batch.FailureReason}",
                 _ => batch.Status,
             };
@@ -162,6 +251,11 @@ public sealed class StatementImportTools(
     /// review endpoints (which resolve the latest parsed batch, or one by id).</summary>
     internal async Task<string> ApproveBatchAsync(StatementImportBatch batch, CancellationToken cancellationToken)
     {
+        if (batch.Status == "needs-account" || batch.AccountId is null)
+        {
+            return $"'{batch.FileName}' has no account yet (it looks like {DetectedLabel(batch)}). " +
+                   "Resolve with assign_import_account first — then review and approve.";
+        }
         if (batch.Status != "parsed")
         {
             return $"'{batch.FileName}' is {batch.Status} — only a parsed batch can be approved.";
@@ -205,7 +299,8 @@ public sealed class StatementImportTools(
                $"New balance: {account.CachedBalance:N2} {account.CurrencyCode}.";
     }
 
-    private async Task<StatementImportBatch?> FindBatchAsync(string? fileName, CancellationToken cancellationToken)
+    private async Task<StatementImportBatch?> FindBatchAsync(
+        string? fileName, CancellationToken cancellationToken, string? status = null)
     {
         var query = db.ImportBatches.AsQueryable();
         if (!string.IsNullOrWhiteSpace(fileName))
@@ -213,9 +308,162 @@ public sealed class StatementImportTools(
             var pattern = $"%{fileName.Trim()}%";
             query = query.Where(b => EF.Functions.ILike(b.FileName, pattern));
         }
+        if (status is not null)
+        {
+            query = query.Where(b => b.Status == status);
+        }
 
         return await query.OrderByDescending(b => b.CreatedAt).FirstOrDefaultAsync(cancellationToken);
     }
+
+    /// <summary>"First Example Bank ••••1234" from what the parse job detected; honest when nothing was.</summary>
+    internal static string DetectedLabel(StatementImportBatch batch) => ((batch.DetectedInstitution, batch.DetectedAccountMask) switch
+    {
+        ({ } bank, { } mask) => $"'{bank} {mask}'",
+        ({ } bank, null) => $"'{bank}'",
+        (null, { } mask) => $"account {mask}",
+        _ => "an account the statement doesn't identify",
+    }) + (batch.DetectedCurrency is null ? "" : $" ({batch.DetectedCurrency})");
+
+    /// <summary>
+    /// The auto-match the parse job trusts: the masked number's last four digits are decisive when
+    /// exactly ONE visible account carries them; the institution name is accepted only when it
+    /// singles out exactly one account. Anything ambiguous returns null — the flow asks instead.
+    /// </summary>
+    internal static Account? MatchAccount(IReadOnlyList<Account> candidates, DetectedAccountHint? hint)
+    {
+        if (hint is null)
+        {
+            return null;
+        }
+
+        if (hint.MaskLast4 is { } last4)
+        {
+            var byMask = candidates
+                .Where(a => a.MaskedAccountNumber is { } mask
+                            && new string(mask.Where(char.IsAsciiDigit).ToArray()).EndsWith(last4, StringComparison.Ordinal))
+                .ToList();
+            if (byMask.Count == 1)
+            {
+                return byMask[0];
+            }
+            if (byMask.Count > 1)
+            {
+                return null; // two accounts sharing a last-4 — never guess between them
+            }
+        }
+
+        if (hint.Institution is { } institution)
+        {
+            var byInstitution = candidates
+                .Where(a => (a.InstitutionName is { } held && Overlaps(held, institution))
+                            || Overlaps(a.Name, institution))
+                .ToList();
+            if (byInstitution.Count == 1)
+            {
+                return byInstitution[0];
+            }
+        }
+
+        return null;
+
+        static bool Overlaps(string a, string b) =>
+            a.Contains(b, StringComparison.OrdinalIgnoreCase) || b.Contains(a, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Closest visible account names for "did you mean…" — containment first, small typos second.</summary>
+    internal static IReadOnlyList<string> SuggestAccountNames(string requested, IReadOnlyList<Account> accounts)
+    {
+        var wanted = requested.Trim();
+        return accounts
+            .Select(a => (a.Name, Score: Score(wanted, a.Name)))
+            .Where(x => x.Score < int.MaxValue)
+            .OrderBy(x => x.Score)
+            .ThenBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
+            .Take(3)
+            .Select(x => x.Name)
+            .ToList();
+
+        static int Score(string wanted, string candidate)
+        {
+            if (candidate.Contains(wanted, StringComparison.OrdinalIgnoreCase)
+                || wanted.Contains(candidate, StringComparison.OrdinalIgnoreCase))
+            {
+                return 0;
+            }
+            var distance = Levenshtein(wanted.ToLowerInvariant(), candidate.ToLowerInvariant());
+            // Tolerate roughly one typo per five characters, capped — beyond that it isn't "close".
+            return distance <= Math.Max(2, wanted.Length / 5) ? distance : int.MaxValue;
+        }
+    }
+
+    private static int Levenshtein(string a, string b)
+    {
+        var previous = Enumerable.Range(0, b.Length + 1).ToArray();
+        var current = new int[b.Length + 1];
+        for (var i = 1; i <= a.Length; i++)
+        {
+            current[0] = i;
+            for (var j = 1; j <= b.Length; j++)
+            {
+                current[j] = Math.Min(
+                    Math.Min(previous[j] + 1, current[j - 1] + 1),
+                    previous[j - 1] + (a[i - 1] == b[j - 1] ? 0 : 1));
+            }
+            (previous, current) = (current, previous);
+        }
+        return previous[b.Length];
+    }
+
+    /// <summary>
+    /// Creates the account a needs-account batch detected, seeding institution and mask from the
+    /// statement so the next import of the same statement auto-matches. Shared by the chat tool
+    /// (human-chosen name) and the review page's row action (detected label as the name).
+    /// </summary>
+    internal async Task<Account> CreateAccountFromDetectionAsync(
+        StatementImportBatch batch, string name, string? accountType, CancellationToken cancellationToken)
+    {
+        var settings = await db.HouseholdSettings.FirstOrDefaultAsync(cancellationToken);
+        var account = new Account
+        {
+            TenantId = tenant.RequireTenantId(),
+            Name = name,
+            Type = Account.NormalizeType(accountType) ?? "checking",
+            // The statement's own tagged currency beats the household default: a USD Payoneer
+            // statement must not create an MXN account just because the household runs on MXN.
+            CurrencyCode = batch.DetectedCurrency ?? settings?.DefaultCurrencyCode ?? "USD",
+            InstitutionName = batch.DetectedInstitution,
+            MaskedAccountNumber = batch.DetectedAccountMask,
+            CachedBalance = 0,
+            CreatedByUserId = currentUser.UserId,
+        };
+        db.Accounts.Add(account);
+        return account;
+    }
+
+    /// <summary>An APPROVED batch for the same account whose line period overlaps this one's.</summary>
+    private async Task<StatementImportBatch?> FindOverlappingApprovedBatchAsync(
+        StatementImportBatch batch, CancellationToken cancellationToken)
+    {
+        if (batch.AccountId is null || batch.LinesFrom is null || batch.LinesTo is null)
+        {
+            return null;
+        }
+
+        return await db.ImportBatches
+            .Where(b => b.Id != batch.Id
+                        && b.AccountId == batch.AccountId
+                        && b.Status == "approved"
+                        && b.LinesFrom != null && b.LinesTo != null
+                        && b.LinesFrom <= batch.LinesTo && batch.LinesFrom <= b.LinesTo)
+            .OrderByDescending(b => b.ReviewedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    private Task<List<Account>> VisibleAccountsAsync(CancellationToken cancellationToken) =>
+        db.Accounts
+            .Where(a => a.RestrictedToUserId == null || a.RestrictedToUserId == currentUser.UserId)
+            .ToListAsync(cancellationToken);
 
     internal static IReadOnlyList<ExtractedLine> Deserialize(string? json) =>
         json is null

@@ -68,10 +68,10 @@ public sealed class PlatformSurfaceTests(IntegrationFixture fixture)
         Assert.Contains("America/Mexico_City", OptionValues(timeZone)); // stored value stays IANA
         Assert.False(timeZone.GetProperty("required").GetBoolean());    // blank = UTC
         Assert.Equal("browser-timezone", timeZone.GetProperty("defaultFrom").GetString());
-        // …but the label is readable, not an underscore.
+        // …but the label is readable — no underscore, and the standard UTC offset appended.
         var mexicoCity = timeZone.GetProperty("options").EnumerateArray()
             .Single(o => o.GetProperty("value").GetString() == "America/Mexico_City");
-        Assert.Equal("America / Mexico City", mexicoCity.GetProperty("label").GetString());
+        Assert.Equal("America / Mexico City (UTC-06:00)", mexicoCity.GetProperty("label").GetString());
 
         // The endpoint enforces the same vocabulary — a picker alone wouldn't stop the API path.
         var junk = await client.PostAsJsonAsync("/api/finance/settings", new { defaultCurrencyCode = "ZZZ" });

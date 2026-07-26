@@ -136,4 +136,129 @@ public sealed class StatementExtractionTests
         var fields = StatementExtraction.SplitCsvLine("a,\"b, with comma\",\"he said \"\"hi\"\"\",d");
         Assert.Equal(["a", "b, with comma", "he said \"hi\"", "d"], fields);
     }
+
+    [Fact]
+    public void Text_ColumnarOcrBlocks_AreZippedBackIntoRows()
+    {
+        // Verbatim Tesseract output (via Tika) for a scanned tabular statement: the table came
+        // back as COLUMNS — every date, then every description, then every amount, with OCR
+        // noise in two amounts. The row-wise parser sees nothing; the columnar fallback must.
+        const string ocr = """
+            NORTHWIND SAVINGS BANK - STATEMENT
+            Account ending in 4321
+
+            2026-07-11
+
+            2026-07-12
+
+            2026-07-14
+
+            2026-07-15
+
+            BOOKSTORE
+
+            FARMERS MARKET
+
+            FREELANCE INCOME
+
+            WATER UTILITY
+
+            -19:°.99
+
+            -34.50
+
+            +800 .00
+
+            -60.75
+            """;
+
+        var lines = StatementExtraction.TryExtractText(ocr, Categories);
+
+        Assert.NotNull(lines);
+        Assert.Equal(4, lines!.Count);
+        Assert.Equal((new DateOnly(2026, 7, 11), "BOOKSTORE", 19.99m, "expense"),
+            (lines[0].Date, lines[0].Description, lines[0].Amount, lines[0].Direction));
+        Assert.Equal(("FREELANCE INCOME", 800m, "income"),
+            (lines[2].Description, lines[2].Amount, lines[2].Direction));
+        Assert.Equal(("WATER UTILITY", 60.75m, "expense"),
+            (lines[3].Description, lines[3].Amount, lines[3].Direction));
+    }
+
+    [Fact]
+    public void Text_CurrencyTaggedMidlineAmounts_ParseWithSignBasedDirections()
+    {
+        // Payoneer-style layout (the real-world shape that motivated this): "dd MMM, yyyy"
+        // dates, the amount MID-LINE tagged with a currency code, and every line ending in
+        // payout-method + running-balance columns that must not be mistaken for the amount —
+        // note the last column has no decimals, so the old end-anchored pattern saw nothing.
+        const string text = """
+            Account Statement
+            Casandra Ejemplo Perez Period 03/26/2025 - 03/26/2026
+            CALLE FICTICIA 1234 COL CENTRO Issuing Date 03/26/2026
+            Monclova, Mexico, 25700
+            98765432101
+            Date Description Amount Currency Payout Method Running Balance
+            03 Mar, 2026 Reward from Payview 250.00 USD USD balance 250
+            02 Mar, 2026 Withdrawal to Banco Ejemplo (0976) -6392.00 USD USD balance 0
+            27 Feb, 2026 Payment from Acme Corporation 6392.00 USD USD balance 6392
+            11 Feb, 2026 Transfer between balances - from USD to EUR -1450.00 USD USD balance 0
+            06 Feb, 2026 Payment from Acme Corporation 409.5 USD USD balance 2650.62
+            © 2005-2026 Payview, All Rights Reserved | www.payview.example.com
+            Page 1 of 2
+            """;
+
+        var lines = StatementExtraction.TryExtractText(text, Categories);
+
+        Assert.NotNull(lines);
+        Assert.Equal(5, lines!.Count); // header block, column header, and footer all rejected
+        // Signs decide direction: the statement writes debits with explicit minus, so an
+        // unsigned positive is a credit (same convention as the CSV leg).
+        Assert.Equal((new DateOnly(2026, 3, 3), "Reward from Payview", 250.00m, "income"),
+            (lines[0].Date, lines[0].Description, lines[0].Amount, lines[0].Direction));
+        // Neither the running-balance tail nor the payout-method column leaks anywhere.
+        Assert.Equal(("Withdrawal to Banco Ejemplo (0976)", 6392.00m, "expense"),
+            (lines[1].Description, lines[1].Amount, lines[1].Direction));
+        Assert.Equal(("Payment from Acme Corporation", 6392.00m, "income"),
+            (lines[2].Description, lines[2].Amount, lines[2].Direction));
+        Assert.Equal(("Transfer between balances - from USD to EUR", 1450.00m, "expense"),
+            (lines[3].Description, lines[3].Amount, lines[3].Direction));
+        Assert.Equal(409.5m, lines[4].Amount); // single-decimal amounts parse too
+    }
+
+    [Theory]
+    [InlineData("05 ene, 2026 PAGO RECIBIDO 100.00 MXN saldo 100", 2026, 1, 5)]
+    [InlineData("28 dic 2025 COMPRA TIENDA -50.00 MXN saldo 50", 2025, 12, 28)]
+    [InlineData("Sep 9, 2026 STORE PURCHASE -12.34 USD ref 001", 2026, 9, 9)]
+    public void Text_MonthNameDates_ParseInEnglishAndSpanish(string line, int year, int month, int day)
+    {
+        var lines = StatementExtraction.TryExtractText(line, Categories);
+
+        Assert.NotNull(lines);
+        Assert.Equal(new DateOnly(year, month, day), lines![0].Date);
+    }
+
+    [Fact]
+    public void Text_ColumnarFallback_RefusesMismatchedColumns()
+    {
+        // Three dates but two amounts: zipping would attach money to the wrong rows. Honest null.
+        const string ocr = """
+            2026-07-11
+
+            2026-07-12
+
+            2026-07-14
+
+            SHOP A
+
+            SHOP B
+
+            SHOP C
+
+            -10.00
+
+            -20.00
+            """;
+
+        Assert.Null(StatementExtraction.TryExtractText(ocr, Categories));
+    }
 }

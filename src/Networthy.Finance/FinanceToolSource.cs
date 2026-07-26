@@ -182,6 +182,14 @@ public sealed class FinanceToolSource : IModuleToolSource
             new ModuleTool
             {
                 ModuleId = ModuleId,
+                Name = "assign_import_account",
+                Permission = Permissions.ForTool(ModuleId, "assign_import_account"),
+                Function = AIFunctionFactory.Create(imports.AssignImportAccount, name: "assign_import_account"),
+                RequiresApproval = true,
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
                 Name = "review_import_batch",
                 Permission = Permissions.ForTool(ModuleId, "review_import_batch"),
                 Function = AIFunctionFactory.Create(imports.ReviewImportBatch, name: "review_import_batch"),

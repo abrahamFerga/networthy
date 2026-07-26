@@ -1,4 +1,5 @@
 using Plenipo.Application.Authorization;
+using Plenipo.Application.Documents;
 using Plenipo.Modules.Sdk;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -36,22 +37,35 @@ public sealed class FinanceModule : IModule
     public const string ManageFinance = "finance.manage";
 
     /// <summary>
-    /// ISO 4217 codes for the settings/onboarding currency pickers, derived from the runtime's
-    /// culture data (every specific culture's circulating currency) rather than a hand-maintained
-    /// table — free text here produced typos that silently excluded accounts from every
-    /// household-currency-scoped read (net worth, safe-to-spend, charts).
+    /// The currency pickers' options: ISO 4217 codes derived from the runtime's culture data
+    /// (every specific culture's circulating currency) rather than a hand-maintained table —
+    /// free text here produced typos that silently excluded accounts from every
+    /// household-currency-scoped read (net worth, safe-to-spend, charts). Each option wears its
+    /// English name ("MXN — Mexican Peso"): a bare code in a 150-entry select is only findable
+    /// by people who already know it. The VALUE stays the bare code — it's what the API stores,
+    /// and typing "M-X-N" still keyboard-jumps to it because the label starts with the code.
     /// </summary>
-    internal static readonly string[] CurrencyCodes =
+    internal static readonly TabEditorOption[] CurrencyOptions =
         System.Globalization.CultureInfo.GetCultures(System.Globalization.CultureTypes.SpecificCultures)
             .Select(c =>
             {
-                try { return new System.Globalization.RegionInfo(c.Name).ISOCurrencySymbol; }
+                try { return new System.Globalization.RegionInfo(c.Name); }
                 catch (ArgumentException) { return null; } // cultures with no region data
             })
-            .Where(s => s is { Length: 3 } && s.All(char.IsAsciiLetterUpper))
-            .Distinct()
-            .Order()
-            .ToArray()!;
+            .Where(r => r?.ISOCurrencySymbol is { Length: 3 } s && s.All(char.IsAsciiLetterUpper))
+            .GroupBy(r => r!.ISOCurrencySymbol, StringComparer.Ordinal)
+            .OrderBy(g => g.Key, StringComparer.Ordinal)
+            .Select(g =>
+            {
+                var name = g.Select(r => r!.CurrencyEnglishName)
+                    .FirstOrDefault(n => !string.IsNullOrWhiteSpace(n));
+                return new TabEditorOption(g.Key, name is null ? g.Key : $"{g.Key} — {name}");
+            })
+            .ToArray();
+
+    /// <summary>The bare codes, for validation (<see cref="HouseholdSettingsTools"/>) — always in
+    /// lockstep with the picker because they ARE the picker's values.</summary>
+    internal static readonly string[] CurrencyCodes = [.. CurrencyOptions.Select(o => o.Value)];
 
     /// <summary>
     /// IANA time-zone ids for the settings/onboarding pickers. The runtime enumerates its own
@@ -71,11 +85,26 @@ public sealed class FinanceModule : IModule
     /// The same ids, wearing something readable. The IANA id is what we STORE — it is the value
     /// <c>HouseholdSettings.Today()</c> resolves and the only spelling the endpoint accepts — but
     /// "America/Mexico_City" is not a thing to make a person read. The label keeps the area, since
-    /// it disambiguates (Europe/Madrid vs America/Madrid) and keeps the sorted list grouped.
+    /// it disambiguates (Europe/Madrid vs America/Madrid) and keeps the sorted list grouped, and
+    /// carries the STANDARD UTC offset — the fastest way to sanity-check "is this my zone?" when
+    /// several cities share a region. (Standard, not DST-adjusted: a stable label, not a clock.)
     /// </summary>
     internal static readonly TabEditorOption[] TimeZoneOptions =
         TimeZoneIds
-            .Select(id => new TabEditorOption(id, id.Replace('_', ' ').Replace("/", " / ")))
+            .Select(id =>
+            {
+                var label = id.Replace('_', ' ').Replace("/", " / ");
+                try
+                {
+                    var offset = TimeZoneInfo.FindSystemTimeZoneById(id).BaseUtcOffset;
+                    return new TabEditorOption(
+                        id, $"{label} (UTC{(offset < TimeSpan.Zero ? "-" : "+")}{offset.Duration():hh\\:mm})");
+                }
+                catch (TimeZoneNotFoundException)
+                {
+                    return new TabEditorOption(id, label); // still pickable, just unadorned
+                }
+            })
             .ToArray();
 
     public ModuleManifest Manifest { get; } = new()
@@ -109,15 +138,25 @@ public sealed class FinanceModule : IModule
             "PLAYBOOK: accounts with create_account/list_accounts; net worth with get_net_worth. " +
             "A member's own purchase -> log_own_transaction (instant, no approval); anything else that " +
             "changes records (categorize_transaction, edit_transaction, create_account) waits for the " +
-            "user's approval - tell them so. 'How much did we spend on X' -> summarize_spending. " +
+            "user's approval - tell them so. Approvals are decided OUTSIDE this chat and their outcome " +
+            "is never posted back into it: a tool result saying an action awaits approval only means it " +
+            "had not run AT THAT MOMENT, and you cannot see or reopen the approval prompt. When the user " +
+            "says they approved something or asks whether it ran, never answer from earlier messages - " +
+            "check live state first (list_pending_approvals for what is still waiting; " +
+            "list_import_batches for what a statement import produced) and report what the tools return. " +
+            "'How much did we spend on X' -> summarize_spending. " +
             "'Can I afford X' -> can_i_afford and give the verdict verbatim - never soften a 'no'. " +
             "Suggest a category when logging (match the Categories tab); if none fits, log uncategorized " +
             "and offer categorize_transaction afterwards. STATEMENTS: when the user attaches a bank " +
-            "statement, import_statement (file id from the attachment block, plus the account); then " +
-            "review_import_batch to show the extracted lines, and only after the user confirms, " +
-            "approve_import_batch. Never post lines the user hasn't seen. When several statements " +
-            "are in flight, list_import_batches enumerates what's pending — review and approve " +
-            "each by its file name; no batch is limited to being 'the latest'. HOUSEHOLD: members and " +
+            "statement, import_statement (file id from the attachment block; the account is OPTIONAL — " +
+            "omit it and the statement's own account is detected). If the batch comes back " +
+            "needs-account, tell the user what it looks like (institution + masked number) and ASK: " +
+            "an existing account, or create it? Resolve with assign_import_account (createIfMissing " +
+            "to create — never create without the user saying so). Then review_import_batch to show " +
+            "the extracted lines, and only after the user confirms, approve_import_batch. Relay any " +
+            "duplicate-period warning the review shows. Never post lines the user hasn't seen. When " +
+            "several statements are in flight, list_import_batches enumerates what's pending — review " +
+            "and approve each by its file name; no batch is limited to being 'the latest'. HOUSEHOLD: members and " +
             "roles are managed by admins under Admin -> Users (household-admin / household-member); " +
             "set_account_visibility makes an account private to its owner or shared again. BUDGETS: " +
             "set_budget for targets ('set the grocery budget to $400'); get_budget_status answers " +
@@ -245,6 +284,13 @@ public sealed class FinanceModule : IModule
                 Name = "import_statement",
                 Description = "Import an uploaded bank statement (CSV/OFX/QFX) for extraction and review. Side-effecting: brings external data in and requires human approval.",
                 Permission = Permissions.ForTool(Id, "import_statement"),
+                RequiresApproval = true,
+            },
+            new ToolDescriptor
+            {
+                Name = "assign_import_account",
+                Description = "Attach an account to an import batch waiting for one — an existing account, or create the detected one. Side-effecting: may create an account and requires human approval.",
+                Permission = Permissions.ForTool(Id, "assign_import_account"),
                 RequiresApproval = true,
             },
             new ToolDescriptor
@@ -401,10 +447,12 @@ public sealed class FinanceModule : IModule
                     Fields =
                     [
                         new("name", "Account name"),
-                        new("type", "Type", Options: ["checking", "savings", "credit", "cash"]),
+                        new("type", "Type", Options:
+                            [new("checking", "Checking"), new("savings", "Savings"), new("credit", "Credit"), new("cash", "Cash")]),
                         // Same closed list as the household's default currency — a free-text ISO code
                         // invites "usd"/"Dollars"/typos that fail server validation after the fact.
-                        new("currencyCode", "Currency", Options: [.. CurrencyCodes]),
+                        new("currencyCode", "Currency (blank = household default)", Required: false,
+                            Options: [.. CurrencyCodes]),
                         new("cachedBalance", "Current balance (negative = owed)", Numeric: true),
                         new("institutionName", "Institution", Required: false),
                     ],
@@ -433,7 +481,11 @@ public sealed class FinanceModule : IModule
                     Endpoint = "/api/finance/imports",
                     FileIdField = "fileId",
                     Accept = ".csv,.ofx,.qfx,.pdf",
-                    Fields = [new("accountName", "Which account are these statements from?", OptionsEndpoint: "/api/finance/accounts", OptionsField: "name")],
+                    Fields =
+                    [
+                        new("accountName", "Which account? (optional — leave blank and Networthy detects it, asking before creating anything)",
+                            Required: false, OptionsEndpoint: "/api/finance/accounts", OptionsField: "name"),
+                    ],
                 },
                 new OnboardingStep
                 {
@@ -445,7 +497,8 @@ public sealed class FinanceModule : IModule
                     Fields =
                     [
                         new("name", "Loan name (e.g. 'House mortgage')"),
-                        new("currencyCode", "Currency", Options: [.. CurrencyCodes]),
+                        new("currencyCode", "Currency (blank = household default)", Required: false,
+                            Options: [.. CurrencyCodes]),
                         new("cachedBalance", "Amount owed", Numeric: true),
                         new("interestRateApr", "Interest rate (APR %)", Required: false, Numeric: true),
                         new("minimumMonthlyPayment", "Minimum monthly payment", Required: false, Numeric: true),
@@ -507,8 +560,10 @@ public sealed class FinanceModule : IModule
                     Fields =
                     [
                         new("name", "Account name"),
-                        new("type", "Type", Options: ["checking", "savings", "credit", "cash", "loan"]),
-                        new("currencyCode", "Currency", Options: [.. CurrencyCodes]),
+                        new("type", "Type", Options:
+                            [new("checking", "Checking"), new("savings", "Savings"), new("credit", "Credit"), new("cash", "Cash"), new("loan", "Loan")]),
+                        new("currencyCode", "Currency (blank = household default)", Required: false,
+                            Options: [.. CurrencyCodes]),
                         new("cachedBalance", "Balance (negative = owed; edits post an adjustment)", Numeric: true),
                         new("institutionName", "Institution (optional)", Required: false),
                         new("interestRateApr", "APR % (credit/loan, optional)", Required: false, Numeric: true),
@@ -544,7 +599,7 @@ public sealed class FinanceModule : IModule
                         new("accountName", "Account", OptionsEndpoint: "/api/finance/accounts", OptionsField: "name"),
                         new("description", "Description"),
                         new("amount", "Amount (positive)", Numeric: true),
-                        new("direction", "Direction", Options: ["expense", "income"]),
+                        new("direction", "Direction", Options: [new("expense", "Expense"), new("income", "Income")]),
                         new("occurredOn", "Date (yyyy-MM-dd, optional = today)", Required: false),
                         new("categoryName", "Category (optional)", Required: false, OptionsEndpoint: "/api/finance/categories", OptionsField: "name"),
                     ],
@@ -609,7 +664,8 @@ public sealed class FinanceModule : IModule
                     [
                         new("name", "Income name (e.g. 'ACME payroll')"),
                         new("amount", "Amount per paycheck", Numeric: true),
-                        new("cadence", "Cadence", Options: ["weekly", "biweekly", "semimonthly", "monthly"]),
+                        new("cadence", "Cadence", Options:
+                            [new("weekly", "Weekly"), new("biweekly", "Every two weeks"), new("semimonthly", "Twice a month"), new("monthly", "Monthly")]),
                         new("currencyCode", "Currency (blank = household default)", Required: false,
                             Options: [.. CurrencyCodes]),
                         new("accountName", "Lands in account (optional)", Required: false, OptionsEndpoint: "/api/finance/accounts", OptionsField: "name"),
@@ -707,6 +763,7 @@ public sealed class FinanceModule : IModule
                 [
                     new("fileName", "Statement"), new("createdAt", "Imported"),
                     new("lineCount", "Lines"), new("totals", "Totals (−/+)"),
+                    new("status", "Status"),
                 ],
                 // …and each row drills into a detail document of that batch's extracted lines.
                 DetailEndpoint = "/api/finance/imports/{id}/detail",
@@ -723,6 +780,24 @@ public sealed class FinanceModule : IModule
                         Endpoint = "/api/finance/imports/latest/approve",
                         Permission = ReviewImports,
                         Confirm = "Post the most recent parsed batch's lines as transactions? Balances update immediately.",
+                    },
+                ],
+                // The "should I create this account?" answer for batches imported without one:
+                // the row action creates the DETECTED account (institution + mask from the
+                // statement) and attaches the batch. Picking an existing account instead is a
+                // chat action (assign_import_account) — row actions carry no input fields. On
+                // rows that already have an account the endpoint answers with a harmless refusal.
+                RowActions =
+                [
+                    new TabRowAction
+                    {
+                        Id = "create-detected-account",
+                        Label = "Create detected account",
+                        EndpointTemplate = "/api/finance/imports/{id}/create-account",
+                        Permission = ManageFinance,
+                        Confirm = "Create the account this statement looks like (detected institution and " +
+                                  "masked number, household default currency) and attach the batch to it? " +
+                                  "Nothing posts until you approve the batch afterwards.",
                     },
                 ],
             },
@@ -822,6 +897,26 @@ public sealed class FinanceModule : IModule
                     ],
                 },
             },
+            new TabDescriptor
+            {
+                Id = "document-scanning", Label = "Document scanning", Route = "/ext/finance/document-scanning",
+                Icon = "scan-text",
+                Permission = ManageFinance,
+                DataEndpoint = "/api/finance/settings/ocr",
+                // Read-only status, deliberately no editor: OCR engines are CONNECTORS (self-hosted
+                // Apache Tika or Azure Document Intelligence), enabled and configured per household
+                // under Integrations like any other integration. This page answers "which engine
+                // will read a scanned statement right now, and why" — OcrEngineRouter's resolution
+                // order (self-hosted > ADI connector > deployment config > off), live per call.
+                Singleton = true,
+                Columns =
+                [
+                    new("engine", "Active engine"), new("source", "Configured via"), new("detail", "Detail"),
+                ],
+                Placeholder = "Scanned-statement OCR is configured under Integrations — enable " +
+                              "\"Self-hosted OCR (Apache Tika)\" or \"Azure Document Intelligence OCR\". " +
+                              "Digital PDFs, CSV and OFX import without any OCR.",
+            },
         ],
 
         // Per-user mutable notification streams: declaring a category here lets each household
@@ -867,6 +962,11 @@ public sealed class FinanceModule : IModule
         services.AddHostedService<BillReminderService>();
         services.AddHostedService<BudgetRolloverService>();
         services.AddScoped<IStatementAiExtractor, PlatformDocumentStatementExtractor>();
+        // Registered AFTER the platform (modules install second), so this wins DocumentReader's
+        // optional IOcrEngine slot: the OCR connectors first (self-hosted Tika, then Azure
+        // Document Intelligence), deployment Ocr config as fallback, honest null when nothing
+        // is configured — see OcrEngineRouter.
+        services.AddScoped<IOcrEngine, OcrEngineRouter>();
         services.AddSingleton<Plenipo.Application.Jobs.IJobHandler, StatementParseJobHandler>();
         services.AddSingleton<Plenipo.Application.Jobs.IJobHandler, DailyDigestJobHandler>();
         services.AddSingleton<Plenipo.Application.Jobs.IJobHandler, StatementReminderJobHandler>();
@@ -1098,8 +1198,12 @@ public sealed class FinanceModule : IModule
         // Both routes delegate to the same helper; the handler bodies live once.
         group.MapGet("/imports/batches", async (FinanceDbContext db, CancellationToken cancellationToken) =>
             {
+                // needs-account batches belong on this surface too: they're the "is this a new
+                // account?" question waiting for the reviewer, one row action away from resolved.
+                // Failed batches belong here just as much — a statement that silently vanishes
+                // reads as "imported fine" to the household (the payoneer incident).
                 var batches = await db.ImportBatches
-                    .Where(b => b.Status == "parsed")
+                    .Where(b => b.Status == "parsed" || b.Status == "needs-account" || b.Status == "failed")
                     .OrderByDescending(b => b.CreatedAt)
                     .Take(100)
                     .ToListAsync(cancellationToken);
@@ -1115,11 +1219,61 @@ public sealed class FinanceModule : IModule
                         createdAt = b.CreatedAt.ToString("yyyy-MM-dd HH:mm"),
                         lineCount = lines.Count,
                         totals = $"-{expense:N2} / +{income:N2}",
+                        status = b.Status switch
+                        {
+                            "needs-account" => $"Needs an account — looks like {StatementImportTools.DetectedLabel(b)}",
+                            "failed" => $"Failed — {(b.FailureReason ?? "no readable lines").Split('.')[0]}",
+                            _ => "Awaiting review",
+                        },
                     };
                 }));
             })
             .RequireAuthorization(PermissionRequirement.PolicyName(ReviewImports))
             .WithName("Finance_ImportBatches");
+
+        // The review page's "create it?" answer: one click (plus its confirm) creates the account
+        // the statement detected and attaches the batch to it. Naming an EXISTING account instead
+        // stays a chat action (assign_import_account) — row actions carry no input fields.
+        group.MapPost("/imports/{batchId:guid}/create-account", async (
+                Guid batchId, StatementImportTools imports, FinanceDbContext db, CancellationToken cancellationToken) =>
+            {
+                var batch = await db.ImportBatches.FirstOrDefaultAsync(b => b.Id == batchId, cancellationToken);
+                if (batch is null)
+                {
+                    return Results.NotFound();
+                }
+                if (batch.Status != "needs-account")
+                {
+                    return Results.BadRequest(new { error = $"'{batch.FileName}' is not waiting for an account." });
+                }
+
+                // Name from detection; fall back to the file. If the name collides, the mask or a
+                // counter disambiguates — the human can rename later, losing the import would be worse.
+                var baseName = batch.DetectedInstitution
+                    ?? Path.GetFileNameWithoutExtension(batch.FileName) + " account";
+                var name = baseName;
+                if (await db.Accounts.AnyAsync(a => EF.Functions.ILike(a.Name, name), cancellationToken)
+                    && batch.DetectedAccountMask is { } mask)
+                {
+                    name = $"{baseName} {mask}";
+                }
+                for (var n = 2; await db.Accounts.AnyAsync(a => EF.Functions.ILike(a.Name, name), cancellationToken); n++)
+                {
+                    name = $"{baseName} ({n})";
+                }
+
+                var account = await imports.CreateAccountFromDetectionAsync(batch, name, accountType: null, cancellationToken);
+                batch.AccountId = account.Id;
+                batch.Status = "parsed";
+                await db.SaveChangesAsync(cancellationToken);
+                return Results.Ok(new
+                {
+                    message = $"Created '{account.Name}' ({account.Type}, {account.CurrencyCode}) and attached " +
+                              $"'{batch.FileName}' — the batch is now awaiting your review and approval.",
+                });
+            })
+            .RequireAuthorization(PermissionRequirement.PolicyName(ManageFinance))
+            .WithName("Finance_CreateDetectedAccount");
 
         group.MapGet("/imports/latest/lines", async (FinanceDbContext db, CancellationToken cancellationToken) =>
                 ListBatchLines(await LatestParsedBatchAsync(db, cancellationToken)))

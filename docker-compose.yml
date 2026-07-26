@@ -51,6 +51,11 @@ services:
       - networthy-files:/app/data
     environment:
       ASPNETCORE_ENVIRONMENT: ${NETWORTHY_ENVIRONMENT:-Development}
+      # Data Protection key ring on the persistent volume: the platform's secret vault
+      # (tenant AI keys, connector credentials) encrypts with these keys, so they must
+      # outlive the container — without this, every `docker compose pull` upgrade would
+      # silently orphan all vaulted secrets, and Production mode refuses to boot at all.
+      DataProtection__KeysPath: ${DATAPROTECTION_KEYSPATH:-/app/data/dataprotection-keys}
       # ASP.NET host filtering blocks forged Host headers/DNS rebinding. Set this to the
       # public hostname (semicolon-separated for several) in a secured deployment.
       AllowedHosts: ${ALLOWED_HOSTS:-localhost;127.0.0.1}
@@ -66,12 +71,26 @@ services:
       Files__Provider: ${FILES_PROVIDER:-Local}
       Files__AzureBlobConnectionString: ${FILES_AZURE_CONNECTION:-}
       Files__AzureBlobContainer: ${FILES_AZURE_CONTAINER:-plenipo-files}
-      # OCR for scanned (image-only) statements: set all three to enable Azure
-      # Document Intelligence. Left empty, scanned PDFs report that no OCR engine
-      # is configured — digital PDFs/CSV/OFX never need this.
+      # Operator-level OCR fallback for scanned (image-only) statements: set all three to
+      # provide Azure Document Intelligence to every household. Households can instead bring
+      # their own engine under Admin -> Integrations (self-hosted Apache Tika below, or their
+      # own ADI resource) — that beats this fallback. Left empty with no connector enabled,
+      # scanned PDFs report that no OCR engine is configured — digital PDFs/CSV/OFX never
+      # need any of this.
       Ocr__Provider: ${OCR_PROVIDER:-}
       Ocr__Endpoint: ${OCR_ENDPOINT:-}
       Ocr__ApiKey: ${OCR_API_KEY:-}
+
+  # Optional self-hosted OCR: `docker compose --profile ocr up -d` starts Apache Tika (the
+  # "-full" image bundles Tesseract), then enable "Self-hosted OCR (Apache Tika)" under
+  # Admin -> Integrations with Server URL http://tika:9998. Personal mode (Development)
+  # already allows in-network destinations; a Production deployment that wants an in-network
+  # Tika must also set Security__OutboundUrls__AllowPrivateNetworks=true (and AllowHttp for
+  # plain-http hosts), consciously relaxing the SSRF egress guard for server-entered URLs.
+  tika:
+    image: apache/tika:3.1.0.0-full
+    profiles: ["ocr"]
+    restart: unless-stopped
 
 volumes:
   networthy-data:

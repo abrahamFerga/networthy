@@ -55,28 +55,67 @@ public sealed class StatementParseJobHandler : IJobHandler
         var categories = await db.Categories.Select(c => c.Name).ToListAsync(cancellationToken);
 
         await context.ReportProgressAsync(40, "extracting line items", cancellationToken);
-        // Template legs first (deterministic), AI leg as fallback (ADR-0004).
-        var lines = StatementExtraction.TryExtractCsv(text, categories)
-            ?? StatementExtraction.TryExtractOfx(text, categories)
-            ?? await aiExtractor.ExtractAsync(batch.SourceFileId, batch.FileName, bytes, categories, cancellationToken);
+        // Template legs first (deterministic), AI leg as fallback (ADR-0004). Whichever leg
+        // reads the lines also reads the account hint — same text, same pass.
+        IReadOnlyList<ExtractedLine>? lines;
+        DetectedAccountHint? hint;
+        var templateLines = StatementExtraction.TryExtractCsv(text, categories)
+            ?? StatementExtraction.TryExtractOfx(text, categories);
+        if (templateLines is not null)
+        {
+            lines = templateLines;
+            hint = StatementExtraction.DetectAccountHint(text);
+        }
+        else
+        {
+            var documentResult = await aiExtractor.ExtractAsync(
+                batch.SourceFileId, batch.FileName, bytes, categories, cancellationToken);
+            lines = documentResult?.Lines;
+            hint = documentResult?.AccountHint;
+        }
 
         if (lines is null || lines.Count == 0)
         {
             batch.Status = "failed";
             batch.FailureReason =
                 "No extractor could read this file. CSV and OFX/QFX parse directly; PDF statements " +
-                "parse through the platform document reader (scanned PDFs additionally need the " +
-                "platform OCR capability, e.g. Azure Document Intelligence, configured). This file " +
-                "produced no readable transaction lines.";
+                "parse through the platform document reader. Scanned (photographed) PDFs additionally " +
+                "need OCR — a household admin can enable an engine under Admin → Integrations " +
+                "(self-hosted Apache Tika, or Azure Document Intelligence); Admin → Document scanning " +
+                "shows which one is active. This file produced no readable transaction lines.";
             await db.SaveChangesAsync(cancellationToken);
             return null;
         }
 
         batch.ExtractedLinesJson = JsonSerializer.Serialize(lines, JsonSerializerOptions.Web);
-        batch.Status = "parsed";
+        batch.LinesFrom = lines.Min(l => l.Date);
+        batch.LinesTo = lines.Max(l => l.Date);
+        batch.DetectedInstitution = hint?.Institution;
+        batch.DetectedAccountMask = hint?.MaskLast4 is { } last4 ? $"••••{last4}" : null;
+        batch.DetectedCurrency = hint?.Currency;
+
+        // Imported without an account: try to recognize it before asking. Only accounts the
+        // importer can see are candidates, and only an UNAMBIGUOUS match auto-assigns — a
+        // wrong guess posts money to the wrong ledger, so ambiguity honestly asks instead.
+        if (batch.AccountId is null)
+        {
+            var candidates = await db.Accounts
+                .Where(a => a.RestrictedToUserId == null || a.RestrictedToUserId == batch.CreatedByUserId)
+                .ToListAsync(cancellationToken);
+            var match = StatementImportTools.MatchAccount(candidates, hint);
+            if (match is not null)
+            {
+                batch.AccountId = match.Id;
+            }
+        }
+
+        batch.Status = batch.AccountId is null ? "needs-account" : "parsed";
         await db.SaveChangesAsync(cancellationToken);
 
-        await context.ReportProgressAsync(100, $"{lines.Count} line(s) extracted, awaiting review", cancellationToken);
-        return JsonSerializer.Serialize(new { batch.Id, Lines = lines.Count }, JsonSerializerOptions.Web);
+        var outcome = batch.Status == "needs-account"
+            ? $"{lines.Count} line(s) extracted — needs an account before review"
+            : $"{lines.Count} line(s) extracted, awaiting review";
+        await context.ReportProgressAsync(100, outcome, cancellationToken);
+        return JsonSerializer.Serialize(new { batch.Id, Lines = lines.Count, batch.Status }, JsonSerializerOptions.Web);
     }
 }

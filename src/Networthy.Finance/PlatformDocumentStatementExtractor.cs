@@ -13,7 +13,7 @@ namespace Networthy.Finance;
 /// </summary>
 public sealed class PlatformDocumentStatementExtractor(IDocumentReader reader) : IStatementAiExtractor
 {
-    public async Task<IReadOnlyList<ExtractedLine>?> ExtractAsync(
+    public async Task<StatementExtractionResult?> ExtractAsync(
         Guid fileId, string fileName, byte[] content, IReadOnlyList<string> categories,
         CancellationToken cancellationToken = default)
     {
@@ -23,6 +23,9 @@ public sealed class PlatformDocumentStatementExtractor(IDocumentReader reader) :
             return null;
         }
 
-        return StatementExtraction.TryExtractText(text, categories);
+        var lines = StatementExtraction.TryExtractText(text, categories);
+        // The account hint rides along with the SAME text the lines came from — the PDF header
+        // is where "FIRST EXAMPLE BANK … ending in 4321" lives.
+        return lines is null ? null : new StatementExtractionResult(lines, StatementExtraction.DetectAccountHint(text));
     }
 }

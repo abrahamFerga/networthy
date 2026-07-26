@@ -47,17 +47,29 @@ Supported providers: OpenAI, AzureOpenAI, Ollama (fully local — pair a local m
 self-hosting for a zero-cloud setup), and Mock.
 
 Digital PDFs, CSV, and OFX/QFX statements work with nothing extra. Scanned PDFs (photos of
-paper) need an OCR engine — bring an [Azure Document Intelligence](https://learn.microsoft.com/azure/ai-services/document-intelligence/)
-resource and set three variables:
+paper) need an OCR engine — pick either, both configured from the UI:
 
-```bash
-OCR_PROVIDER=AzureDocumentIntelligence OCR_ENDPOINT=https://<resource>.cognitiveservices.azure.com \
-  OCR_API_KEY=... docker compose up -d
-```
+- **Fully local (open source)** — run the bundled [Apache Tika](https://tika.apache.org/) service
+  (Tesseract inside; scanned pages never leave your machine):
 
-Scanned pages then go through the prebuilt-read model of your own Azure resource (your documents
-never touch anyone else's account). Without these, scanned statements report honestly that no
-OCR engine is configured.
+  ```bash
+  docker compose --profile ocr up -d
+  ```
+
+  then enable **Admin → Integrations → Self-hosted OCR (Apache Tika)** with Server URL
+  `http://tika:9998`. (Any other Tika server works too — self-hosted OCR outranks Azure when
+  both are enabled. Production mode additionally needs
+  `Security__OutboundUrls__AllowPrivateNetworks=true` for an in-network URL; personal mode
+  already allows it.)
+
+- **Managed cloud** — bring an [Azure Document Intelligence](https://learn.microsoft.com/azure/ai-services/document-intelligence/)
+  resource and enable **Admin → Integrations → Azure Document Intelligence OCR** with its
+  endpoint and key (stored write-only in the secret vault). The old deployment-level variables
+  (`OCR_PROVIDER` / `OCR_ENDPOINT` / `OCR_API_KEY`) still work as an operator-provided fallback
+  beneath the connectors.
+
+**Admin → Document scanning** always shows which engine is active and why. Without any of
+these, scanned statements report honestly that no OCR engine is configured.
 
 Uploaded files live in the `networthy-files` volume by default; point `FILES_PROVIDER=AzureBlob`
 plus `FILES_AZURE_CONNECTION` at a storage account to keep them in Azure Blob instead.
@@ -66,7 +78,9 @@ plus `FILES_AZURE_CONNECTION` at a storage account to keep them in Azure Blob in
 
 - **Upgrade**: `docker compose pull && docker compose up -d` — migrations run on start.
 - **Pin a version**: `NETWORTHY_VERSION=0.2.0 docker compose up -d` (releases are tagged).
-- **Back up**: the `networthy-data` volume is the entire state; `pg_dump` works as usual.
+- **Back up**: back up both volumes — `networthy-data` (the database; `pg_dump` works as
+  usual) and `networthy-files` (uploaded statements plus the Data Protection key ring that
+  decrypts vaulted secrets; without it, restored tenants must re-enter their AI keys).
 - **Change the port**: `NETWORTHY_PORT=9090 docker compose up -d`.
 - **Listen beyond localhost**: set `NETWORTHY_BIND_ADDRESS=0.0.0.0` only with secured
   Production mode, `ALLOWED_HOSTS`, and OIDC configured as above.

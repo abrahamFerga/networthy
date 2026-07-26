@@ -70,8 +70,8 @@ Open the `networthy-api` endpoint from the Aspire dashboard: the branded web app
 `/` and the admin console at `/admin`, straight from the API — the Plenipo platform ships as
 NuGet packages vendored in `.packages/`, and the built UI is committed under `wwwroot/`, so a
 bare clone is the whole product. Zero configuration required — the assistant runs on the
-built-in Mock provider until you add a real AI key
-(`dotnet user-secrets --project src/Networthy.AppHost set "Parameters:ai-provider" "OpenAI"` …).
+built-in Mock provider until you configure a real one under **Admin → AI Settings** (provider,
+model, and key, stored write-only in the secret vault; a local Ollama endpoint works there too).
 
 ### Developing against the Plenipo platform (optional)
 
@@ -91,9 +91,11 @@ for both UIs; without one, it serves the embedded build and skips them.
   exports at least one of these.
 - **Digital PDFs** — text is extracted through the Plenipo document reader (pure managed code,
   no keys, works offline) and run through the same line parser.
-- **Scanned PDFs** — need OCR: configure the platform's `ocr` capability (Azure Document
-  Intelligence) on the deployment and the exact same import flow handles them; nothing in this
-  repo changes.
+- **Scanned PDFs** — need OCR, enabled per household under Admin → Integrations: self-hosted
+  [Apache Tika](https://tika.apache.org/) (open source, documents stay home — `docker compose
+  --profile ocr up -d`) or a bring-your-own Azure Document Intelligence resource. The
+  deployment-level `ocr` capability (env-configured Azure Document Intelligence) remains as the
+  operator fallback; the same import flow handles all of them.
 
 Whatever the format, **nothing posts until a human reviews the extracted lines and approves the
 batch** — the review gate is the product, not a safety valve.
