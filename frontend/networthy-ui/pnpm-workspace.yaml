@@ -17,3 +17,13 @@ minimumReleaseAgeExclude:
 overrides:
   vite: 6.4.3
   esbuild: 0.25.12
+
+# Waived advisories: three react-router 6.x GHSAs with NO fixed 6.x release — the open-redirect
+# pair is patched only in 7.18+, and the 6.30.5 the XSS advisory names is unpublished. This app
+# is a same-origin SPA with no SSR, so none is exploitable here. Remove the ignores with the
+# react-router 7 migration (@plenipo/ui pins the same major, so it moves first).
+auditConfig:
+  ignoreGhsas:
+    - GHSA-wrjc-x8rr-h8h6 # Open redirect via backslash in <Link>/useNavigate
+    - GHSA-jjmj-jmhj-qwj2 # Open redirect leading to XSS (6.30.2–6.30.4)
+    - GHSA-337j-9hxr-rhxg # Constructor injection via deserializeErrors() — SSR-hydration only

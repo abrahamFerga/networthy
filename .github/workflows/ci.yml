@@ -52,6 +52,9 @@ jobs:
         working-directory: frontend/networthy-ui
         run: pnpm install --frozen-lockfile
 
+      # Waived GHSAs live in pnpm-workspace.yaml (auditConfig.ignoreGhsas), each with its
+      # rationale — currently three react-router 6.x advisories that have NO fixed 6.x
+      # release. Remove the waivers with the react-router 7 migration.
       - name: Audit frontend dependencies
         working-directory: frontend/networthy-ui
         run: pnpm audit --audit-level=moderate
