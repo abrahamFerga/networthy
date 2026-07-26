@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Product-owned OCR connectors (ADR-0007 pattern, like Plaid): each scanned-statement OCR
+       engine is a Plenipo connector a household admin enables and configures under Integrations —
+       secrets vaulted by the platform, per-tenant, default-off. The manifests live here; the
+       routing engine that consumes their settings is Networthy.Finance's OcrEngineRouter. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Plenipo.Connectors.Sdk" Version="0.1.0-alpha.26" />
+    <PackageReference Include="Plenipo.Application" Version="0.1.0-alpha.26" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Networthy.Finance\Networthy.Finance.csproj" />
+  </ItemGroup>
+
+</Project>

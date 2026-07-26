@@ -12,12 +12,13 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Plenipo.AspNetCore" Version="0.1.0-alpha.25" />
+    <PackageReference Include="Plenipo.AspNetCore" Version="0.1.0-alpha.26" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Networthy.Finance\Networthy.Finance.csproj" />
     <ProjectReference Include="..\Networthy.Connectors.Plaid\Networthy.Connectors.Plaid.csproj" />
+    <ProjectReference Include="..\Networthy.Connectors.Ocr\Networthy.Connectors.Ocr.csproj" />
   </ItemGroup>
 
 </Project>

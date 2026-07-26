@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import type { ClientRequest, IncomingMessage } from "node:http";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
@@ -21,20 +22,48 @@ export default defineConfig(({ command }) => {
   // consuming the dist — the same bytes that ship embedded in Networthy.Host.
   const aliasToSource = command === "serve" && !process.env.VITEST && existsSync(plenipoUiSrc);
 
-  // Dev server, no checkout: the published @plenipo/ui dist bakes its env at LIBRARY build time —
-  // VITE_API_BASE="" and the admin link as a bare "/admin" are FROZEN into it, so setting those
-  // vars here cannot move them. The shell therefore asks for /api/..., /hubs/... and /admin
-  // same-origin, which on this dev server is Vite, not the API: the dashboard 404s ("Can't reach
-  // the Plenipo API") and Admin ↗ silently re-serves the workspace via Vite's SPA fallback.
-  // Proxy those prefixes to the API — which also serves the committed wwwroot/admin bundle — so the
-  // prebuilt library works with no checkout at all. (When aliasToSource wins, the library compiles
-  // against the live env and uses absolute URLs, so the proxy simply goes unused.)
+  // Dev server, no checkout: the published @plenipo/ui dist is built with VITE_API_BASE="", and
+  // that empty base is FROZEN into it — setting VITE_API_BASE here cannot move the library's own
+  // calls. So the shell asks for /api/... and /hubs/... same-origin, which on this dev server is
+  // Vite, not the API: every request 404s and the dashboard renders "Can't reach the Plenipo API".
+  // Proxy those prefixes to the real API so the prebuilt library works with no checkout at all.
+  // (When aliasToSource wins, the library compiles against the live env and calls the API
+  // absolutely, so the proxy simply goes unused.)
+  // Dev identity switching: there is no login/logout in dev — the published shells hard-code
+  // the X-Dev-* headers (dev-user / system_admin) and the API's Dev scheme trusts whatever
+  // arrives. To use the app as someone else, set a `plenipo-dev-user` cookie shaped
+  // "subject|roles|display name|email" (everything after subject optional; roles empty = only
+  // what invites/grants assign) and reload:
+  //   document.cookie = "plenipo-dev-user=" + encodeURIComponent("maria|household-member|Maria") + "; path=/"
+  // "Log out" back to Dev User (system_admin):
+  //   document.cookie = "plenipo-dev-user=; Max-Age=0; path=/"
+  const rewriteDevIdentity = (proxyReq: ClientRequest, req: IncomingMessage) => {
+    const match = /(?:^|;\s*)plenipo-dev-user=([^;]+)/.exec(req.headers.cookie ?? "");
+    if (!match) return;
+    const [subject, roles, name, email] = decodeURIComponent(match[1]).split("|");
+    if (!subject) return;
+    proxyReq.setHeader("X-Dev-Subject", subject);
+    proxyReq.setHeader("X-Dev-Roles", roles ?? "");
+    proxyReq.setHeader("X-Dev-Name", name || subject);
+    proxyReq.setHeader("X-Dev-Email", email || `${subject}@dev.local`);
+  };
+  const withDevIdentity = {
+    configure: (proxy: { on(event: string, listener: typeof rewriteDevIdentity): void }) => {
+      proxy.on("proxyReq", rewriteDevIdentity);
+      proxy.on("proxyReqWs", rewriteDevIdentity);
+    },
+  };
+
   const apiTarget = process.env.VITE_API_BASE?.trim();
   const proxy = apiTarget
     ? {
-        "/api": { target: apiTarget, changeOrigin: true, secure: false },
-        "/hubs": { target: apiTarget, changeOrigin: true, secure: false, ws: true },
-        "/admin": { target: apiTarget, changeOrigin: true, secure: false },
+        "/api": { target: apiTarget, changeOrigin: true, secure: false, ...withDevIdentity },
+        "/hubs": { target: apiTarget, changeOrigin: true, secure: false, ws: true, ...withDevIdentity },
+        // The shell's "Admin ↗" link is frozen to same-origin "/admin" in the published dist.
+        // With no Plenipo checkout there is no admin dev server, but the API serves the committed
+        // admin bundle from wwwroot/admin — proxy the prefix (page + its /admin/assets) so the
+        // link works from this dev server instead of 404ing on Vite.
+        "/admin": { target: apiTarget, changeOrigin: true, secure: false, ...withDevIdentity },
       }
     : undefined;
 

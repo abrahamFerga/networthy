@@ -1,11 +1,14 @@
 using System.Globalization;
 using Plenipo.Application.Authorization;
+using Plenipo.Application.Documents;
+using Plenipo.Connectors.Sdk;
 using Plenipo.Core.Identity;
 using Plenipo.Core.Multitenancy;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Networthy.Finance.Persistence;
 
 namespace Networthy.Finance;
@@ -20,7 +23,7 @@ namespace Networthy.Finance;
 internal static class ManualCrudEndpoints
 {
     internal sealed record AccountUpsert(
-        string Name, string Type, string CurrencyCode, decimal CachedBalance,
+        string Name, string Type, string? CurrencyCode, decimal CachedBalance,
         string? InstitutionName, decimal? InterestRateApr, decimal? MinimumMonthlyPayment);
 
     internal sealed record TransactionUpsert(
@@ -29,7 +32,7 @@ internal static class ManualCrudEndpoints
 
     internal sealed record BudgetUpsert(string CategoryName, decimal Target, string? CurrencyCode);
 
-    internal sealed record ImportRequest(string FileId, string AccountName);
+    internal sealed record ImportRequest(string FileId, string? AccountName);
 
     internal sealed record SettingsUpsert(
         string DefaultCurrencyCode, string? TimeZoneId, int? BillReminderLeadDays,
@@ -54,7 +57,7 @@ internal static class ManualCrudEndpoints
         // ── Accounts ────────────────────────────────────────────────────────────────
         group.MapPost("/accounts", async (
                 AccountUpsert body, FinanceDbContext db, ITenantContext tenant, ICurrentUser user,
-                CancellationToken ct) =>
+                HouseholdContext household, CancellationToken ct) =>
             {
                 var name = body.Name.Trim();
                 if (name.Length == 0)
@@ -68,7 +71,9 @@ internal static class ManualCrudEndpoints
                     return Results.BadRequest(new { error = $"'{body.Type}' is not an account type. Use checking, savings, credit, cash, or loan." });
                 }
 
-                var currency = body.CurrencyCode.Trim().ToUpperInvariant();
+                // Blank resolves to the household default — the same convention as budgets, goals
+                // and income sources (and the setup wizard leans on it: its currency is optional).
+                var currency = await household.ResolveCurrencyAsync(body.CurrencyCode, ct);
                 if (currency.Length != 3)
                 {
                     return Results.BadRequest(new { error = $"'{body.CurrencyCode}' is not an ISO currency code." });
@@ -413,6 +418,45 @@ internal static class ManualCrudEndpoints
             })
             .RequireAuthorization(manage)
             .WithName("Finance_DeleteExchangeRate");
+
+        // ── Document scanning status (read-only; the admin extension page renders this) ──
+        // OCR engines are configured as CONNECTORS under Integrations; this surface only answers
+        // "which engine will read a scanned statement right now, and why" — mirroring
+        // OcrEngineRouter's resolution order exactly (self-hosted > ADI connector > deployment).
+        group.MapGet("/settings/ocr", async (
+                IConnectorSettings connectorSettings, IOptions<OcrOptions> deploymentOcr, CancellationToken ct) =>
+            {
+                var tika = await connectorSettings.GetAsync(OcrEngineRouter.TikaConnectorId, ct);
+                var adi = await connectorSettings.GetAsync(OcrEngineRouter.AdiConnectorId, ct);
+
+                string engine, source, detail;
+                if (tika is not null
+                    && tika.TryGetValue(OcrEngineRouter.TikaBaseUrlKey, out var tikaUrl)
+                    && !string.IsNullOrWhiteSpace(tikaUrl))
+                {
+                    (engine, source, detail) = ("Self-hosted (Apache Tika)", "Integrations connector", tikaUrl);
+                }
+                else if (adi is not null
+                    && adi.TryGetValue(OcrEngineRouter.AdiEndpointKey, out var adiEndpoint)
+                    && !string.IsNullOrWhiteSpace(adiEndpoint))
+                {
+                    (engine, source, detail) = ("Azure Document Intelligence", "Integrations connector", adiEndpoint);
+                }
+                else if (deploymentOcr.Value.IsAzureDocumentIntelligence)
+                {
+                    (engine, source, detail) = (
+                        "Azure Document Intelligence", "Deployment configuration", deploymentOcr.Value.Endpoint!);
+                }
+                else
+                {
+                    (engine, source, detail) = (
+                        "None", "—", "Scanned PDFs are skipped; digital PDFs, CSV and OFX still import.");
+                }
+
+                return Results.Ok(new[] { new { engine, source, detail } });
+            })
+            .RequireAuthorization(manage)
+            .WithName("Finance_GetOcrStatus");
 
         // ── Income sources ──
         group.MapPost("/income-sources", async (

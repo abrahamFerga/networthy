@@ -225,7 +225,8 @@ public sealed class ExportTools(
         }
 
         foreach (var b in await db.ImportBatches
-                     .Where(b => b.CreatedAt >= since && visible.Contains(b.AccountId))
+                     // Account-less (needs-account) batches are pre-assignment activity — visible.
+                     .Where(b => b.CreatedAt >= since && (b.AccountId == null || visible.Contains(b.AccountId.Value)))
                      .ToListAsync(cancellationToken))
         {
             events.Add((b.CreatedAt,

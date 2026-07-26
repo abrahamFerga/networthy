@@ -4,6 +4,7 @@
     <Project Path="src/Networthy.Host/Networthy.Host.csproj" />
     <Project Path="src/Networthy.Finance/Networthy.Finance.csproj" />
     <Project Path="src/Networthy.Connectors.Plaid/Networthy.Connectors.Plaid.csproj" />
+    <Project Path="src/Networthy.Connectors.Ocr/Networthy.Connectors.Ocr.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Networthy.Finance.Tests/Networthy.Finance.Tests.csproj" />

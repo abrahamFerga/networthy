@@ -3,8 +3,10 @@ using Plenipo.Application.Commerce;
 using Plenipo.AspNetCore.Connectors;
 using Plenipo.AspNetCore.Hosting;
 using Plenipo.AspNetCore.Modules;
+using Networthy.Connectors.Ocr;
 using Networthy.Connectors.Plaid;
 using Networthy.Finance;
+using Networthy.Host;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Networthy — a single-vertical household-finance system built ENTIRELY on the
@@ -20,10 +22,14 @@ builder.AddPlenipoPlatform();
 
 builder.AddPlenipoModule<FinanceModule>();
 
-// The product-owned, domain-specific connector (ADR-0007): defined in THIS repo against
-// Plenipo.Connectors.Sdk, registered exactly like a built-in. Default-off; a household
-// admin enables and configures it under Integrations.
+// The product-owned, domain-specific connectors (ADR-0007): defined in THIS repo against
+// Plenipo.Connectors.Sdk, registered exactly like built-ins. All default-off; a household
+// admin enables and configures them under Integrations.
 builder.AddPlenipoConnector<PlaidConnector>();
+// Scanned-statement OCR engines — pick one (or none) per household; OcrEngineRouter in the
+// finance module resolves whichever is enabled on every call, no restart needed.
+builder.AddPlenipoConnector<TikaOcrConnector>();
+builder.AddPlenipoConnector<AzureDocumentIntelligenceOcrConnector>();
 
 // What this product sells (the plan — not checkout metadata — decides what a purchase grants).
 builder.Services.AddPlenipoProduct(new ProductOffering
@@ -109,6 +115,10 @@ app.Use(async (context, next) =>
 
     await next();
 });
+
+// Straighten out three AI seams of the frozen alpha.25 platform (default-model saves, the
+// unfiltered model catalog, and the demo banner that ignores tenant settings) — see PlenipoAiShims.
+app.UsePlenipoAiShims();
 
 await app.RunPlenipoPlatformAsync();
 

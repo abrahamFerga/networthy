@@ -24,6 +24,12 @@ var postgres = builder.AddPostgres("plenipo-pg", password: pgPassword)
     // a volume created by a different Postgres major needs `docker volume rm` to reset).
     .WithImage("pgvector/pgvector")
     .WithImageTag("pg17")
+    // FIXED host port, deliberately: the data volume below is shared by every AppHost instance,
+    // and two instances mounting it at once destroy the cluster (the second container clears the
+    // first's postmaster.pid as "stale"; the first self-kills mid-write — corrupted indexes, ghost
+    // rows). With the port pinned, a second concurrent run dies at bind time with a clear error
+    // instead. Two stacks were exactly how today's dev database was lost.
+    .WithHostPort(15432)
     .WithDataVolume();
 
 var platformDb = postgres.AddDatabase("plenipo-platform");
@@ -31,20 +37,32 @@ var auditDb = postgres.AddDatabase("plenipo-audit");
 
 var redis = builder.AddRedis("plenipo-redis");
 
-// Deployment defaults stay keyless. Commercial provider credentials are configured per tenant
-// under Admin → AI Settings and stored write-only in Plenipo's secret vault.
-var aiProvider = builder.AddParameter("ai-provider", "Mock", publishValueAsDefault: true);
-var aiModel = builder.AddParameter("ai-model", "gpt-4o-mini", publishValueAsDefault: true);
-
+// Deployment AI defaults live in the Host's appsettings (Development = Mock, Production = None),
+// and real provider credentials are configured per tenant under Admin → AI Settings, stored
+// write-only in Plenipo's secret vault. The former ai-provider/ai-model parameters were removed:
+// they duplicated appsettings for the Mock default, and flipping them to a commercial provider
+// could never work — there is no deployment-level key slot, so chat just failed until the tenant
+// configured AI Settings anyway.
 var api = builder.AddProject<Projects.Networthy_Host>("networthy-api")
     .WithReference(platformDb)
     .WithReference(auditDb)
     .WithReference(redis)
     .WaitFor(platformDb)
     .WaitFor(auditDb)
-    .WithEnvironment("Ai__Provider", aiProvider)
-    .WithEnvironment("Ai__Model", aiModel)
     .WithExternalHttpEndpoints();
+
+// Self-hosted OCR for scanned statements, parked until asked for: explicit-start is the Aspire
+// analog of compose's `--profile ocr` — the resource shows in the dashboard but a ~1GB Tika
+// container shouldn't tax every dev boot that never touches OCR. Click Start on it, then enable
+// "Self-hosted OCR (Apache Tika)" under Admin → Integrations with http://localhost:9998 (port
+// pinned, same philosophy as Postgres above: the connector setting must survive restarts).
+// UNPROXIED, and that's load-bearing: DCP binds proxy ports eagerly even for explicit-start
+// resources, so a proxied 9998 is a black hole (accepts, never answers) until the click —
+// hanging every OCR call AND shadowing any Tika the user runs by hand. Unproxied, the port
+// stays genuinely free until the container itself binds it.
+builder.AddContainer("tika", "apache/tika", "3.1.0.0-full")
+    .WithHttpEndpoint(port: 9998, targetPort: 9998, isProxied: false)
+    .WithExplicitStart();
 
 // ── Front-ends (Vite dev servers; the workspace is THIS repo's entry, not the stock shell) ──
 var plenipoRepo = Path.GetFullPath(
@@ -62,6 +80,10 @@ if (builder.ExecutionContext.IsRunMode && ToolExistsOnPath("pnpm"))
     var workspace = builder.AddViteApp("networthy-ui", workspaceDir)
         .WithPnpm()
         .WaitFor(api)
+        // Pin the workspace URL: with the default random port, every restart strands the
+        // previous browser tab on a dead port and the app "stops working". 5173 is Vite's
+        // canonical port and already sits in the API's CORS defaults for standalone runs.
+        .WithEndpoint("http", e => e.Port = 5173)
         .WithEnvironment("VITE_BRAND_NAME", "Networthy")
         .WithEnvironment("VITE_API_BASE", api.GetEndpoint("http"))
         .WithExternalHttpEndpoints();

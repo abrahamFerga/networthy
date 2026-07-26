@@ -66,6 +66,12 @@ public sealed class HouseholdSettingsTests(IntegrationFixture fixture)
             Assert.Equal(HttpStatusCode.OK, (await admin.PostAsJsonAsync("/api/finance/income-sources",
                 new { name = "Sueldo", amount = 40_000, cadence = "monthly" })).StatusCode);
             Assert.Equal("MXN", await CurrencyOfAsync(admin, "/api/finance/income-sources", "name", "Sueldo"));
+
+            // Accounts too — the setup wizard's account and loan steps post here with the
+            // currency left blank ("blank = household default"), same as the tab editor.
+            Assert.Equal(HttpStatusCode.OK, (await admin.PostAsJsonAsync("/api/finance/accounts",
+                new { name = "Nómina BBVA", type = "checking", cachedBalance = 12_000 })).StatusCode);
+            Assert.Equal("MXN", await CurrencyOfAsync(admin, "/api/finance/accounts", "name", "Nómina BBVA"));
         }
         finally
         {
