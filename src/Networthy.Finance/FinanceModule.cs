@@ -138,12 +138,15 @@ public sealed class FinanceModule : IModule
             "PLAYBOOK: accounts with create_account/list_accounts; net worth with get_net_worth. " +
             "A member's own purchase -> log_own_transaction (instant, no approval); anything else that " +
             "changes records (categorize_transaction, edit_transaction, create_account) waits for the " +
-            "user's approval - tell them so. Approvals are decided OUTSIDE this chat and their outcome " +
-            "is never posted back into it: a tool result saying an action awaits approval only means it " +
-            "had not run AT THAT MOMENT, and you cannot see or reopen the approval prompt. When the user " +
-            "says they approved something or asks whether it ran, never answer from earlier messages - " +
-            "check live state first (list_pending_approvals for what is still waiting; " +
-            "list_import_batches for what a statement import produced) and report what the tools return. " +
+            "user's approval - tell them so. CALLING a gated tool is what CREATES the approval prompt: " +
+            "when the user asks for a gated action - or insists after you have relayed a warning - CALL " +
+            "the tool, then tell them to decide on the Approve/Reject prompt that just appeared in this " +
+            "chat. NEVER refuse because a gate exists, and NEVER tell the user to approve something " +
+            "'outside the chat' when nothing is pending - that is a dead end. Outcomes are reported " +
+            "back automatically: you receive an [Approval outcomes] note next turn, and the user sees " +
+            "the result message the moment they click. When unsure what actually ran, check live state " +
+            "(list_pending_approvals for what is still waiting; list_import_batches for what a " +
+            "statement import produced) instead of trusting earlier messages. " +
             "'How much did we spend on X' -> summarize_spending. " +
             "'Can I afford X' -> can_i_afford and give the verdict verbatim - never soften a 'no'. " +
             "Suggest a category when logging (match the Categories tab); if none fits, log uncategorized " +
@@ -154,7 +157,11 @@ public sealed class FinanceModule : IModule
             "an existing account, or create it? Resolve with assign_import_account (createIfMissing " +
             "to create — never create without the user saying so). Then review_import_batch to show " +
             "the extracted lines, and only after the user confirms, approve_import_batch. Relay any " +
-            "duplicate-period warning the review shows. Never post lines the user hasn't seen. When " +
+            "duplicate-period warning the review shows, and when a batch duplicates an ALREADY-APPROVED " +
+            "statement's period, recommend discard_import_batch instead of approving twice — but if the " +
+            "user still wants it posted, call approve_import_batch and let them decide at the gate. " +
+            "discard_import_batch removes an unposted batch (duplicate upload, abandoned import); posted " +
+            "data is never touched. Never post lines the user hasn't seen. When " +
             "several statements are in flight, list_import_batches enumerates what's pending — review " +
             "and approve each by its file name; no batch is limited to being 'the latest'. HOUSEHOLD: members and " +
             "roles are managed by admins under Admin -> Users (household-admin / household-member); " +
@@ -304,6 +311,13 @@ public sealed class FinanceModule : IModule
                 Name = "approve_import_batch",
                 Description = "Post a reviewed batch's lines as transactions. Side-effecting: writes data and requires human approval.",
                 Permission = Permissions.ForTool(Id, "approve_import_batch"),
+                RequiresApproval = true,
+            },
+            new ToolDescriptor
+            {
+                Name = "discard_import_batch",
+                Description = "Remove an UNPOSTED import batch (duplicate upload, abandoned import). Posted data is never touched. Side-effecting and requires human approval.",
+                Permission = Permissions.ForTool(Id, "discard_import_batch"),
                 RequiresApproval = true,
             },
             new ToolDescriptor
@@ -799,6 +813,18 @@ public sealed class FinanceModule : IModule
                                   "masked number, household default currency) and attach the batch to it? " +
                                   "Nothing posts until you approve the batch afterwards.",
                     },
+                    // The way OUT for a batch that should never post — a duplicate upload, a failed
+                    // parse, an abandoned import. Approved batches refuse server-side: their lines
+                    // are in the ledger and their period arms the duplicate warning.
+                    new TabRowAction
+                    {
+                        Id = "discard",
+                        Label = "Discard",
+                        EndpointTemplate = "/api/finance/imports/{id}/discard",
+                        Permission = ManageFinance,
+                        Confirm = "Discard this batch? Nothing has posted from it, so no account changes; " +
+                                  "the uploaded file itself stays stored.",
+                    },
                 ],
             },
             new TabDescriptor
@@ -1274,6 +1300,29 @@ public sealed class FinanceModule : IModule
             })
             .RequireAuthorization(PermissionRequirement.PolicyName(ManageFinance))
             .WithName("Finance_CreateDetectedAccount");
+
+        // The review tab's "Discard" row action: removes an unposted batch (duplicate upload,
+        // failed parse, abandoned import). Approved batches refuse — their lines posted and their
+        // period arms the duplicate-period warning.
+        group.MapPost("/imports/{batchId:guid}/discard", async (
+                Guid batchId, FinanceDbContext db, CancellationToken cancellationToken) =>
+            {
+                var batch = await db.ImportBatches.FirstOrDefaultAsync(b => b.Id == batchId, cancellationToken);
+                if (batch is null)
+                {
+                    return Results.NotFound();
+                }
+                if (batch.Status == "approved")
+                {
+                    return Results.BadRequest(new { error = $"'{batch.FileName}' was approved and its lines posted — an approved batch cannot be discarded." });
+                }
+
+                db.ImportBatches.Remove(batch);
+                await db.SaveChangesAsync(cancellationToken);
+                return Results.Ok(new { message = $"Discarded '{batch.FileName}' — nothing had posted, no account changed." });
+            })
+            .RequireAuthorization(PermissionRequirement.PolicyName(ManageFinance))
+            .WithName("Finance_DiscardImportBatch");
 
         group.MapGet("/imports/latest/lines", async (FinanceDbContext db, CancellationToken cancellationToken) =>
                 ListBatchLines(await LatestParsedBatchAsync(db, cancellationToken)))

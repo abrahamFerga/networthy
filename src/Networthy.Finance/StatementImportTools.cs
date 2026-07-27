@@ -233,6 +233,31 @@ public sealed class StatementImportTools(
         return sb.ToString();
     }
 
+    [Description("Discard an UNPOSTED import batch (queued, parsed, needs-account, or failed) — a duplicate upload, or a statement the household decided not to post. The uploaded file stays in the file store and posted data is never touched; an approved batch cannot be discarded. Side-effecting and requires approval.")]
+    public async Task<string> DiscardImportBatch(
+        [Description("File name (or part of it) of the batch to discard; defaults to the most recent batch.")] string? fileName = null,
+        CancellationToken cancellationToken = default)
+    {
+        var batch = await FindBatchAsync(fileName, cancellationToken);
+        if (batch is null)
+        {
+            return "No import batches to discard. list_import_batches shows what exists.";
+        }
+        if (batch.Status == "approved")
+        {
+            // Approved batches are history: their period feeds the duplicate-period warning, and
+            // their lines already posted. Removing the record would silently disarm both.
+            return $"'{batch.FileName}' was approved and its lines are posted — an approved batch " +
+                   "cannot be discarded. Correct individual transactions with edit_transaction instead.";
+        }
+
+        var status = batch.Status;
+        db.ImportBatches.Remove(batch);
+        await db.SaveChangesAsync(cancellationToken);
+        return $"Discarded '{batch.FileName}' ({status}). Nothing had posted, so no account changed; " +
+               "the uploaded file itself is still stored and can be re-imported.";
+    }
+
     [Description("Approve a reviewed import batch: its lines post as transactions (with the suggested categories) and the account balance updates. Side-effecting and requires approval.")]
     public async Task<string> ApproveImportBatch(
         [Description("Optional file name (or part of it) to pick a specific batch; defaults to the most recent parsed one.")] string? fileName = null,

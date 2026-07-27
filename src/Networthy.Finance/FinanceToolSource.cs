@@ -205,6 +205,14 @@ public sealed class FinanceToolSource : IModuleToolSource
             new ModuleTool
             {
                 ModuleId = ModuleId,
+                Name = "discard_import_batch",
+                Permission = Permissions.ForTool(ModuleId, "discard_import_batch"),
+                Function = AIFunctionFactory.Create(imports.DiscardImportBatch, name: "discard_import_batch"),
+                RequiresApproval = true,
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
                 Name = "set_goal",
                 Permission = Permissions.ForTool(ModuleId, "set_goal"),
                 Function = AIFunctionFactory.Create(goals.SetGoal, name: "set_goal"),
