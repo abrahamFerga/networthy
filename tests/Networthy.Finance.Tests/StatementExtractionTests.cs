@@ -238,6 +238,58 @@ public sealed class StatementExtractionTests
     }
 
     [Fact]
+    public void Text_YearlessSpanishDates_AnchorToTheDocumentReferenceDate()
+    {
+        // Banamex-style "Envío de movimientos": per-line dates are "DD MMM" with NO year (the
+        // year lives only in the request header), credits carry an explicit '+', charges are
+        // unsigned, and an ATM line embeds the branch number right after the date — which once
+        // parsed as the year 6472.
+        const string text = """
+            Envío de movimientos
+            Hola, CASANDRA:
+            Estos son los movimientos de tu
+            Joy Banamex **123
+            Solicitados el 11/05/2026 a las 15:35
+            10 May gasolinera ejemplo mpos EN PROCESO $1,075.34
+            03 May su abono...gracias +$1,300.00
+            29 Abr netflixnme 110513pi3mx $369.00
+            29 Mar 6472 suc playa ejemplo disp. efectivmx $3,000.00
+            27 Dic su abono...gracias +$500.00
+            1 de 1
+            www.banamex.com
+            """;
+
+        var lines = StatementExtraction.TryExtractText(text, Categories);
+
+        Assert.NotNull(lines);
+        Assert.Equal(5, lines!.Count);
+        // Yearless days anchor to the header's 11/05/2026 (most recent occurrence at or before it).
+        Assert.Equal((new DateOnly(2026, 5, 10), "expense", 1075.34m),
+            (lines[0].Date, lines[0].Direction, lines[0].Amount));
+        // '+' marks the credits.
+        Assert.Equal((new DateOnly(2026, 5, 3), "income", 1300m),
+            (lines[1].Date, lines[1].Direction, lines[1].Amount));
+        // The ATM branch number stays in the DESCRIPTION — it is not a year.
+        Assert.Equal((new DateOnly(2026, 3, 29), "6472 suc playa ejemplo disp. efectivmx", "expense"),
+            (lines[3].Date, lines[3].Description, lines[3].Direction));
+        // December resolves to LAST year, not seven months into the future.
+        Assert.Equal(new DateOnly(2025, 12, 27), lines[4].Date);
+        // Nothing anywhere claims the year 6472.
+        Assert.DoesNotContain(lines, l => l.Date.Year is < 1990 or > 2100);
+    }
+
+    [Fact]
+    public void Text_YearlessDates_WithoutAReferenceDate_AreSkippedNotGuessed()
+    {
+        const string text = """
+            10 May coffee place $12.00
+            03 May su abono...gracias +$1,300.00
+            """;
+
+        Assert.Null(StatementExtraction.TryExtractText(text, Categories));
+    }
+
+    [Fact]
     public void Text_ColumnarFallback_RefusesMismatchedColumns()
     {
         // Three dates but two amounts: zipping would attach money to the wrong rows. Honest null.
