@@ -263,10 +263,17 @@ public sealed class StatementImportTools(
         [Description("Optional file name (or part of it) to pick a specific batch; defaults to the most recent parsed one.")] string? fileName = null,
         CancellationToken cancellationToken = default)
     {
-        var batch = await FindBatchAsync(fileName, cancellationToken);
+        // No name = "the one awaiting approval": resolve the newest PARSED batch, as documented.
+        // Resolving the newest batch of ANY status made the default refuse on an already-approved
+        // newer upload while a parsed one sat waiting.
+        var batch = string.IsNullOrWhiteSpace(fileName)
+            ? await FindBatchAsync(null, cancellationToken, status: "parsed")
+            : await FindBatchAsync(fileName, cancellationToken);
         if (batch is null)
         {
-            return "No import batches yet. Attach a statement and run import_statement.";
+            return string.IsNullOrWhiteSpace(fileName)
+                ? "No parsed batch is awaiting approval. list_import_batches shows every batch and its status."
+                : "No import batches yet. Attach a statement and run import_statement.";
         }
 
         return await ApproveBatchAsync(batch, cancellationToken);

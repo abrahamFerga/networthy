@@ -783,8 +783,8 @@ public sealed class FinanceModule : IModule
                 DetailEndpoint = "/api/finance/imports/{id}/detail",
                 Placeholder = "Nothing awaiting review. Attach a bank statement in Chat and ask to import it; each parsed batch lands here for inspection and approval.",
                 // One button posts the NEWEST parsed batch — tab actions POST to a fixed endpoint,
-                // so per-row approval isn't expressible here; any other batch is approved in Chat
-                // (approve_import_batch with its file name). The human clicking IS the approval.
+                // The human clicking IS the approval — per-row for the batch in front of them,
+                // or the tab-level button for the latest parsed batch.
                 Actions =
                 [
                     new TabAction
@@ -803,6 +803,17 @@ public sealed class FinanceModule : IModule
                 // rows that already have an account the endpoint answers with a harmless refusal.
                 RowActions =
                 [
+                    // Approve THIS row — the reviewer should never have to reason about which
+                    // batch a tab-level button will pick. Non-parsed rows answer with the
+                    // endpoint's honest refusal.
+                    new TabRowAction
+                    {
+                        Id = "approve",
+                        Label = "Approve",
+                        EndpointTemplate = "/api/finance/imports/{id}/approve",
+                        Permission = ReviewImports,
+                        Confirm = "Post this batch's lines as transactions? Balances update immediately.",
+                    },
                     new TabRowAction
                     {
                         Id = "create-detected-account",
@@ -1366,10 +1377,16 @@ public sealed class FinanceModule : IModule
             .WithName("Finance_DropBatchLine");
 
         group.MapPost("/imports/latest/approve", async (
-                StatementImportTools imports, CancellationToken cancellationToken) =>
+                StatementImportTools imports, FinanceDbContext db, CancellationToken cancellationToken) =>
             {
                 // The reviewer clicking the button IS the human approval this batch waits for.
-                var message = await imports.ApproveImportBatch(fileName: null, cancellationToken);
+                // "Latest" means the latest PARSED batch — resolving the newest batch of ANY
+                // status made the button refuse on an already-approved newer one while the row
+                // actually awaiting review sat visible right below it.
+                var batch = await LatestParsedBatchAsync(db, cancellationToken);
+                var message = batch is null
+                    ? "No parsed batch is awaiting approval."
+                    : await imports.ApproveBatchAsync(batch, cancellationToken);
                 return Results.Ok(new { message });
             })
             .RequireAuthorization(PermissionRequirement.PolicyName(ReviewImports))
