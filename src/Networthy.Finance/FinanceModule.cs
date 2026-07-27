@@ -659,7 +659,11 @@ public sealed class FinanceModule : IModule
             },
             new TabDescriptor
             {
-                Id = "income", Label = "Income", Route = "/finance/income", Icon = "banknote", Order = 5,
+                // "Income sources", deliberately not "Income": this tab is the household's declared
+                // paycheck SCHEDULES (cadence for goal plans and cash-flow checks), not an income
+                // ledger — a first-timer reading "Income" expects their positive transactions here
+                // and concludes the app lost them. Money-in lives on the Transactions tab.
+                Id = "income", Label = "Income sources", Route = "/finance/income", Icon = "banknote", Order = 5,
                 Permission = ViewFinance,
                 DataEndpoint = "/api/finance/income-sources",
                 Columns =
