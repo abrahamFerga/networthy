@@ -39,12 +39,14 @@ public sealed class FinanceCatalogTests
         // Record-changing tools are approval-gated (ADR-0002); reads are not.
         Assert.All(
             manifest.Tools.Where(t => t.Name is "create_account" or "categorize_transaction" or "edit_transaction"
-                or "import_statement" or "assign_import_account" or "discard_import_batch" or "approve_import_batch" or "set_account_visibility" or "set_budget" or "set_goal" or "contribute_to_goal" or "update_account_terms" or "set_income_source" or "update_household_settings" or "set_exchange_rate"),
+                or "assign_import_account" or "discard_import_batch" or "approve_import_batch" or "set_account_visibility" or "set_budget" or "set_goal" or "contribute_to_goal" or "update_account_terms" or "set_income_source" or "update_household_settings" or "set_exchange_rate"),
             t => Assert.True(t.RequiresApproval));
-        // log_own_transaction is the module's ONE deliberately ungated write (ADR-0005); reads are never gated.
+        // TWO deliberately ungated writes: log_own_transaction (ADR-0005) and import_statement
+        // (ADR-0002 amendment — importing only queues extraction into the review pipeline; the
+        // batch approval is the gate, and discard is the one-call undo). Reads are never gated.
         Assert.All(
             manifest.Tools.Where(t => t.Name is "list_accounts" or "get_net_worth" or "log_own_transaction"
-                or "search_transactions" or "summarize_spending" or "can_i_afford" or "review_import_batch"
+                or "import_statement" or "search_transactions" or "summarize_spending" or "can_i_afford" or "review_import_batch"
                 or "get_budget_status" or "list_pending_approvals" or "get_activity_log" or "list_import_batches"),
             t => Assert.False(t.RequiresApproval));
     }

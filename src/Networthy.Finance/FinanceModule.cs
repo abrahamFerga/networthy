@@ -289,9 +289,8 @@ public sealed class FinanceModule : IModule
             new ToolDescriptor
             {
                 Name = "import_statement",
-                Description = "Import an uploaded bank statement (CSV/OFX/QFX) for extraction and review. Side-effecting: brings external data in and requires human approval.",
+                Description = "Import an uploaded bank statement (CSV/OFX/QFX) for extraction and review. Runs ungated: it only queues extraction into the review pipeline — approving the reviewed batch is the human gate, and discard undoes an unwanted import.",
                 Permission = Permissions.ForTool(Id, "import_statement"),
-                RequiresApproval = true,
             },
             new ToolDescriptor
             {
@@ -783,27 +782,18 @@ public sealed class FinanceModule : IModule
                     new("lineCount", "Lines"), new("totals", "Totals (−/+)"),
                     new("status", "Status"),
                 ],
-                // …and each row drills into a detail document of that batch's extracted lines.
+                // …and each row drills into a detail document of that batch's extracted lines,
+                // which carries ITS OWN actions (approve / assign account / create detected /
+                // discard, composed per state in the detail endpoint below). The human clicking
+                // IS the approval — always on the batch in front of them. There is deliberately
+                // NO tab-level "approve latest" button: a button whose target is invisible reads
+                // as "approve what I'm looking at" and dead-ends when no parsed batch exists.
                 DetailEndpoint = "/api/finance/imports/{id}/detail",
                 Placeholder = "Nothing awaiting review. Attach a bank statement in Chat and ask to import it; each parsed batch lands here for inspection and approval.",
-                // One button posts the NEWEST parsed batch — tab actions POST to a fixed endpoint,
-                // The human clicking IS the approval — per-row for the batch in front of them,
-                // or the tab-level button for the latest parsed batch.
-                Actions =
-                [
-                    new TabAction
-                    {
-                        Id = "approve-latest",
-                        Label = "Approve latest batch",
-                        Endpoint = "/api/finance/imports/latest/approve",
-                        Permission = ReviewImports,
-                        Confirm = "Post the most recent parsed batch's lines as transactions? Balances update immediately.",
-                    },
-                ],
                 // The "should I create this account?" answer for batches imported without one:
                 // the row action creates the DETECTED account (institution + mask from the
-                // statement) and attaches the batch. Picking an existing account instead is a
-                // chat action (assign_import_account) — row actions carry no input fields. On
+                // statement) and attaches the batch. Picking an existing account instead lives
+                // in the DETAIL view's assign action (row actions carry no input fields). On
                 // rows that already have an account the endpoint answers with a harmless refusal.
                 RowActions =
                 [
@@ -1386,12 +1376,17 @@ public sealed class FinanceModule : IModule
                 // The reviewer clicking the button IS the human approval this batch waits for.
                 // "Latest" means the latest PARSED batch — resolving the newest batch of ANY
                 // status made the button refuse on an already-approved newer one while the row
-                // actually awaiting review sat visible right below it.
+                // actually awaiting review sat visible right below it. Refusals are error
+                // statuses, not 200s — a quiet gray "nothing happened" under a confirm dialog
+                // reads as a dead button (the needs-account incident).
                 var batch = await LatestParsedBatchAsync(db, cancellationToken);
-                var message = batch is null
-                    ? "No parsed batch is awaiting approval."
-                    : await imports.ApproveBatchAsync(batch, cancellationToken);
-                return Results.Ok(new { message });
+                if (batch is null)
+                {
+                    return Results.BadRequest(new { error = "No parsed batch is awaiting approval." });
+                }
+
+                var (ok, message) = await imports.ApproveBatchAsync(batch, cancellationToken);
+                return ok ? Results.Ok(new { message }) : Results.BadRequest(new { error = message });
             })
             .RequireAuthorization(PermissionRequirement.PolicyName(ReviewImports))
             .WithName("Finance_ApproveLatestImport");
@@ -1405,15 +1400,47 @@ public sealed class FinanceModule : IModule
                     return Results.NotFound();
                 }
 
-                var message = await imports.ApproveBatchAsync(batch, cancellationToken);
-                return Results.Ok(new { message });
+                var (ok, message) = await imports.ApproveBatchAsync(batch, cancellationToken);
+                return ok ? Results.Ok(new { message }) : Results.BadRequest(new { error = message });
             })
             .RequireAuthorization(PermissionRequirement.PolicyName(ReviewImports))
             .WithName("Finance_ApproveImportBatch");
 
+        // The detail view's "assign to an existing account" action for a needs-account batch:
+        // the picker lists the household's accounts (same options endpoint the editors use), so
+        // this endpoint only ever attaches EXISTING accounts — creating the detected one is the
+        // create-account endpoint; creating under a custom name stays a chat action.
+        group.MapPost("/imports/{batchId:guid}/assign-account", async (
+                AssignImportAccountRequest body, Guid batchId, StatementImportTools imports, FinanceDbContext db,
+                CancellationToken cancellationToken) =>
+            {
+                var batch = await db.ImportBatches.FirstOrDefaultAsync(b => b.Id == batchId, cancellationToken);
+                if (batch is null)
+                {
+                    return Results.NotFound();
+                }
+                if (batch.Status != "needs-account")
+                {
+                    return Results.BadRequest(new { error = $"'{batch.FileName}' is not waiting for an account." });
+                }
+
+                var name = body.AccountName?.Trim() ?? "";
+                if (name.Length == 0)
+                {
+                    return Results.BadRequest(new { error = "Pick the account this statement belongs to." });
+                }
+
+                var (ok, message) = await imports.AssignAccountAsync(
+                    batch, name, createIfMissing: false, accountType: null, cancellationToken);
+                return ok ? Results.Ok(new { message }) : Results.BadRequest(new { error = message });
+            })
+            .RequireAuthorization(PermissionRequirement.PolicyName(ManageFinance))
+            .WithName("Finance_AssignImportAccount");
+
         // A batch as a generic DETAIL DOCUMENT — the Review tab's drill-down from the batch list.
         group.MapGet("/imports/{batchId:guid}/detail", async (
-                Guid batchId, FinanceDbContext db, CancellationToken cancellationToken) =>
+                Guid batchId, FinanceDbContext db, Plenipo.Core.Identity.ICurrentUser user,
+                CancellationToken cancellationToken) =>
             {
                 var batch = await db.ImportBatches.FirstOrDefaultAsync(b => b.Id == batchId, cancellationToken);
                 if (batch is null)
@@ -1425,6 +1452,66 @@ public sealed class FinanceModule : IModule
                 var lines = StatementImportTools.Deserialize(batch.ExtractedLinesJson);
                 var expense = lines.Where(l => l.Direction == "expense").Sum(l => l.Amount);
                 var income = lines.Where(l => l.Direction == "income").Sum(l => l.Amount);
+
+                // Commands on THIS batch, composed per state and per caller — the shell's detail
+                // view renders them beside the lines under review, so approving, assigning, and
+                // discarding happen on the batch in front of the reviewer, never on a hidden
+                // "latest". The endpoints stay authorization-gated regardless of what's sent.
+                var actions = new List<object>();
+                if (batch.Status == "parsed")
+                {
+                    // Reaching this endpoint already required ReviewImports — approving is theirs.
+                    actions.Add(new
+                    {
+                        id = "approve",
+                        label = "Approve",
+                        endpoint = $"/api/finance/imports/{batch.Id}/approve",
+                        confirm = "Post this batch's lines as transactions? Balances update immediately.",
+                    });
+                }
+                if (user.HasPermission(ManageFinance))
+                {
+                    if (batch.Status == "needs-account")
+                    {
+                        actions.Add(new
+                        {
+                            id = "assign-account",
+                            label = "Assign",
+                            endpoint = $"/api/finance/imports/{batch.Id}/assign-account",
+                            field = new
+                            {
+                                field = "accountName",
+                                label = "Assign to account",
+                                optionsEndpoint = "/api/finance/accounts",
+                                optionsField = "name",
+                            },
+                        });
+                        if (batch.DetectedInstitution is not null || batch.DetectedAccountMask is not null)
+                        {
+                            actions.Add(new
+                            {
+                                id = "create-detected-account",
+                                label = "Create detected account",
+                                endpoint = $"/api/finance/imports/{batch.Id}/create-account",
+                                confirm = "Create the account this statement looks like (detected institution and " +
+                                          "masked number, household default currency) and attach the batch to it? " +
+                                          "Nothing posts until you approve the batch afterwards.",
+                            });
+                        }
+                    }
+
+                    if (batch.Status != "approved")
+                    {
+                        actions.Add(new
+                        {
+                            id = "discard",
+                            label = "Discard",
+                            endpoint = $"/api/finance/imports/{batch.Id}/discard",
+                            confirm = "Discard this batch? Nothing has posted from it, so no account changes; " +
+                                      "the uploaded file itself stays stored.",
+                        });
+                    }
+                }
 
                 var sections = new List<object>
                 {
@@ -1452,6 +1539,20 @@ public sealed class FinanceModule : IModule
                 {
                     sections.Insert(0, new { heading = "Extraction failed", text = batch.FailureReason });
                 }
+                if (batch.Status == "needs-account")
+                {
+                    // Say what's blocking and every way out, right where the reviewer is looking —
+                    // this batch used to dead-end here (the only visible button targeted "latest
+                    // parsed", which this batch is not).
+                    sections.Insert(0, new
+                    {
+                        heading = "Needs an account",
+                        text = $"This statement looks like {StatementImportTools.DetectedLabel(batch)}, and no existing " +
+                               "account matched — its lines cannot post until it has one. Assign an existing account " +
+                               "above, create the detected one, or tell the assistant in Chat which account it " +
+                               "belongs to (that path can also create it under a name you choose).",
+                    });
+                }
 
                 return Results.Ok(new
                 {
@@ -1459,6 +1560,7 @@ public sealed class FinanceModule : IModule
                     subtitle = $"{batch.Status} · {lines.Count} line(s) · into '{account?.Name ?? "(unknown account)"}' " +
                                $"· imported {batch.CreatedAt:yyyy-MM-dd HH:mm}",
                     sections,
+                    actions,
                 });
             })
             .RequireAuthorization(PermissionRequirement.PolicyName(ReviewImports))
@@ -1661,6 +1763,9 @@ public sealed record CategoryDto(Guid Id, string Name, string? ParentName);
 
 /// <summary>Body of the review tab's line edit: which line, and its corrected category (empty clears it).</summary>
 public sealed record ReviewLineRequest(int Index, string? Category);
+
+/// <summary>Body of the detail view's assign action: the EXISTING account picked for a needs-account batch.</summary>
+public sealed record AssignImportAccountRequest(string AccountName);
 
 public sealed record UpsertCategoryRequest(Guid? Id, string Name, string? ParentName);
 

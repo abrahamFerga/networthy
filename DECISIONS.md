@@ -102,9 +102,18 @@ was written to prevent — "AI-first ≠ chat-only" (`ManualCrudEndpoints.cs`'s 
 ARCH.md's API surface section documents both surfaces explicitly so this isn't misread as "no
 REST writes exist" again.
 
----
+### Amendment (statement imports): the review queue is the gate, not the import
 
-## ADR-0003: The Plaid connector lives in Plenipo core, not the Networthy repo
+`import_statement` originally required approval like every other AI write. In practice that
+produced approval **squared**: the user attaches a statement and asks for it, approves the
+tool run (which merely queues extraction), then must approve the *reviewed batch* anyway
+before anything posts — two ceremonies guarding one decision, and the first one guards
+almost nothing: an import creates only a pending `ImportBatch` in the review pipeline, moves
+no money, and `discard_import_batch` undoes it in one equally-small action (the same rubric
+that makes a tool Low-risk). The tool is now deliberately ungated; the batch approval —
+where a human actually sees the extracted lines — remains the gate this ADR is about, per
+its own clarification above. Statement-review UI actions (approve/assign/discard on a batch)
+are human-clicked, RBAC-gated endpoints under the manual-CRUD amendment, not AI writes.
 
 - **Status**: superseded by ADR-0007
 - **Date**: 2026-07-09
