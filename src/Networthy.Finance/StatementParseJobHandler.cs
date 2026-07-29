@@ -92,6 +92,7 @@ public sealed class StatementParseJobHandler : IJobHandler
         }
 
         batch.ExtractedLinesJson = JsonSerializer.Serialize(lines, JsonSerializerOptions.Web);
+        batch.ReviewWarning = ocr.ReviewWarning;
         batch.LinesFrom = lines.Min(l => l.Date);
         batch.LinesTo = lines.Max(l => l.Date);
         batch.DetectedInstitution = hint?.Institution;

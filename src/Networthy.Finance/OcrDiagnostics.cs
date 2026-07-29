@@ -25,8 +25,15 @@ public sealed class OcrDiagnostics
 
     /// <summary>
     /// What the model leg did with the text, as one human sentence — tried and reconciled, tried
-    /// and discarded (with why), or never tried (no AI connection). Composed into the failure
-    /// reason so "the model gave up too" is never silent.
+    /// with a review warning, failed validation (with why), or never tried (no AI connection).
+    /// Composed into the failure reason so "the model gave up too" is never silent.
     /// </summary>
     public string? ModelNote { get; set; }
+
+    /// <summary>
+    /// A durable review warning from an otherwise usable model extraction. It never bypasses the
+    /// existing approval gate; the parse job saves it on the batch so the reviewer can see why
+    /// the lines need extra scrutiny.
+    /// </summary>
+    public string? ReviewWarning { get; set; }
 }

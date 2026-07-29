@@ -14,8 +14,8 @@ public sealed record ModelStatementLine(
 /// The model's whole answer for one statement: every posted transaction plus the statement's OWN
 /// declared numbers (opening/closing balance, total deposits/withdrawals — copied, never computed).
 /// The declared numbers allow arithmetic reconciliation when the statement exposes them. Lines that
-/// disagree with a declared number are rejected; a statement without usable reconciliation figures
-/// remains an explicitly human-reviewed import. Account identity deliberately
+/// disagree with a declared number carry a review warning; a statement without usable reconciliation
+/// figures remains an explicitly human-reviewed import. Account identity deliberately
 /// stays deterministic because a model-provided account hint could select the wrong ledger.
 /// </summary>
 public sealed record ModelStatementParse(
@@ -31,12 +31,11 @@ public sealed record ModelStatementParse(
 /// model (<see cref="ITenantChatClientResolver"/> — the same connection, key, and privacy
 /// boundary as chat) parses it into <see cref="ModelStatementParse"/> via structured output, and
 /// the answer is reconciled whenever the statement exposes usable totals or balances. A declared
-/// sum mismatch is rejected rather than imported. The balance check understands both asset and
-/// credit-card statement sign conventions. Statements that do not expose reconciliation figures
-/// still produce a review-only batch: every import, reconciled or not, requires an explicit human
-/// approval before it can post. Any miss — no AI connection (keyless dev runs on Mock), provider
-/// outage, unparseable answer, failed reconciliation — falls back to deterministic text legs, so
-/// imports never REQUIRE a model.
+/// sum mismatch becomes an explicit review warning rather than silently destroying otherwise
+/// usable rows. The balance check understands both asset and credit-card statement sign
+/// conventions. Every import, reconciled or not, requires an explicit human approval before it
+/// can post. Any miss — no AI connection (keyless dev runs on Mock), provider outage, or
+/// malformed answer — falls back to deterministic text legs, so imports never REQUIRE a model.
 /// </summary>
 public sealed class ModelStatementExtractor(
     IDocumentReader reader,
@@ -107,10 +106,10 @@ public sealed class ModelStatementExtractor(
 
     /// <summary>
     /// Every model row must be well-formed. When a statement declares usable totals or balances,
-    /// its lines must reconcile with them. Credit-card statements commonly describe the amount
-    /// owed rather than the account's signed asset balance, so either valid balance orientation is
-    /// accepted. A statement without such figures can still enter mandatory human review, but it
-    /// is never silently posted.
+    /// its lines attempt to reconcile with them. Credit-card statements commonly describe the
+    /// amount owed rather than the account's signed asset balance, so either valid balance
+    /// orientation is accepted. A mismatch is held with a clear warning for mandatory human
+    /// review; it is never silently posted.
     /// </summary>
     private IReadOnlyList<ExtractedLine>? ValidateAndMap(ModelStatementParse? parse, IReadOnlyList<string> categories)
     {
@@ -174,15 +173,17 @@ public sealed class ModelStatementExtractor(
 
         if (!reconciles)
         {
-            diagnostics.ModelNote = "The household's model was tried, but its lines did not sum to the statement's own " +
-                                    "declared totals, so the answer was discarded rather than risk wrong numbers.";
-            return null;
+            diagnostics.ReviewWarning = "The model found transaction lines, but their totals did not reconcile with the " +
+                                        "statement summary. Review every line and the statement totals before approval.";
+            diagnostics.ModelNote = diagnostics.ReviewWarning;
+            return lines;
         }
 
         if (!verified)
         {
-            diagnostics.ModelNote = $"Extracted by the household's model: {lines.Count} line(s). The statement exposed " +
-                                    "no usable totals or balances for reconciliation, so review every line before approval.";
+            diagnostics.ReviewWarning = $"The model found {lines.Count} transaction line(s), but the statement exposed " +
+                                        "no usable totals or balances for reconciliation. Review every line before approval.";
+            diagnostics.ModelNote = diagnostics.ReviewWarning;
             return lines;
         }
 

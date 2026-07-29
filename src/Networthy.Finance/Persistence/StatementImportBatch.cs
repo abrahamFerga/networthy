@@ -43,6 +43,13 @@ public sealed class StatementImportBatch : TenantEntityBase
 
     public string? FailureReason { get; set; }
 
+    /// <summary>
+    /// A non-fatal extraction warning retained for the reviewer (for example, model lines that
+    /// did not reconcile with the statement summary). All imported lines require review either
+    /// way; this calls out batches that need particular scrutiny.
+    /// </summary>
+    public string? ReviewWarning { get; set; }
+
     public Guid? ReviewedByUserId { get; set; }
 
     public DateTimeOffset? ReviewedAt { get; set; }

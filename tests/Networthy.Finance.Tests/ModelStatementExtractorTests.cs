@@ -7,11 +7,11 @@ namespace Networthy.Finance.Tests;
 
 /// <summary>
 /// The model-first document leg: the household's model parses statement text via structured
-/// output. Declared totals and balances are an arithmetic gate: a mismatch falls back to the
-/// deterministic parser. A statement without reconciliation figures is retained for mandatory
-/// human review rather than discarded solely for missing a summary. Everything else (no AI
-/// connection, provider outage, prose instead of JSON, malformed rows, a sum that misses by a
-/// cent) falls back to the deterministic parsers, so keyless deployments keep working.
+/// output. Declared totals and balances become a prominent review warning when they disagree;
+/// malformed answers still fall back to the deterministic parser. A statement without
+/// reconciliation figures is retained for mandatory human review rather than discarded solely
+/// for missing a summary. No AI connection, provider outage, and prose instead of JSON also
+/// fall back so keyless deployments keep working.
 /// </summary>
 public sealed class ModelStatementExtractorTests
 {
@@ -50,19 +50,19 @@ public sealed class ModelStatementExtractorTests
     }
 
     [Fact]
-    public async Task SumMismatch_DiscardsTheModelAnswer_AndFallsBackDeterministically()
+    public async Task SumMismatch_IsHeldForHumanReview_InsteadOfDiscardingRows()
     {
         // One cent of hallucination: totals say withdrawals were 1,715.50.
         var json = ReconcilingJson.Replace("\"totalWithdrawals\":1715.49", "\"totalWithdrawals\":1715.50");
-        var (extractor, diagnostics) = Build(FallbackParsableText, new ScriptedChatClient(json));
+        var (extractor, diagnostics) = Build("an otherwise unparseable statement layout", new ScriptedChatClient(json));
 
         var result = await extractor.ExtractAsync(Guid.NewGuid(), "x.pdf", [], Categories);
 
         Assert.NotNull(result);
-        // The deterministic floor's reading, not the model's.
-        Assert.Equal(2, result!.Lines.Count);
-        Assert.Equal(12.50m, result.Lines[0].Amount);
-        Assert.Contains("did not sum", diagnostics.ModelNote);
+        Assert.Equal(3, result!.Lines.Count);
+        Assert.Equal(2500m, result.Lines[0].Amount);
+        Assert.Contains("did not reconcile", diagnostics.ModelNote);
+        Assert.Contains("Review every line", diagnostics.ReviewWarning);
     }
 
     [Fact]
@@ -98,7 +98,8 @@ public sealed class ModelStatementExtractorTests
         Assert.NotNull(result);
         Assert.Single(result!.Lines);
         Assert.Equal("TRANSFER IN", result.Lines[0].Description);
-        Assert.Contains("review every line", diagnostics.ModelNote);
+        Assert.Contains("review every line", diagnostics.ModelNote, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("review every line", diagnostics.ReviewWarning, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

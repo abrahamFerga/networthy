@@ -1033,9 +1033,10 @@ public sealed class FinanceModule : IModule
         services.AddHostedService<BudgetRolloverService>();
         // The AI document leg (ADR-0004 made literal): after CSV/OFX template parsing, the
         // household's configured model parses document text via structured output. Declared
-        // totals reconcile when available; every import still waits for human approval. A model
-        // miss falls back to deterministic text parsers, keeping keyless (Mock) deployments
-        // fully working. Register PlatformDocumentStatementExtractor here to opt a host out.
+        // totals reconcile when available; a mismatch is shown as a review warning, and every
+        // import still waits for human approval. A model miss falls back to deterministic text
+        // parsers, keeping keyless (Mock) deployments fully working. Register
+        // PlatformDocumentStatementExtractor here to opt a host out.
         services.AddScoped<IStatementAiExtractor, ModelStatementExtractor>();
         // Registered AFTER the platform (modules install second), so this wins DocumentReader's
         // optional IOcrEngine slot: the OCR connectors first (self-hosted Tika, then Azure
@@ -1357,9 +1358,10 @@ public sealed class FinanceModule : IModule
                         totals = $"-{expense:N2} / +{income:N2}",
                         status = b.Status switch
                         {
-                            "needs-account" => $"Needs an account — looks like {StatementImportTools.DetectedLabel(b)}",
+                            "needs-account" => $"Needs an account — looks like {StatementImportTools.DetectedLabel(b)}" +
+                                               (b.ReviewWarning is null ? "" : " — reconciliation warning"),
                             "failed" => $"Failed — {(b.FailureReason ?? "no readable lines").Split('.')[0]}",
-                            _ => "Awaiting review",
+                            _ => b.ReviewWarning is null ? "Awaiting review" : "Awaiting review — reconciliation warning",
                         },
                     };
                 }));
@@ -1643,6 +1645,10 @@ public sealed class FinanceModule : IModule
                 if (batch.Status == "failed")
                 {
                     sections.Insert(0, new { heading = "Extraction failed", text = batch.FailureReason });
+                }
+                else if (batch.ReviewWarning is { Length: > 0 } warning)
+                {
+                    sections.Insert(0, new { heading = "Review warning", text = warning });
                 }
                 if (batch.Status == "needs-account")
                 {

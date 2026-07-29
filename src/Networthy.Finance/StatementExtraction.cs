@@ -39,9 +39,10 @@ public sealed record StatementExtractionResult(
 /// read (PDFs above all). The default registration is <see cref="ModelStatementExtractor"/> —
 /// the platform's document reader extracts the text (digital PDFs keylessly; scanned ones
 /// through the platform's OCR capability when configured), the household's own model parses it
-/// under an arithmetic reconciliation gate, and the deterministic line parsers are the floor
-/// when no model is available or its answer is rejected. A host can swap the whole leg with one
-/// DI registration (<see cref="PlatformDocumentStatementExtractor"/> = deterministic only).
+/// with a persisted reconciliation warning when a statement summary disagrees, and the
+/// deterministic line parsers are the floor when no model is available or its answer is malformed.
+/// A host can swap the whole leg with one DI registration
+/// (<see cref="PlatformDocumentStatementExtractor"/> = deterministic only).
 /// </summary>
 public interface IStatementAiExtractor
 {

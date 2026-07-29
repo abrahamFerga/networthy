@@ -160,13 +160,16 @@ public sealed class StatementImportTools(
         var period = batch.LinesFrom is { } from && batch.LinesTo is { } to
             ? $" covering {from:yyyy-MM-dd} → {to:yyyy-MM-dd}"
             : "";
+        var warning = batch.ReviewWarning is { Length: > 0 }
+            ? $" Review warning: {batch.ReviewWarning}"
+            : "";
 
         if (batch.Status == "needs-account")
         {
             return $"'{batch.FileName}' extracted {lines.Count} line(s){period} and looks like a statement " +
                    $"from {DetectedLabel(batch)}, but no existing account matches. Ask the user whether to " +
                    "use an existing account or create the detected one, then assign_import_account " +
-                   "(createIfMissing to create). Nothing posts until they approve.";
+                   $"(createIfMissing to create). Nothing posts until they approve.{warning}";
         }
 
         // "parsed" — extraction landed in an account (named up front, or auto-matched by detection).
@@ -175,7 +178,7 @@ public sealed class StatementImportTools(
             : null;
         return $"'{batch.FileName}' extracted {lines.Count} line(s){period} into " +
                $"'{accountName ?? "(unknown account)"}'. Show them with review_import_batch and, after the " +
-               "user confirms, approve_import_batch — nothing posts until they approve.";
+               $"user confirms, approve_import_batch — nothing posts until they approve.{warning}";
     }
 
     [Description("Attach an account to an import batch that is waiting for one (status needs-account): name an existing account, or set createIfMissing to create it — the new account inherits the statement's detected institution and masked number. Side-effecting and requires approval.")]
