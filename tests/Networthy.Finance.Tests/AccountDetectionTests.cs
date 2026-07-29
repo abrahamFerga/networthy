@@ -152,9 +152,9 @@ public sealed class AccountDetectionTests
 
     // ── MatchAccount ──
 
-    private static Account Acct(string name, string? mask = null, string? institution = null) => new()
+    private static Account Acct(string name, string? mask = null, string? institution = null, string currency = "USD") => new()
     {
-        Name = name, Type = "checking", CurrencyCode = "USD",
+        Name = name, Type = "checking", CurrencyCode = currency,
         MaskedAccountNumber = mask, InstitutionName = institution,
     };
 
@@ -193,6 +193,120 @@ public sealed class AccountDetectionTests
     public void NoHint_NoMatch()
     {
         Assert.Null(StatementImportTools.MatchAccount([Acct("Everyday")], null));
+    }
+
+    // ── Currency as the tie-break (only ever narrows a set that already meant "ask") ──
+
+    [Fact]
+    public void SharedMask_DifferentCurrencies_TheStatementsCurrencyDecides()
+    {
+        // The same four digits on the household's MXN and USD accounts are two accounts, and a
+        // statement tagged MXN says which one it is.
+        var accounts = new[]
+        {
+            Acct("Everyday MXN", mask: "••••1234", currency: "MXN"),
+            Acct("Dollar account", mask: "••••1234", currency: "USD"),
+        };
+
+        var match = StatementImportTools.MatchAccount(accounts, new DetectedAccountHint(null, "1234", "MXN"));
+
+        Assert.Equal("Everyday MXN", match?.Name);
+    }
+
+    [Fact]
+    public void SharedMask_SameCurrency_StillNeverGuesses()
+    {
+        var accounts = new[]
+        {
+            Acct("His card", mask: "••••4321", currency: "MXN"),
+            Acct("Her card", mask: "••••4321", currency: "MXN"),
+        };
+
+        Assert.Null(StatementImportTools.MatchAccount(accounts, new DetectedAccountHint(null, "4321", "MXN")));
+    }
+
+    [Fact]
+    public void SharedInstitution_DifferentCurrencies_TheStatementsCurrencyDecides()
+    {
+        var accounts = new[]
+        {
+            Acct("Pesos", institution: "Bancodemo", currency: "MXN"),
+            Acct("Dollars", institution: "Bancodemo", currency: "USD"),
+        };
+
+        var match = StatementImportTools.MatchAccount(accounts, new DetectedAccountHint("Bancodemo", null, "USD"));
+
+        Assert.Equal("Dollars", match?.Name);
+    }
+
+    [Fact]
+    public void AmbiguousMask_NeverFallsThroughToTheInstitution()
+    {
+        // The old rule stopped dead at an ambiguous mask rather than letting a weaker signal
+        // decide; adding a currency tie-break must not have opened that door.
+        var accounts = new[]
+        {
+            Acct("His card", mask: "••••4321", institution: "Bancodemo", currency: "MXN"),
+            Acct("Her card", mask: "••••4321", institution: "Bancodemo", currency: "MXN"),
+        };
+
+        Assert.Null(StatementImportTools.MatchAccount(accounts, new DetectedAccountHint("Bancodemo", "4321", "USD")));
+    }
+
+    [Fact]
+    public void CurrencyAlone_NeverMatches()
+    {
+        // A currency is not an identity. Without a number or an institution, the flow must ask.
+        var accounts = new[] { Acct("Only MXN account", currency: "MXN") };
+
+        Assert.Null(StatementImportTools.MatchAccount(accounts, new DetectedAccountHint(null, null, "MXN")));
+    }
+
+    // ── Learning the number the human confirmed ──
+
+    [Fact]
+    public void AdoptDetectedIdentity_FillsBlanks_SoTheNextStatementMatches()
+    {
+        var account = Acct("Everyday spending");
+        var batch = new StatementImportBatch
+        {
+            FileName = "june.pdf", Status = "needs-account", SourceFileId = Guid.NewGuid(),
+            DetectedAccountMask = "••••1234", DetectedInstitution = "Bancodemo",
+        };
+
+        Assert.True(StatementImportTools.AdoptDetectedIdentity(account, batch));
+        Assert.Equal("••••1234", account.MaskedAccountNumber);
+        Assert.Equal("Bancodemo", account.InstitutionName);
+
+        // And that is exactly what makes the next month's statement resolve itself.
+        var match = StatementImportTools.MatchAccount([account], new DetectedAccountHint("Bancodemo", "1234", "MXN"));
+        Assert.Equal("Everyday spending", match?.Name);
+    }
+
+    [Fact]
+    public void AdoptDetectedIdentity_NeverOverwritesWhatTheHouseholdTyped()
+    {
+        var account = Acct("Everyday", mask: "••••9999", institution: "Typed By Hand");
+        var batch = new StatementImportBatch
+        {
+            FileName = "june.pdf", Status = "needs-account", SourceFileId = Guid.NewGuid(),
+            DetectedAccountMask = "••••1234", DetectedInstitution = "Bancodemo",
+        };
+
+        Assert.False(StatementImportTools.AdoptDetectedIdentity(account, batch));
+        Assert.Equal("••••9999", account.MaskedAccountNumber);
+        Assert.Equal("Typed By Hand", account.InstitutionName);
+    }
+
+    [Fact]
+    public void AdoptDetectedIdentity_LearnsNothingFromAStatementThatIdentifiedNothing()
+    {
+        var account = Acct("Everyday");
+        var batch = new StatementImportBatch { FileName = "anon.csv", Status = "needs-account", SourceFileId = Guid.NewGuid() };
+
+        Assert.False(StatementImportTools.AdoptDetectedIdentity(account, batch));
+        Assert.Null(account.MaskedAccountNumber);
+        Assert.Null(account.InstitutionName);
     }
 
     // ── SuggestAccountNames ──

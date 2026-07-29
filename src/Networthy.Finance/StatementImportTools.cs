@@ -181,7 +181,7 @@ public sealed class StatementImportTools(
                $"user confirms, approve_import_batch — nothing posts until they approve.{warning}";
     }
 
-    [Description("Attach an account to an import batch that is waiting for one (status needs-account): name an existing account, or set createIfMissing to create it — the new account inherits the statement's detected institution and masked number. Side-effecting and requires approval.")]
+    [Description("Attach an account to an import batch that is waiting for one (status needs-account): name an existing account, or set createIfMissing to create it — the new account inherits the statement's detected institution and masked number. An existing account with no number recorded learns the statement's, so its next statement matches automatically. Side-effecting and requires approval.")]
     public async Task<string> AssignImportAccount(
         [Description("The account to import into (existing, or the name for a new one).")] string accountName,
         [Description("Create the account when no existing one matches the name. Default false.")] bool createIfMissing = false,
@@ -234,11 +234,18 @@ public sealed class StatementImportTools(
             account = await CreateAccountFromDetectionAsync(batch, accountName, accountType, cancellationToken);
         }
 
+        // The human just answered which account this statement's number belongs to. Record that on
+        // the account so the next statement matches itself and never asks again.
+        var learned = AdoptDetectedIdentity(account, batch);
+
         batch.AccountId = account.Id;
         batch.Status = "parsed";
         await db.SaveChangesAsync(cancellationToken);
 
         return (true, $"'{batch.FileName}' will import into '{account.Name}'. " +
+               (learned
+                   ? $"Noted {DetectedLabel(batch)} on '{account.Name}', so the next statement for it matches automatically. "
+                   : "") +
                "Review the lines — nothing posts until you approve.");
     }
 
@@ -303,7 +310,19 @@ public sealed class StatementImportTools(
         {
             sb.Append($"\n⚠ Heads-up: '{overlap.FileName}' was already approved for this account covering " +
                       $"{overlap.LinesFrom:yyyy-MM-dd} → {overlap.LinesTo:yyyy-MM-dd}, which overlaps this " +
-                      "statement's period — approving both may post the same transactions twice.");
+                      "statement's period.");
+        }
+
+        // Say the exact count BEFORE approval, not just that periods overlap: the reviewer decides
+        // knowing how much of this file is already in the ledger and that approving won't re-post it.
+        if (batch.AccountId is { } accountId)
+        {
+            var (toPost, already) = await PartitionAgainstPostedAsync(accountId, lines, cancellationToken);
+            if (already.Count > 0)
+            {
+                sb.Append($"\n{already.Count} of these {lines.Count} line(s) are already posted to this account — " +
+                          $"approving will skip them and post the remaining {toPost.Count}, not double anything.");
+            }
         }
 
         return sb.ToString();
@@ -370,7 +389,7 @@ public sealed class StatementImportTools(
                "the uploaded file itself is still stored and can be re-imported.";
     }
 
-    [Description("Approve a reviewed import batch: its lines post as transactions (with the suggested categories) and the account balance updates. Side-effecting and requires approval.")]
+    [Description("Approve a reviewed import batch: its lines post as transactions (with the suggested categories) and the account balance updates. Lines the account already holds (same date, amount and description) are skipped, so re-importing a period does not duplicate it. Side-effecting and requires approval.")]
     public async Task<string> ApproveImportBatch(
         [Description("Optional file name (or part of it) to pick a specific batch; defaults to the most recent parsed one.")] string? fileName = null,
         CancellationToken cancellationToken = default)
@@ -418,7 +437,13 @@ public sealed class StatementImportTools(
         var categories = await db.Categories.ToListAsync(cancellationToken);
         var byName = categories.ToDictionary(c => c.Name, c => c.Id, StringComparer.OrdinalIgnoreCase);
 
-        foreach (var line in lines)
+        // The same month, imported twice — the bank's PDF and then its CSV export — describes ONE
+        // set of transactions. Post only what this account does not already hold over the
+        // statement's own span; the period warning at review time told the reviewer it might
+        // happen, and this is what makes approving it safe rather than merely warned about.
+        var (toPost, alreadyPosted) = await PartitionAgainstPostedAsync(account.Id, lines, cancellationToken);
+
+        foreach (var line in toPost)
         {
             var transaction = new Transaction
             {
@@ -442,13 +467,49 @@ public sealed class StatementImportTools(
         batch.ReviewedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(cancellationToken);
 
+        var skipped = alreadyPosted.Count == 0
+            ? ""
+            : $" Skipped {alreadyPosted.Count} line(s) already posted to this account (same date, amount " +
+              "and description), so importing this period twice didn't duplicate them.";
+
+        if (toPost.Count == 0)
+        {
+            return (true, $"Nothing new to post from '{batch.FileName}' — all {lines.Count} line(s) were " +
+                   $"already on '{account.Name}'. Balance unchanged at {account.CachedBalance:N2} {account.CurrencyCode}.");
+        }
+
         // The statement just landed in ONE account; if any of its lines mirror a line in another
         // account (the household's money changing pockets), say so now — the moment the user can
         // still see the statement in their head — rather than let income/spending quietly inflate.
         var transferFollowUp = await transfers.DescribePostApprovalCandidatesAsync(account.Id, cancellationToken);
 
-        return (true, $"Posted {lines.Count} transaction(s) from '{batch.FileName}' to '{account.Name}'. " +
+        return (true, $"Posted {toPost.Count} transaction(s) from '{batch.FileName}' to '{account.Name}'.{skipped} " +
                $"New balance: {account.CachedBalance:N2} {account.CurrencyCode}." + transferFollowUp);
+    }
+
+    /// <summary>
+    /// Splits a batch's lines against what the account already holds over the lines' own date span.
+    /// Shared by the review preview (which reports the count before anything posts) and the
+    /// approval itself (which acts on it), so the two can never disagree.
+    /// </summary>
+    internal async Task<(IReadOnlyList<ExtractedLine> ToPost, IReadOnlyList<ExtractedLine> AlreadyPosted)>
+        PartitionAgainstPostedAsync(Guid accountId, IReadOnlyList<ExtractedLine> lines, CancellationToken cancellationToken)
+    {
+        if (lines.Count == 0)
+        {
+            return ([], []);
+        }
+
+        var from = lines.Min(l => l.Date);
+        var to = lines.Max(l => l.Date);
+        var existing = await db.Transactions
+            .Where(t => t.AccountId == accountId && t.OccurredOn >= from && t.OccurredOn <= to)
+            .Select(t => new { t.OccurredOn, t.Amount, t.Direction, t.Description })
+            .ToListAsync(cancellationToken);
+
+        return StatementDeduplication.Partition(
+            lines,
+            existing.Select(t => StatementDeduplication.ContentKey(t.OccurredOn, t.Amount, t.Direction, t.Description)));
     }
 
     private async Task<StatementImportBatch?> FindBatchAsync(
@@ -481,6 +542,12 @@ public sealed class StatementImportTools(
     /// The auto-match the parse job trusts: the masked number's last four digits are decisive when
     /// exactly ONE visible account carries them; the institution name is accepted only when it
     /// singles out exactly one account. Anything ambiguous returns null — the flow asks instead.
+    /// <para>
+    /// When a rule leaves several accounts tied, the statement's own currency gets one chance to
+    /// break the tie — the same four digits on an MXN account and a USD account identify different
+    /// accounts, and the statement says which one it is. The tie-break only ever narrows a set that
+    /// already returned "ask": every match the rules made before, they still make, unchanged.
+    /// </para>
     /// </summary>
     internal static Account? MatchAccount(IReadOnlyList<Account> candidates, DetectedAccountHint? hint)
     {
@@ -501,7 +568,9 @@ public sealed class StatementImportTools(
             }
             if (byMask.Count > 1)
             {
-                return null; // two accounts sharing a last-4 — never guess between them
+                // Several accounts share a last-4. Only the statement's currency may separate
+                // them, and only if it leaves exactly one — otherwise never guess.
+                return NarrowByCurrency(byMask, hint.Currency);
             }
         }
 
@@ -515,12 +584,62 @@ public sealed class StatementImportTools(
             {
                 return byInstitution[0];
             }
+            if (byInstitution.Count > 1)
+            {
+                // One bank, several accounts — the household's MXN and USD accounts at the same
+                // institution are exactly this case, and the statement's currency names one.
+                return NarrowByCurrency(byInstitution, hint.Currency);
+            }
         }
 
         return null;
 
         static bool Overlaps(string a, string b) =>
             a.Contains(b, StringComparison.OrdinalIgnoreCase) || b.Contains(a, StringComparison.OrdinalIgnoreCase);
+
+        static Account? NarrowByCurrency(IReadOnlyList<Account> tied, string? currency)
+        {
+            if (currency is null)
+            {
+                return null;
+            }
+
+            var byCurrency = tied
+                .Where(a => string.Equals(a.CurrencyCode, currency, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            return byCurrency.Count == 1 ? byCurrency[0] : null;
+        }
+    }
+
+    /// <summary>
+    /// Teaches an account the identity the statement carried, so the NEXT statement for it matches
+    /// by number instead of asking again. Without this, a household that answers "it's my everyday
+    /// checking" once is asked the very same question every month: the answer resolved the batch
+    /// but the account itself never learned the masked number that would have matched it.
+    /// <para>
+    /// Only blanks are filled. A mask or institution the household typed is never overwritten —
+    /// detection is best-effort and a human's answer outranks it. Currency is deliberately left
+    /// alone: it is money math on an account that already holds transactions, not a label.
+    /// </para>
+    /// </summary>
+    internal static bool AdoptDetectedIdentity(Account account, StatementImportBatch batch)
+    {
+        var learned = false;
+        if (string.IsNullOrWhiteSpace(account.MaskedAccountNumber)
+            && batch.DetectedAccountMask is { Length: > 0 } mask)
+        {
+            account.MaskedAccountNumber = mask;
+            learned = true;
+        }
+
+        if (string.IsNullOrWhiteSpace(account.InstitutionName)
+            && batch.DetectedInstitution is { Length: > 0 } institution)
+        {
+            account.InstitutionName = institution;
+            learned = true;
+        }
+
+        return learned;
     }
 
     /// <summary>Closest visible account names for "did you mean…" — containment first, small typos second.</summary>

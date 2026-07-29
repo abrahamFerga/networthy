@@ -111,6 +111,9 @@ public sealed class StatementParseJobHandler : IJobHandler
             if (match is not null)
             {
                 batch.AccountId = match.Id;
+                // Matched on the institution alone? Then the account still has no number on it.
+                // Record what this statement carried so the next one matches decisively.
+                StatementImportTools.AdoptDetectedIdentity(match, batch);
             }
         }
 
