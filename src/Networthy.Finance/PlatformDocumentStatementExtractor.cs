@@ -3,13 +3,12 @@ using Plenipo.Application.Documents;
 namespace Networthy.Finance;
 
 /// <summary>
-/// The document leg of ADR-0004's hybrid extraction, built on the platform's document
-/// intelligence seams instead of a bespoke integration: <see cref="IDocumentReader"/> extracts
-/// the file's text — digital PDFs work with zero configuration, and when the deployment
-/// configures the platform's OCR capability (Azure Document Intelligence, per workflow.json's
-/// <c>ocr</c> capability) scanned statements work through the exact same call. The text then
-/// runs through the deterministic line parser, and the human review gate catches whatever a
-/// layout heuristic gets wrong — that's what the review step is FOR.
+/// The DETERMINISTIC-ONLY document leg: <see cref="IDocumentReader"/> extracts the file's text
+/// (digital PDFs keylessly; scanned ones through the configured OCR capability), then the
+/// deterministic line parsers run. The default registration is <see cref="ModelStatementExtractor"/>,
+/// which puts the household's model in front of these same parsers — register THIS type instead
+/// to opt a deployment out of model extraction entirely. The human review gate catches whatever
+/// a layout heuristic gets wrong — that's what the review step is FOR.
 /// </summary>
 public sealed class PlatformDocumentStatementExtractor(
     IDocumentReader reader, OcrDiagnostics diagnostics) : IStatementAiExtractor

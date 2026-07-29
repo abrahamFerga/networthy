@@ -36,11 +36,12 @@ public sealed record StatementExtractionResult(
 
 /// <summary>
 /// The document/AI leg of ADR-0004's hybrid extraction: statements the CSV/OFX templates can't
-/// read (PDFs above all). The default registration is
-/// <see cref="PlatformDocumentStatementExtractor"/> — the platform's document reader extracts
-/// the text (digital PDFs keylessly; scanned ones through the platform's OCR capability, e.g.
-/// Azure Document Intelligence, when the deployment configures it), then the deterministic
-/// line parser takes over. A host can swap the whole leg with one DI registration.
+/// read (PDFs above all). The default registration is <see cref="ModelStatementExtractor"/> —
+/// the platform's document reader extracts the text (digital PDFs keylessly; scanned ones
+/// through the platform's OCR capability when configured), the household's own model parses it
+/// under an arithmetic reconciliation gate, and the deterministic line parsers are the floor
+/// when no model is available or its answer is rejected. A host can swap the whole leg with one
+/// DI registration (<see cref="PlatformDocumentStatementExtractor"/> = deterministic only).
 /// </summary>
 public interface IStatementAiExtractor
 {
@@ -188,14 +189,6 @@ public static partial class StatementExtraction
     /// </summary>
     public static IReadOnlyList<ExtractedLine>? TryExtractText(string text, IReadOnlyList<string> categories)
     {
-        // Balance-column tables go FIRST: their rows are multi-line blocks whose only reliable
-        // number is the running balance — which the per-line heuristics below would either miss
-        // entirely (date and amount never share a line) or misread as the amount.
-        if (TryExtractBalanceTable(text, categories) is { Count: > 0 } table)
-        {
-            return table;
-        }
-
         // Anchors yearless "29 Mar" lines (Mexican banks often print the year only in the header).
         var reference = DocumentReferenceDate(text);
 
@@ -281,157 +274,6 @@ public static partial class StatementExtraction
         return result.Count > 0 ? result : TryExtractColumnarText(text, categories);
     }
 
-    /// <summary>
-    /// The balance-chain leg: statements whose table reads FECHA | CONCEPTO | RETIROS |
-    /// DEPÓSITOS | SALDO (the Mexican "Detalle de Operaciones" family, or any Date/…/Balance
-    /// equivalent). Every transaction is a BLOCK — the date opens it, the description wraps
-    /// freely (across page furniture, even), and the amounts land on the block's LAST line
-    /// with the running balance as the line's final number. Per-line parsing never sees date
-    /// and amount together, and the trailing number it would grab is the balance — so this leg
-    /// reconstructs blocks and lets arithmetic decide: a block closes only on a line whose
-    /// final money token RECONCILES against the running balance (unchanged = an informational
-    /// notice with nothing to post; previous ± the amount cell = a transaction whose delta sign
-    /// IS the direction). Annex tables that repeat amounts without balances (Domiciliación
-    /// instructions) can never close a block, so they never double-post. Gated on a
-    /// balance-column header row plus an opening-balance seed; anything else returns null and
-    /// falls through to the generic legs untouched.
-    /// </summary>
-    public static IReadOnlyList<ExtractedLine>? TryExtractBalanceTable(string text, IReadOnlyList<string> categories)
-    {
-        var lines = text.Replace("\r\n", "\n").Split('\n', StringSplitOptions.RemoveEmptyEntries)
-            .Select(l => l.Trim())
-            .Where(l => l.Length > 0)
-            .ToArray();
-        if (!lines.Any(IsBalanceColumnHeader))
-        {
-            return null;
-        }
-
-        var reference = DocumentReferenceDate(text);
-
-        // Lines repeated verbatim 3+ times are page furniture (running titles, print codes, the
-        // customer's own name, wrapped disclaimer boilerplate) — kept out of descriptions when a
-        // block straddles a page break. A real closing line can never repeat: its balance moves.
-        var furniture = lines.GroupBy(l => l, StringComparer.Ordinal)
-            .Where(g => g.Count() >= 3)
-            .Select(g => g.Key)
-            .ToHashSet(StringComparer.Ordinal);
-
-        var result = new List<ExtractedLine>();
-        decimal? balance = null;
-        var blockDate = default(DateOnly);
-        List<string>? block = null;
-        decimal? blockTrailingNumber = null;
-
-        // A block whose closing line never reconciled (layout drift, a mangled cell): adopt its
-        // last trailing number as the balance — by layout that IS the SALDO column — so one lost
-        // row can't cascade into losing every row after it.
-        void AbandonOpenBlock()
-        {
-            if (block is not null && blockTrailingNumber is { } trailing)
-            {
-                balance = trailing;
-            }
-            block = null;
-            blockTrailingNumber = null;
-        }
-
-        foreach (var line in lines)
-        {
-            var head = 0;
-            var dateMatch = TextDatePattern().Match(line);
-            if (dateMatch is { Success: true, Index: 0 }
-                && TryResolveLineDate(dateMatch.Value, reference, out var lineDate))
-            {
-                if (balance is null)
-                {
-                    // Dated rows before any opening balance: the chain has no anchor, and a
-                    // wrong first direction would poison everything after it. Not this layout.
-                    return null;
-                }
-
-                AbandonOpenBlock();
-                blockDate = lineDate;
-                block = [];
-                head = dateMatch.Length;
-            }
-            else if (block is null)
-            {
-                // Between blocks only the opening balance matters — it seeds the chain (or
-                // re-seeds it when a statement carries the balance across a page).
-                if (OpeningBalancePattern().Match(line) is { Success: true } seed
-                    && TryParseAmount(seed.Groups[1].Value, out var opening))
-                {
-                    balance = opening;
-                }
-                continue;
-            }
-            else if (IsBalanceColumnHeader(line) || PageFurniturePattern().IsMatch(line) || furniture.Contains(line))
-            {
-                continue;
-            }
-
-            // Close the block? Only on a line ENDING in a money token that reconciles.
-            var tokens = MoneyTokenPattern().Matches(line);
-            if (tokens.Count > 0 && tokens[^1].Index + tokens[^1].Length == line.Length
-                && TryParseAmount(tokens[^1].Value, out var newBalance))
-            {
-                blockTrailingNumber = newBalance;
-                var delta = newBalance - balance!.Value;
-                if (delta == 0)
-                {
-                    // An informational row (fee-exemption notice, ATM counter): the balance
-                    // column repeats unchanged and there is nothing to post.
-                    block = null;
-                    blockTrailingNumber = null;
-                    continue;
-                }
-
-                if (tokens.Count >= 2 && TryParseAmount(tokens[^2].Value, out var cell)
-                    && cell == Math.Abs(delta))
-                {
-                    block.Add(line[head..tokens[^2].Index].Trim());
-                    var description = string.Join(' ', block.Where(p => p.Length > 0))
-                        .Trim(' ', '\t', '-', '·', '|', '*');
-                    if (description.Length == 0)
-                    {
-                        description = "(no description)";
-                    }
-                    else if (description.Length > 500)
-                    {
-                        description = description[..500]; // the Transaction column's limit
-                    }
-
-                    result.Add(new ExtractedLine(
-                        blockDate, description, Math.Abs(delta),
-                        delta < 0 ? "expense" : "income",
-                        SuggestCategory(description, categories)));
-                    balance = newBalance;
-                    block = null;
-                    blockTrailingNumber = null;
-                    continue;
-                }
-            }
-
-            block.Add(line[head..].Trim());
-        }
-
-        return result.Count > 0 ? result : null;
-    }
-
-    /// <summary>A table's column-header row naming a balance column ("FECHA CONCEPTO RETIROS DEPÓSITOS SALDO").</summary>
-    private static bool IsBalanceColumnHeader(string line) =>
-        line.Length <= 100
-        && (line.Contains("saldo", StringComparison.OrdinalIgnoreCase)
-            || line.Contains("balance", StringComparison.OrdinalIgnoreCase))
-        && BalanceTableHeaderWords.Count(w => line.Contains(w, StringComparison.OrdinalIgnoreCase)) >= 3;
-
-    private static readonly string[] BalanceTableHeaderWords =
-    [
-        "fecha", "concepto", "retiros", "depósitos", "depositos", "saldo",
-        "date", "description", "withdrawals", "deposits", "amount", "balance", "debit", "credit",
-    ];
-
     /// <summary>A full date, or a yearless day+month anchored to the document's reference date.</summary>
     private static bool TryResolveLineDate(string token, DateOnly? reference, out DateOnly date)
     {
@@ -449,23 +291,6 @@ public static partial class StatementExtraction
         date = default;
         return false;
     }
-
-    /// <summary>
-    /// The chain's seed: how statements spell the carried-in balance ("SALDO ANTERIOR 8,733.31",
-    /// "Beginning balance 4,200.00"), amount at line end.
-    /// </summary>
-    [GeneratedRegex(@"^(?:saldo\s+anterior|saldo\s+inicial|beginning\s+balance|opening\s+balance|previous\s+balance|balance\s+(?:brought\s+)?forward)\b.*?(-?\d{1,3}(?:,\d{3})*\.\d{2})$", RegexOptions.IgnoreCase)]
-    private static partial Regex OpeningBalancePattern();
-
-    /// <summary>
-    /// A money-shaped token anywhere in a line: thousands groups and exactly two decimals, so
-    /// reference numbers, CLABEs, and card numbers (no decimals) and percentages never qualify.
-    /// </summary>
-    [GeneratedRegex(@"(?<![\d.,])\d{1,3}(?:,\d{3})*\.\d{2}(?![\d%])")]
-    private static partial Regex MoneyTokenPattern();
-
-    [GeneratedRegex(@"^(?:p[áa]gina|page)\s+\d+\s+(?:de|of)\s+\d+$", RegexOptions.IgnoreCase)]
-    private static partial Regex PageFurniturePattern();
 
     /// <summary>
     /// The columnar fallback: Tesseract-style OCR frequently emits a table as three runs of

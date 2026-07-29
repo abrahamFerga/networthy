@@ -134,10 +134,10 @@ public sealed class StatementParseJobHandler : IJobHandler
     {
         if (ocr.DocumentTextChars > 0)
         {
+            var modelPart = ocr.ModelNote is { } note ? $" {note}" : "";
             return $"The file's text was read ({ocr.DocumentTextChars:N0} characters), but no transaction " +
-                   "lines were recognized in it. If this is a bank statement, its layout isn't one the " +
-                   "parser knows yet — export the same period as CSV or OFX/QFX from your bank and " +
-                   "import that instead.";
+                   $"lines were recognized in it.{modelPart} If this is a bank statement, export the same " +
+                   "period as CSV or OFX/QFX from your bank and import that instead.";
         }
 
         if (ocr.EngineFailure is { } failure)

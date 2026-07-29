@@ -22,4 +22,11 @@ public sealed class OcrDiagnostics
 
     /// <summary>Characters of usable text the document reader ultimately produced (0 = none).</summary>
     public int DocumentTextChars { get; set; }
+
+    /// <summary>
+    /// What the model leg did with the text, as one human sentence — tried and reconciled, tried
+    /// and discarded (with why), or never tried (no AI connection). Composed into the failure
+    /// reason so "the model gave up too" is never silent.
+    /// </summary>
+    public string? ModelNote { get; set; }
 }

@@ -22,6 +22,23 @@ namespace Networthy.IntegrationTests;
 public sealed class ReviewDetailActionsTests(IntegrationFixture fixture)
 {
     [Fact]
+    public async Task ReviewListing_OnlyOffersTheStateSafeDiscardRowAction()
+    {
+        var (scope, _, _) = await fixture.AuthorizedScopeAsync();
+        using var _scope = scope;
+        using var admin = fixture.AdminClient();
+
+        var modules = await admin.GetFromJsonAsync<JsonElement>("/api/platform/modules");
+        var finance = modules.EnumerateArray().Single(module => module.GetProperty("id").GetString() == "finance");
+        var review = finance.GetProperty("tabs").EnumerateArray()
+            .Single(tab => tab.GetProperty("id").GetString() == "review");
+
+        var action = Assert.Single(review.GetProperty("rowActions").EnumerateArray());
+        Assert.Equal("discard", action.GetProperty("id").GetString());
+        Assert.Equal("/api/finance/imports/{id}/discard", action.GetProperty("endpointTemplate").GetString());
+    }
+
+    [Fact]
     public async Task NeedsAccountBatch_ExplainsItself_AssignsViaPicker_ThenApproves()
     {
         var (scope, _, _) = await fixture.AuthorizedScopeAsync();

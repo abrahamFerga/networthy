@@ -846,37 +846,16 @@ public sealed class FinanceModule : IModule
                 // as "approve what I'm looking at" and dead-ends when no parsed batch exists.
                 DetailEndpoint = "/api/finance/imports/{id}/detail",
                 Placeholder = "Nothing awaiting review. Attach a bank statement in Chat and ask to import it; each parsed batch lands here for inspection and approval.",
-                // The "should I create this account?" answer for batches imported without one:
-                // the row action creates the DETECTED account (institution + mask from the
-                // statement) and attaches the batch. Picking an existing account instead lives
-                // in the DETAIL view's assign action (row actions carry no input fields). On
-                // rows that already have an account the endpoint answers with a harmless refusal.
+                // Tab row actions cannot express a status predicate. State-dependent choices
+                // (approve, assign, create a detected account) therefore live exclusively in the
+                // detail document, whose actions are composed from the batch's actual state.
+                // A failed zero-line batch must never look approvable just because the endpoint
+                // will refuse it. Discard is the one action valid for every pending row.
                 RowActions =
                 [
-                    // Approve THIS row — the reviewer should never have to reason about which
-                    // batch a tab-level button will pick. Non-parsed rows answer with the
-                    // endpoint's honest refusal.
-                    new TabRowAction
-                    {
-                        Id = "approve",
-                        Label = "Approve",
-                        EndpointTemplate = "/api/finance/imports/{id}/approve",
-                        Permission = ReviewImports,
-                        Confirm = "Post this batch's lines as transactions? Balances update immediately.",
-                    },
-                    new TabRowAction
-                    {
-                        Id = "create-detected-account",
-                        Label = "Create detected account",
-                        EndpointTemplate = "/api/finance/imports/{id}/create-account",
-                        Permission = ManageFinance,
-                        Confirm = "Create the account this statement looks like (detected institution and " +
-                                  "masked number, household default currency) and attach the batch to it? " +
-                                  "Nothing posts until you approve the batch afterwards.",
-                    },
-                    // The way OUT for a batch that should never post — a duplicate upload, a failed
-                    // parse, an abandoned import. Approved batches refuse server-side: their lines
-                    // are in the ledger and their period arms the duplicate warning.
+                    // The way OUT for a batch that should never post — a duplicate upload, a
+                    // failed parse, or an abandoned import. Approved batches do not appear in
+                    // this list and are refused server-side as a defence in depth.
                     new TabRowAction
                     {
                         Id = "discard",
@@ -1052,7 +1031,12 @@ public sealed class FinanceModule : IModule
         services.AddScoped<ExportTools>();
         services.AddHostedService<BillReminderService>();
         services.AddHostedService<BudgetRolloverService>();
-        services.AddScoped<IStatementAiExtractor, PlatformDocumentStatementExtractor>();
+        // The AI document leg (ADR-0004 made literal): after CSV/OFX template parsing, the
+        // household's configured model parses document text via structured output. Declared
+        // totals reconcile when available; every import still waits for human approval. A model
+        // miss falls back to deterministic text parsers, keeping keyless (Mock) deployments
+        // fully working. Register PlatformDocumentStatementExtractor here to opt a host out.
+        services.AddScoped<IStatementAiExtractor, ModelStatementExtractor>();
         // Registered AFTER the platform (modules install second), so this wins DocumentReader's
         // optional IOcrEngine slot: the OCR connectors first (self-hosted Tika, then Azure
         // Document Intelligence), deployment Ocr config as fallback, honest null when nothing
