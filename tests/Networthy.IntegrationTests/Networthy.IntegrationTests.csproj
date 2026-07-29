@@ -21,4 +21,9 @@
     <ProjectReference Include="..\..\src\Networthy.Host\Networthy.Host.csproj" />
   </ItemGroup>
 
+  <!-- Golden-conversation evals are data, not code: they must reach the test output. -->
+  <ItemGroup>
+    <Content Include="Evals\cases\*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

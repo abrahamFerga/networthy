@@ -188,7 +188,15 @@ public static partial class StatementExtraction
     /// </summary>
     public static IReadOnlyList<ExtractedLine>? TryExtractText(string text, IReadOnlyList<string> categories)
     {
-        // Anchors yearless "29 Mar" lines (Banamex prints the year only in the request header).
+        // Balance-column tables go FIRST: their rows are multi-line blocks whose only reliable
+        // number is the running balance — which the per-line heuristics below would either miss
+        // entirely (date and amount never share a line) or misread as the amount.
+        if (TryExtractBalanceTable(text, categories) is { Count: > 0 } table)
+        {
+            return table;
+        }
+
+        // Anchors yearless "29 Mar" lines (Mexican banks often print the year only in the header).
         var reference = DocumentReferenceDate(text);
 
         var parsed = new List<(DateOnly Date, string Description, decimal Signed, bool PlusSigned)>();
@@ -205,16 +213,11 @@ public static partial class StatementExtraction
             {
                 continue;
             }
-            if (!TryParseDate(dateMatch.Value, out var date))
+            if (!TryResolveLineDate(dateMatch.Value, reference, out var date))
             {
                 // A yearless day+month resolves against the document's reference date; without a
                 // reference the line is honestly skipped rather than guessed into some year.
-                if (reference is not { } anchor
-                    || !TryParseDayMonth(dateMatch.Value, out var day, out var month)
-                    || !TryResolveYearless(day, month, anchor, out date))
-                {
-                    continue;
-                }
+                continue;
             }
 
             // The amount lives either at the END of the line (classic "DESC      -82.45"
@@ -277,6 +280,192 @@ public static partial class StatementExtraction
         // every date, then every description, then every amount. Reconstruct the rows.
         return result.Count > 0 ? result : TryExtractColumnarText(text, categories);
     }
+
+    /// <summary>
+    /// The balance-chain leg: statements whose table reads FECHA | CONCEPTO | RETIROS |
+    /// DEPÓSITOS | SALDO (the Mexican "Detalle de Operaciones" family, or any Date/…/Balance
+    /// equivalent). Every transaction is a BLOCK — the date opens it, the description wraps
+    /// freely (across page furniture, even), and the amounts land on the block's LAST line
+    /// with the running balance as the line's final number. Per-line parsing never sees date
+    /// and amount together, and the trailing number it would grab is the balance — so this leg
+    /// reconstructs blocks and lets arithmetic decide: a block closes only on a line whose
+    /// final money token RECONCILES against the running balance (unchanged = an informational
+    /// notice with nothing to post; previous ± the amount cell = a transaction whose delta sign
+    /// IS the direction). Annex tables that repeat amounts without balances (Domiciliación
+    /// instructions) can never close a block, so they never double-post. Gated on a
+    /// balance-column header row plus an opening-balance seed; anything else returns null and
+    /// falls through to the generic legs untouched.
+    /// </summary>
+    public static IReadOnlyList<ExtractedLine>? TryExtractBalanceTable(string text, IReadOnlyList<string> categories)
+    {
+        var lines = text.Replace("\r\n", "\n").Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(l => l.Trim())
+            .Where(l => l.Length > 0)
+            .ToArray();
+        if (!lines.Any(IsBalanceColumnHeader))
+        {
+            return null;
+        }
+
+        var reference = DocumentReferenceDate(text);
+
+        // Lines repeated verbatim 3+ times are page furniture (running titles, print codes, the
+        // customer's own name, wrapped disclaimer boilerplate) — kept out of descriptions when a
+        // block straddles a page break. A real closing line can never repeat: its balance moves.
+        var furniture = lines.GroupBy(l => l, StringComparer.Ordinal)
+            .Where(g => g.Count() >= 3)
+            .Select(g => g.Key)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var result = new List<ExtractedLine>();
+        decimal? balance = null;
+        var blockDate = default(DateOnly);
+        List<string>? block = null;
+        decimal? blockTrailingNumber = null;
+
+        // A block whose closing line never reconciled (layout drift, a mangled cell): adopt its
+        // last trailing number as the balance — by layout that IS the SALDO column — so one lost
+        // row can't cascade into losing every row after it.
+        void AbandonOpenBlock()
+        {
+            if (block is not null && blockTrailingNumber is { } trailing)
+            {
+                balance = trailing;
+            }
+            block = null;
+            blockTrailingNumber = null;
+        }
+
+        foreach (var line in lines)
+        {
+            var head = 0;
+            var dateMatch = TextDatePattern().Match(line);
+            if (dateMatch is { Success: true, Index: 0 }
+                && TryResolveLineDate(dateMatch.Value, reference, out var lineDate))
+            {
+                if (balance is null)
+                {
+                    // Dated rows before any opening balance: the chain has no anchor, and a
+                    // wrong first direction would poison everything after it. Not this layout.
+                    return null;
+                }
+
+                AbandonOpenBlock();
+                blockDate = lineDate;
+                block = [];
+                head = dateMatch.Length;
+            }
+            else if (block is null)
+            {
+                // Between blocks only the opening balance matters — it seeds the chain (or
+                // re-seeds it when a statement carries the balance across a page).
+                if (OpeningBalancePattern().Match(line) is { Success: true } seed
+                    && TryParseAmount(seed.Groups[1].Value, out var opening))
+                {
+                    balance = opening;
+                }
+                continue;
+            }
+            else if (IsBalanceColumnHeader(line) || PageFurniturePattern().IsMatch(line) || furniture.Contains(line))
+            {
+                continue;
+            }
+
+            // Close the block? Only on a line ENDING in a money token that reconciles.
+            var tokens = MoneyTokenPattern().Matches(line);
+            if (tokens.Count > 0 && tokens[^1].Index + tokens[^1].Length == line.Length
+                && TryParseAmount(tokens[^1].Value, out var newBalance))
+            {
+                blockTrailingNumber = newBalance;
+                var delta = newBalance - balance!.Value;
+                if (delta == 0)
+                {
+                    // An informational row (fee-exemption notice, ATM counter): the balance
+                    // column repeats unchanged and there is nothing to post.
+                    block = null;
+                    blockTrailingNumber = null;
+                    continue;
+                }
+
+                if (tokens.Count >= 2 && TryParseAmount(tokens[^2].Value, out var cell)
+                    && cell == Math.Abs(delta))
+                {
+                    block.Add(line[head..tokens[^2].Index].Trim());
+                    var description = string.Join(' ', block.Where(p => p.Length > 0))
+                        .Trim(' ', '\t', '-', '·', '|', '*');
+                    if (description.Length == 0)
+                    {
+                        description = "(no description)";
+                    }
+                    else if (description.Length > 500)
+                    {
+                        description = description[..500]; // the Transaction column's limit
+                    }
+
+                    result.Add(new ExtractedLine(
+                        blockDate, description, Math.Abs(delta),
+                        delta < 0 ? "expense" : "income",
+                        SuggestCategory(description, categories)));
+                    balance = newBalance;
+                    block = null;
+                    blockTrailingNumber = null;
+                    continue;
+                }
+            }
+
+            block.Add(line[head..].Trim());
+        }
+
+        return result.Count > 0 ? result : null;
+    }
+
+    /// <summary>A table's column-header row naming a balance column ("FECHA CONCEPTO RETIROS DEPÓSITOS SALDO").</summary>
+    private static bool IsBalanceColumnHeader(string line) =>
+        line.Length <= 100
+        && (line.Contains("saldo", StringComparison.OrdinalIgnoreCase)
+            || line.Contains("balance", StringComparison.OrdinalIgnoreCase))
+        && BalanceTableHeaderWords.Count(w => line.Contains(w, StringComparison.OrdinalIgnoreCase)) >= 3;
+
+    private static readonly string[] BalanceTableHeaderWords =
+    [
+        "fecha", "concepto", "retiros", "depósitos", "depositos", "saldo",
+        "date", "description", "withdrawals", "deposits", "amount", "balance", "debit", "credit",
+    ];
+
+    /// <summary>A full date, or a yearless day+month anchored to the document's reference date.</summary>
+    private static bool TryResolveLineDate(string token, DateOnly? reference, out DateOnly date)
+    {
+        if (TryParseDate(token, out date))
+        {
+            return true;
+        }
+
+        if (reference is { } anchor && TryParseDayMonth(token, out var day, out var month)
+            && TryResolveYearless(day, month, anchor, out date))
+        {
+            return true;
+        }
+
+        date = default;
+        return false;
+    }
+
+    /// <summary>
+    /// The chain's seed: how statements spell the carried-in balance ("SALDO ANTERIOR 8,733.31",
+    /// "Beginning balance 4,200.00"), amount at line end.
+    /// </summary>
+    [GeneratedRegex(@"^(?:saldo\s+anterior|saldo\s+inicial|beginning\s+balance|opening\s+balance|previous\s+balance|balance\s+(?:brought\s+)?forward)\b.*?(-?\d{1,3}(?:,\d{3})*\.\d{2})$", RegexOptions.IgnoreCase)]
+    private static partial Regex OpeningBalancePattern();
+
+    /// <summary>
+    /// A money-shaped token anywhere in a line: thousands groups and exactly two decimals, so
+    /// reference numbers, CLABEs, and card numbers (no decimals) and percentages never qualify.
+    /// </summary>
+    [GeneratedRegex(@"(?<![\d.,])\d{1,3}(?:,\d{3})*\.\d{2}(?![\d%])")]
+    private static partial Regex MoneyTokenPattern();
+
+    [GeneratedRegex(@"^(?:p[áa]gina|page)\s+\d+\s+(?:de|of)\s+\d+$", RegexOptions.IgnoreCase)]
+    private static partial Regex PageFurniturePattern();
 
     /// <summary>
     /// The columnar fallback: Tesseract-style OCR frequently emits a table as three runs of
@@ -412,15 +601,16 @@ public static partial class StatementExtraction
     }
 
     // Years are REGEX-bounded to 19xx/20xx: without the bound, "29 Mar 6472" (a day, a month, and
-    // an ATM branch number) parses as the year 6472 — a real Banamex line did exactly that. The
-    // final alternative matches a YEARLESS "29 Mar" (banks that print the year only in the header);
-    // the lookahead keeps it from half-eating a dated form, and the caller resolves the year
-    // against the document's reference date.
-    [GeneratedRegex(@"\b((?:19|20)\d{2}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/(?:19|20)\d{2}|\d{1,2}\s+\p{L}{3,10}\.?,?\s+(?:19|20)\d{2}|\p{L}{3,10}\.?\s+\d{1,2},?\s+(?:19|20)\d{2}|\d{1,2}\s+\p{L}{3,10}\.?(?!,?\s+(?:19|20)\d{2}))\b", RegexOptions.IgnoreCase)]
+    // an ATM branch number) parses as the year 6472 — a real statement line did exactly that. The
+    // "31 de mayo de(l) 2026" alternative is how Mexican statements spell their cut-off dates.
+    // The final alternative matches a YEARLESS "29 Mar" (banks that print the year only in the
+    // header); the lookahead keeps it from half-eating a dated form, and the caller resolves the
+    // year against the document's reference date.
+    [GeneratedRegex(@"\b((?:19|20)\d{2}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/(?:19|20)\d{2}|\d{1,2}\s+de\s+\p{L}{3,10}\.?\s+(?:de|del)\s+(?:19|20)\d{2}|\d{1,2}\s+\p{L}{3,10}\.?,?\s+(?:19|20)\d{2}|\p{L}{3,10}\.?\s+\d{1,2},?\s+(?:19|20)\d{2}|\d{1,2}\s+\p{L}{3,10}\.?(?!,?\s+(?:19|20)\d{2}))\b", RegexOptions.IgnoreCase)]
     private static partial Regex TextDatePattern();
 
     /// <summary>Dates that carry their own year — scanned document-wide to anchor yearless lines.</summary>
-    [GeneratedRegex(@"\b((?:19|20)\d{2}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/(?:19|20)\d{2}|\d{1,2}\s+\p{L}{3,10}\.?,?\s+(?:19|20)\d{2})\b", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"\b((?:19|20)\d{2}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/(?:19|20)\d{2}|\d{1,2}\s+de\s+\p{L}{3,10}\.?\s+(?:de|del)\s+(?:19|20)\d{2}|\d{1,2}\s+\p{L}{3,10}\.?,?\s+(?:19|20)\d{2})\b", RegexOptions.IgnoreCase)]
     private static partial Regex FullDatePattern();
 
     [GeneratedRegex(@"\(?[+-]?\$?\d{1,3}(,\d{3})*\.\d{2}\)?-?(\s?(CR|DR))?$", RegexOptions.IgnoreCase)]
@@ -487,9 +677,13 @@ public static partial class StatementExtraction
         }
 
         // "03 Mar, 2026" / "3 ene 2026" / "Mar 3, 2026" — month names in English or Spanish,
-        // resolved by 3-letter prefix so the host's locale never matters. Unknown words simply
-        // fail here, which is also what rejects date-shaped phrases the regex over-matched.
-        var tokens = text.Split([' ', ',', '.'], StringSplitOptions.RemoveEmptyEntries);
+        // resolved by 3-letter prefix so the host's locale never matters. Spanish connectives
+        // drop first, so "31 de mayo del 2026" reads as its three real tokens. Unknown words
+        // simply fail here, which is also what rejects date-shaped phrases the regex over-matched.
+        var tokens = text.Split([' ', ',', '.'], StringSplitOptions.RemoveEmptyEntries)
+            .Where(t => !t.Equals("de", StringComparison.OrdinalIgnoreCase)
+                        && !t.Equals("del", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
         if (tokens.Length == 3)
         {
             var (dayToken, monthToken) = char.IsLetter(tokens[0][0]) ? (tokens[1], tokens[0]) : (tokens[0], tokens[1]);
@@ -505,7 +699,7 @@ public static partial class StatementExtraction
         }
 
         // Deliberately NO permissive DateOnly.TryParse fallback: invariant parsing accepts
-        // "29 Mar 6472" as the year 6472 (a Banamex ATM branch number) and "10 May" as
+        // "29 Mar 6472" as the year 6472 (an ATM branch number) and "10 May" as
         // 2010-05-01 (year-month form). Every accepted shape is listed explicitly above;
         // yearless day+month forms go through TryParseDayMonth + the document reference instead.
         date = default;
@@ -654,6 +848,14 @@ public static partial class StatementExtraction
             last4 = digits.Length >= 4 ? digits[^4..] : null;
         }
         last4 ??= FirstGroup(EndingInPattern().Match(text)) ?? FirstGroup(MaskedNumberPattern().Match(text));
+        // Mexican statements print the checking account UNMASKED on a labeled line ("Número de
+        // cuenta de cheques 70177434092") — its trailing four digits are the same identity every
+        // mask spelling would carry.
+        if (last4 is null && AccountNumberLinePattern().Match(text) is { Success: true } acct
+            && acct.Groups[1].Value is { Length: >= 4 } number)
+        {
+            last4 = number[^4..];
+        }
 
         var institution = OfxOrgPattern().Match(text) is { Success: true } org
             ? org.Groups[1].Value.Trim()
@@ -678,7 +880,9 @@ public static partial class StatementExtraction
             .ToList();
         if (counts.Count == 0)
         {
-            return null;
+            // Mexican statements rarely tag amounts with ISO codes — they say it in words
+            // ("En pesos Moneda Nacional").
+            return MonedaNacionalPattern().IsMatch(text) ? "MXN" : null;
         }
 
         var total = counts.Sum(c => c.Count);
@@ -693,9 +897,10 @@ public static partial class StatementExtraction
     /// </summary>
     private static string? DetectInstitutionFromHeader(string text)
     {
-        foreach (var raw in text.Replace("\r\n", "\n").Split('\n').Take(8))
+        var headerLines = text.Replace("\r\n", "\n").Split('\n');
+        for (var i = 0; i < headerLines.Length && i < 8; i++)
         {
-            var line = raw.Trim();
+            var line = headerLines[i].Trim();
             if (line.Length is < 3 or > 64
                 || line.Count(c => c == ',') >= 2                       // a CSV header, not a title
                 || line.Contains('<')                                    // markup
@@ -708,6 +913,8 @@ public static partial class StatementExtraction
                 || TextDatePattern().IsMatch(line)
                 || TextAmountPattern().IsMatch(line)
                 || ColumnHeaderWords.Count(w => line.Contains(w, StringComparison.OrdinalIgnoreCase)) >= 2
+                || line.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length > 6 // a sentence, not a title
+                || LooksLikeAddressee(headerLines, i)
                 || line.Count(char.IsLetter) < 3)
             {
                 continue;
@@ -734,7 +941,7 @@ public static partial class StatementExtraction
             }
         }
 
-        // Still nothing — the bank's web footer is the last-resort brand ("www.banamex.com").
+        // Still nothing — the bank's web footer is the last-resort brand ("www.bancodemo.com").
         if (WebDomainPattern().Match(text) is { Success: true } domain)
         {
             return CultureInfo.InvariantCulture.TextInfo.ToTitleCase(domain.Groups[1].Value.ToLowerInvariant());
@@ -751,6 +958,38 @@ public static partial class StatementExtraction
     private static readonly string[] GreetingWords =
         ["hola", "hello", "dear ", "estimado", "estimada", "estos son", "these are"];
 
+    /// <summary>
+    /// The window-envelope block: a statement's first lines carry the CUSTOMER's name with the
+    /// street address right under it. A title-shaped line whose next line or two reads as an
+    /// address (digit-heavy, no statement vocabulary) is the addressee, never the bank.
+    /// </summary>
+    private static bool LooksLikeAddressee(string[] lines, int index)
+    {
+        for (var j = index + 1; j <= index + 2 && j < lines.Length; j++)
+        {
+            var next = lines[j].Trim();
+            if (next.Length == 0)
+            {
+                continue;
+            }
+
+            if (next.Count(char.IsDigit) >= 4 && next.Count(char.IsLetter) >= 3
+                && !StatementVocabulary.Any(w => next.Contains(w, StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Words a statement line uses about ITSELF — their presence means "not a mailing address".</summary>
+    private static readonly string[] StatementVocabulary =
+    [
+        "account", "cuenta", "statement", "estado", "period", "período", "periodo",
+        "ending", "termina", "page", "página", "member fdic",
+    ];
+
     private static string? FirstGroup(Match match) => match.Success ? match.Groups[1].Value : null;
 
     [GeneratedRegex(@"<ACCTID>\s*([A-Za-z0-9*\-]+)", RegexOptions.IgnoreCase)]
@@ -762,14 +1001,22 @@ public static partial class StatementExtraction
     [GeneratedRegex(@"\b(?:ending|termina)\s+(?:in|en)\s+(\d{4})\b", RegexOptions.IgnoreCase)]
     private static partial Regex EndingInPattern();
 
-    // {3,4} trailing digits: Banamex masks cards as "**877" — three visible digits, not four.
+    // {3,4} trailing digits: some Mexican banks mask cards as "**877" — three visible digits, not four.
     [GeneratedRegex(@"(?:[*•xX]{2,}|(?:account|acct|cuenta)\s*(?:no\.?|number|núm\.?|#)?\s*[:#]\s*[*•xX\d\- ]*?)[\- ]?(\d{3,4})(?!\d)", RegexOptions.IgnoreCase)]
     private static partial Regex MaskedNumberPattern();
+
+    /// <summary>An unmasked, labeled account-number line ("Número de cuenta de cheques 70177434092").</summary>
+    [GeneratedRegex(@"(?:n[úu]mero\s+de\s+cuenta(?:\s+de\s+cheques)?|cuenta\s+de\s+cheques)\s*(?:no\.?|#)?\s*[:#]?\s*(\d{7,20})\b", RegexOptions.IgnoreCase)]
+    private static partial Regex AccountNumberLinePattern();
+
+    /// <summary>How Mexican statements declare their currency in words instead of ISO tags.</summary>
+    [GeneratedRegex(@"\bmoneda\s+nacional\b|\ben\s+pesos\b", RegexOptions.IgnoreCase)]
+    private static partial Regex MonedaNacionalPattern();
 
     [GeneratedRegex(@"\b(?:account\s+)?(?:statement|estado\s+de\s+cuenta|env[ií]o\s+de\s+movimientos|movimientos)\b.*$", RegexOptions.IgnoreCase)]
     private static partial Regex StatementSuffixPattern();
 
-    /// <summary>The bank's own web footer ("www.banamex.com") — the last-resort brand signal.</summary>
+    /// <summary>The bank's own web footer ("www.bancodemo.com") — the last-resort brand signal.</summary>
     [GeneratedRegex(@"\bwww\.([a-z0-9-]{3,40})\.(?:com\.mx|com|mx|net|org)\b", RegexOptions.IgnoreCase)]
     private static partial Regex WebDomainPattern();
 

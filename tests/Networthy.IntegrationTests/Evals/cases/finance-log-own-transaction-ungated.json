@@ -1,0 +1,10 @@
+{
+  // ADR-0005's ONE ungated write: the caller's own quick capture posts immediately — no
+  // approval event may fire. Guards the gate against over-reach; if someone flips
+  // RequiresApproval on log_own_transaction, this goes red.
+  "name": "finance-log-own-transaction-ungated",
+  "module": "finance",
+  "message": "Log own transaction 4.25 coffee",
+  "expectToolCalls": ["log_own_transaction"],
+  "expectApproval": false
+}

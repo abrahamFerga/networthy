@@ -11,13 +11,15 @@ namespace Networthy.Finance;
 /// runs through the deterministic line parser, and the human review gate catches whatever a
 /// layout heuristic gets wrong — that's what the review step is FOR.
 /// </summary>
-public sealed class PlatformDocumentStatementExtractor(IDocumentReader reader) : IStatementAiExtractor
+public sealed class PlatformDocumentStatementExtractor(
+    IDocumentReader reader, OcrDiagnostics diagnostics) : IStatementAiExtractor
 {
     public async Task<StatementExtractionResult?> ExtractAsync(
         Guid fileId, string fileName, byte[] content, IReadOnlyList<string> categories,
         CancellationToken cancellationToken = default)
     {
         var text = await reader.ExtractTextAsync(fileId, cancellationToken);
+        diagnostics.DocumentTextChars = string.IsNullOrWhiteSpace(text) ? 0 : text.Length;
         if (string.IsNullOrWhiteSpace(text))
         {
             return null;

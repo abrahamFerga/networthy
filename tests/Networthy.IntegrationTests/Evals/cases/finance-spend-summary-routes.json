@@ -1,0 +1,10 @@
+{
+  // Read-path routing: a spending question reaches summarize_spending (name-token match on
+  // "summarize" + "spending") and never trips the gate. If a tool rename or description edit
+  // breaks the route, the expected TOOL_CALL_START disappears and this goes red.
+  "name": "finance-spend-summary-routes",
+  "module": "finance",
+  "message": "Summarize my spending using a tool.",
+  "expectToolCalls": ["summarize_spending"],
+  "expectApproval": false
+}
