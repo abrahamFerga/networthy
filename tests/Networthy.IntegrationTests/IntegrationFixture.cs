@@ -24,8 +24,9 @@ public sealed class IntegrationFixture : IAsyncLifetime
     {
         Environment.SetEnvironmentVariable("TESTCONTAINERS_RYUK_DISABLED", "true");
 
-        _postgres = new PostgreSqlBuilder()
-            .WithImage("pgvector/pgvector:pg17") // vector extension for the platform's RAG migration — same major the AppHost and compose image ship
+        // pgvector for the platform's RAG migration, pinned to the same major the AppHost and
+        // compose image ship — a product should not test against a Postgres it does not run.
+        _postgres = new PostgreSqlBuilder("pgvector/pgvector:pg17")
             .WithDatabase("plenipo_platform")
             .WithUsername("postgres")
             .WithPassword("postgres")
