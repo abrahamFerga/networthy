@@ -22,6 +22,61 @@ namespace Networthy.IntegrationTests;
 public sealed class ReviewDetailActionsTests(IntegrationFixture fixture)
 {
     [Fact]
+    public async Task ReviewListing_OnlyOffersTheStateSafeDiscardRowAction()
+    {
+        var (scope, _, _) = await fixture.AuthorizedScopeAsync();
+        using var _scope = scope;
+        using var admin = fixture.AdminClient();
+
+        var modules = await admin.GetFromJsonAsync<JsonElement>("/api/platform/modules");
+        var finance = modules.EnumerateArray().Single(module => module.GetProperty("id").GetString() == "finance");
+        var review = finance.GetProperty("tabs").EnumerateArray()
+            .Single(tab => tab.GetProperty("id").GetString() == "review");
+
+        var action = Assert.Single(review.GetProperty("rowActions").EnumerateArray());
+        Assert.Equal("discard", action.GetProperty("id").GetString());
+        Assert.Equal("/api/finance/imports/{id}/discard", action.GetProperty("endpointTemplate").GetString());
+    }
+
+    [Fact]
+    public async Task ReconciliationWarning_IsVisibleBeforeTheReviewerCanApprove()
+    {
+        var (scope, tenantId, userId) = await fixture.AuthorizedScopeAsync();
+        using var _scope = scope;
+        var services = scope.ServiceProvider;
+        var db = services.GetRequiredService<FinanceDbContext>();
+        await services.GetRequiredService<AccountTools>()
+            .CreateAccount("Warning Review Checking", "checking", "USD", 0);
+        var account = await db.Accounts.SingleAsync(a => a.Name == "Warning Review Checking");
+
+        var batch = new StatementImportBatch
+        {
+            TenantId = tenantId,
+            SourceFileId = Guid.NewGuid(),
+            FileName = "reconciliation-warning.csv",
+            Status = "parsed",
+            AccountId = account.Id,
+            CreatedByUserId = userId,
+            ExtractedLinesJson = "[{\"date\":\"2026-07-29\",\"description\":\"WARNING TEST\",\"amount\":12.34,\"direction\":\"expense\",\"suggestedCategory\":null}]",
+            ReviewWarning = "The model found transaction lines, but their totals did not reconcile with the statement summary. Review every line and the statement totals before approval.",
+        };
+        db.ImportBatches.Add(batch);
+        await db.SaveChangesAsync();
+
+        using var admin = fixture.AdminClient();
+        var detail = await admin.GetFromJsonAsync<JsonElement>($"/api/finance/imports/{batch.Id}/detail");
+        Assert.Equal("Review warning", detail.GetProperty("sections")[0].GetProperty("heading").GetString());
+        Assert.Contains("did not reconcile", detail.GetProperty("sections")[0].GetProperty("text").GetString());
+
+        var rows = await admin.GetFromJsonAsync<JsonElement>("/api/finance/imports/batches");
+        var row = rows.EnumerateArray().Single(r => r.GetProperty("id").GetGuid() == batch.Id);
+        Assert.Contains("reconciliation warning", row.GetProperty("status").GetString());
+
+        var discard = await admin.PostAsync($"/api/finance/imports/{batch.Id}/discard", null);
+        Assert.Equal(HttpStatusCode.OK, discard.StatusCode);
+    }
+
+    [Fact]
     public async Task NeedsAccountBatch_ExplainsItself_AssignsViaPicker_ThenApproves()
     {
         var (scope, _, _) = await fixture.AuthorizedScopeAsync();

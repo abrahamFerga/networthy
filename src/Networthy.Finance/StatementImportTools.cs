@@ -25,21 +25,60 @@ public sealed class StatementImportTools(
     ICurrentUser currentUser,
     TransferTools transfers)
 {
-    [Description("Import an uploaded bank statement (CSV/OFX/QFX/PDF; the file id comes from the message's attachment block). The account name is OPTIONAL: leave it out and Networthy detects which account the statement belongs to (asking before creating anything). Extraction runs in the background; review with review_import_batch before anything posts. Runs without an approval prompt: it only queues extraction into the review pipeline — approving the reviewed batch is the gate, and discard_import_batch undoes an unwanted import.")]
+    /// <summary>
+    /// How long the chat tool waits for the parse job before honestly reporting "still running".
+    /// The job queue polls at ~1s and a typical statement extracts in one to three seconds, so
+    /// this budget turns almost every import into a same-turn outcome — the agent literally
+    /// cannot "come back later" (nothing re-invokes it between user messages), so waiting here
+    /// is the only place the outcome can reach the conversation.
+    /// </summary>
+    public static readonly TimeSpan ExtractionWaitBudget = TimeSpan.FromSeconds(8);
+
+    [Description("Import an uploaded bank statement (CSV/OFX/QFX/PDF; the file id comes from the message's attachment block). The account name is OPTIONAL: leave it out and Networthy detects which account the statement belongs to (asking before creating anything). The tool waits briefly for extraction and usually returns the OUTCOME — parsed line count, a needs-account question, or a failure with its reason; a longer extraction keeps running in the background. Runs without an approval prompt: extraction only feeds the review pipeline — approving the reviewed batch is the gate, and discard_import_batch undoes an unwanted import.")]
     public async Task<string> ImportStatement(
         [Description("The stored file id (a GUID) of the uploaded statement.")] string fileId,
         [Description("Optional: the account name this statement belongs to. Omit to auto-detect from the statement itself.")] string? accountName = null,
         CancellationToken cancellationToken = default)
     {
+        var (batch, message) = await QueueImportAsync(fileId, accountName, cancellationToken);
+        if (batch is null)
+        {
+            return message;
+        }
+
+        var finished = await WaitForExtractionAsync(batch.Id, cancellationToken);
+        return finished is null
+            ? message + " Extraction is STILL RUNNING (larger scans take a while) — the outcome lands on " +
+              "the Statement review tab and in the notification bell; when the user next asks, " +
+              "review_import_batch has the current state."
+            : await DescribeExtractionOutcomeAsync(finished, cancellationToken);
+    }
+
+    /// <summary>
+    /// Queue-only import for the upload endpoints (onboarding wizard, review page): returns the
+    /// moment the batch is queued — a form upload must not hold its HTTP response hostage to an
+    /// OCR run; the review tab and the notification bell carry the outcome there. The chat tool
+    /// wraps this same core with a bounded wait, because chat's outcome channel IS the tool result.
+    /// </summary>
+    public async Task<string> QueueStatementImport(
+        string fileId, string? accountName = null, CancellationToken cancellationToken = default)
+    {
+        var (_, message) = await QueueImportAsync(fileId, accountName, cancellationToken);
+        return message;
+    }
+
+    private async Task<(StatementImportBatch? Batch, string Message)> QueueImportAsync(
+        string fileId, string? accountName, CancellationToken cancellationToken)
+    {
         if (!Guid.TryParse(fileId, out var id))
         {
-            return $"'{fileId}' is not a file id. Attach the statement, or use list_documents to find it.";
+            return (null, $"'{fileId}' is not a file id. Attach the statement, or use list_documents to find it.");
         }
 
         var stored = await files.FindAsync(id, cancellationToken);
         if (stored is null)
         {
-            return $"No stored file with id {id} exists. Attach the statement first.";
+            return (null, $"No stored file with id {id} exists. Attach the statement first.");
         }
 
         Account? account = null;
@@ -53,10 +92,10 @@ public sealed class StatementImportTools(
                 // suggest instead of importing into limbo, and offer the detect path.
                 var visible = await VisibleAccountsAsync(cancellationToken);
                 var closest = SuggestAccountNames(accountName, visible);
-                return $"No account named '{accountName}' exists (or it is private to another member)."
+                return (null, $"No account named '{accountName}' exists (or it is private to another member)."
                        + (closest.Count > 0 ? $" Did you mean {string.Join(" or ", closest.Select(n => $"'{n}'"))}?" : "")
                        + " Re-run with an existing name, or import WITHOUT an account and Networthy will "
-                       + "detect it from the statement (and ask before creating anything).";
+                       + "detect it from the statement (and ask before creating anything).");
             }
         }
 
@@ -75,12 +114,71 @@ public sealed class StatementImportTools(
         await jobs.EnqueueAsync(FinanceModule.Id, StatementParseJobHandler.JobKind,
             new StatementParseArgs(batch.Id), cancellationToken);
 
-        return account is null
+        var message = account is null
             ? $"Import of '{stored.FileName}' is queued for extraction. Networthy will detect which account " +
               "it belongs to — an unambiguous match is used directly; otherwise the batch waits and " +
               "assign_import_account picks or creates the account. Nothing posts until you approve."
             : $"Import of '{stored.FileName}' into '{account.Name}' is queued for extraction. " +
               "Once parsed, review the lines with review_import_batch — nothing posts until you approve.";
+        return (batch, message);
+    }
+
+    /// <summary>
+    /// Polls (untracked — the job mutates the row in its OWN scope) until the batch leaves
+    /// "queued" or the wait budget runs out. Null = still running when the budget expired.
+    /// </summary>
+    private async Task<StatementImportBatch?> WaitForExtractionAsync(Guid batchId, CancellationToken cancellationToken)
+    {
+        var deadline = DateTimeOffset.UtcNow + ExtractionWaitBudget;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(500), cancellationToken);
+            var current = await db.ImportBatches.AsNoTracking()
+                .FirstOrDefaultAsync(b => b.Id == batchId, cancellationToken);
+            if (current is not null && current.Status != "queued")
+            {
+                return current;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>The extraction outcome as the model should relay it — one message per terminal state.</summary>
+    private async Task<string> DescribeExtractionOutcomeAsync(
+        StatementImportBatch batch, CancellationToken cancellationToken)
+    {
+        if (batch.Status == "failed")
+        {
+            return $"Extraction of '{batch.FileName}' FAILED: {batch.FailureReason} " +
+                   "Tell the user plainly. The batch sits on the Statement review tab; once the cause is " +
+                   "fixed, import_statement with the same attachment retries it, and discard_import_batch " +
+                   "drops it.";
+        }
+
+        var lines = Deserialize(batch.ExtractedLinesJson);
+        var period = batch.LinesFrom is { } from && batch.LinesTo is { } to
+            ? $" covering {from:yyyy-MM-dd} → {to:yyyy-MM-dd}"
+            : "";
+        var warning = batch.ReviewWarning is { Length: > 0 }
+            ? $" Review warning: {batch.ReviewWarning}"
+            : "";
+
+        if (batch.Status == "needs-account")
+        {
+            return $"'{batch.FileName}' extracted {lines.Count} line(s){period} and looks like a statement " +
+                   $"from {DetectedLabel(batch)}, but no existing account matches. Ask the user whether to " +
+                   "use an existing account or create the detected one, then assign_import_account " +
+                   $"(createIfMissing to create). Nothing posts until they approve.{warning}";
+        }
+
+        // "parsed" — extraction landed in an account (named up front, or auto-matched by detection).
+        var accountName = batch.AccountId is { } accountId
+            ? (await db.Accounts.AsNoTracking().FirstOrDefaultAsync(a => a.Id == accountId, cancellationToken))?.Name
+            : null;
+        return $"'{batch.FileName}' extracted {lines.Count} line(s){period} into " +
+               $"'{accountName ?? "(unknown account)"}'. Show them with review_import_batch and, after the " +
+               $"user confirms, approve_import_batch — nothing posts until they approve.{warning}";
     }
 
     [Description("Attach an account to an import batch that is waiting for one (status needs-account): name an existing account, or set createIfMissing to create it — the new account inherits the statement's detected institution and masked number. Side-effecting and requires approval.")]

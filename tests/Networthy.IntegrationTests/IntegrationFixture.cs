@@ -24,8 +24,9 @@ public sealed class IntegrationFixture : IAsyncLifetime
     {
         Environment.SetEnvironmentVariable("TESTCONTAINERS_RYUK_DISABLED", "true");
 
-        _postgres = new PostgreSqlBuilder()
-            .WithImage("pgvector/pgvector:pg16") // the platform's RAG migration needs the vector extension
+        // pgvector for the platform's RAG migration, pinned to the same major the AppHost and
+        // compose image ship — a product should not test against a Postgres it does not run.
+        _postgres = new PostgreSqlBuilder("pgvector/pgvector:pg17")
             .WithDatabase("plenipo_platform")
             .WithUsername("postgres")
             .WithPassword("postgres")
@@ -67,6 +68,18 @@ public sealed class IntegrationFixture : IAsyncLifetime
         client.DefaultRequestHeaders.Add("X-Dev-Subject", "it-admin");
         client.DefaultRequestHeaders.Add("X-Dev-Tenant", "dev");
         client.DefaultRequestHeaders.Add("X-Dev-Roles", "system_admin");
+        return client;
+    }
+
+    /// <summary>An authorized HTTP client for the dev tenant carrying one arbitrary role — how
+    /// RBAC gets proven (narrower role, assert the 403) and how the eval runner picks per-case
+    /// roles. Per-role subjects, so each role exercises its own provisioned user.</summary>
+    public HttpClient ClientFor(string role)
+    {
+        var client = Factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Dev-Subject", $"it-{role}");
+        client.DefaultRequestHeaders.Add("X-Dev-Tenant", "dev");
+        client.DefaultRequestHeaders.Add("X-Dev-Roles", role);
         return client;
     }
 

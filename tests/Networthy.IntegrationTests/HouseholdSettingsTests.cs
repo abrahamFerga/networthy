@@ -28,7 +28,7 @@ public sealed class HouseholdSettingsTests(IntegrationFixture fixture)
 
         // No currency spoken anywhere — the household default applies.
         var created = await services.GetRequiredService<AccountTools>()
-            .CreateAccount("Cuenta Citibanamex", "checking", currency: null, openingBalance: 110_000);
+            .CreateAccount("Cuenta Ejemplo MX", "checking", currency: null, openingBalance: 110_000);
         Assert.Contains("(MXN)", created);
 
         var budget = await services.GetRequiredService<BudgetTools>().SetBudget("Groceries", 4000);

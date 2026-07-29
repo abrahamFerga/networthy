@@ -195,7 +195,7 @@ public sealed class StatementExtractionTests
             Account Statement
             Casandra Ejemplo Perez Period 03/26/2025 - 03/26/2026
             CALLE FICTICIA 1234 COL CENTRO Issuing Date 03/26/2026
-            Monclova, Mexico, 25700
+            Ciudad Ejemplo, Mexico, 00000
             98765432101
             Date Description Amount Currency Payout Method Running Balance
             03 Mar, 2026 Reward from Payview 250.00 USD USD balance 250
@@ -229,6 +229,8 @@ public sealed class StatementExtractionTests
     [InlineData("05 ene, 2026 PAGO RECIBIDO 100.00 MXN saldo 100", 2026, 1, 5)]
     [InlineData("28 dic 2025 COMPRA TIENDA -50.00 MXN saldo 50", 2025, 12, 28)]
     [InlineData("Sep 9, 2026 STORE PURCHASE -12.34 USD ref 001", 2026, 9, 9)]
+    [InlineData("3 de enero de 2026 COMPRA TIENDA -50.00 MXN saldo 1", 2026, 1, 3)]
+    [InlineData("31 de mayo del 2026 CARGO EJEMPLO -10.00 MXN saldo 1", 2026, 5, 31)]
     public void Text_MonthNameDates_ParseInEnglishAndSpanish(string line, int year, int month, int day)
     {
         var lines = StatementExtraction.TryExtractText(line, Categories);
@@ -240,7 +242,7 @@ public sealed class StatementExtractionTests
     [Fact]
     public void Text_YearlessSpanishDates_AnchorToTheDocumentReferenceDate()
     {
-        // Banamex-style "Envío de movimientos": per-line dates are "DD MMM" with NO year (the
+        // A Mexican bank's "Envío de movimientos" export: per-line dates are "DD MMM" with NO year (the
         // year lives only in the request header), credits carry an explicit '+', charges are
         // unsigned, and an ATM line embeds the branch number right after the date — which once
         // parsed as the year 6472.
@@ -248,7 +250,7 @@ public sealed class StatementExtractionTests
             Envío de movimientos
             Hola, CASANDRA:
             Estos son los movimientos de tu
-            Joy Banamex **123
+            Joy Bancodemo **123
             Solicitados el 11/05/2026 a las 15:35
             10 May gasolinera ejemplo mpos EN PROCESO $1,075.34
             03 May su abono...gracias +$1,300.00
@@ -256,7 +258,7 @@ public sealed class StatementExtractionTests
             29 Mar 6472 suc playa ejemplo disp. efectivmx $3,000.00
             27 Dic su abono...gracias +$500.00
             1 de 1
-            www.banamex.com
+            www.bancodemo.com
             """;
 
         var lines = StatementExtraction.TryExtractText(text, Categories);

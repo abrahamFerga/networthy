@@ -91,24 +91,52 @@ public sealed class AccountDetectionTests
     [Fact]
     public void GreetingHeadersAndWebFooter_YieldTheBrandAndShortMask()
     {
-        // Banamex's export has no bank-titled header at all: greeting lines, a "**123" 3-digit
-        // card mask, and the brand only in the web footer. None of the prose may pose as the
-        // institution.
+        // A Mexican bank's email export with no bank-titled header at all: greeting lines, a
+        // "**123" 3-digit card mask, and the brand only in the web footer. None of the prose may
+        // pose as the institution.
         const string text = """
             Envío de movimientos
             Hola, CASANDRA:
             Estos son los movimientos de tu
-            Joy Banamex **123
+            Joy Bancodemo **123
             Solicitados el 11/05/2026 a las 15:35
             10 May gasolinera ejemplo mpos EN PROCESO $1,075.34
-            www.banamex.com
+            www.bancodemo.com
             """;
 
         var hint = StatementExtraction.DetectAccountHint(text);
 
         Assert.NotNull(hint);
-        Assert.Equal("Banamex", hint!.Institution);
+        Assert.Equal("Bancodemo", hint!.Institution);
         Assert.Equal("123", hint.MaskLast4);
+    }
+
+    [Fact]
+    public void MexicanStatementHeader_YieldsChequesLastFourAndMxn_NeverTheCustomer()
+    {
+        // A Mexican bank-statement PDF header: the brand exists only as a LOGO (no text, no web
+        // footer), the first title-shaped line is the CUSTOMER's name above their address, the
+        // checking account is printed unmasked on a labeled line, and the currency is spelled
+        // in words. The customer must not pose as the institution — honest null asks instead.
+        const string text = """
+            Página 1 de 2
+            000123.B04EXAMPLE.AR.0531.01
+            MARIA EJEMPLO SOLIS
+            AVENIDA SIEMPREVIVA 742
+            00000 CIUDAD EJEMPLO, EDO.DEMO C.R.00001
+            Estado de Cuenta
+            Fecha de corte 31 de mayo de 2026
+            Número de cuenta de cheques 00112234321
+            Resumen Cuenta Ejemplo En Pesos Moneda Nacional
+            """;
+
+        var hint = StatementExtraction.DetectAccountHint(text);
+
+        Assert.NotNull(hint);
+        Assert.Null(hint!.Institution);
+        Assert.Equal("4321", hint.MaskLast4);
+        Assert.Equal("MXN", hint.Currency);
+        Assert.Equal("account ••••4321", hint.Label);
     }
 
     [Fact]

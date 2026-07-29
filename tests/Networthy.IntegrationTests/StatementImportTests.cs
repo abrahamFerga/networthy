@@ -36,12 +36,15 @@ public sealed class StatementImportTests(IntegrationFixture fixture)
         var stored = await services.GetRequiredService<IFileStore>()
             .SaveAsync("bank-export.csv", "text/csv", stream, source: "test");
 
-        var queued = await services.GetRequiredService<StatementImportTools>()
+        // The chat tool WAITS for the job (real hosted service, 1s poll) and reports the outcome
+        // in the same call — the agent has no later turn to "come back" in.
+        var outcome = await services.GetRequiredService<StatementImportTools>()
             .ImportStatement(stored.Id.ToString(), "CSV Checking");
-        Assert.Contains("queued for extraction", queued);
+        Assert.Contains("3 line(s)", outcome);
+        Assert.Contains("'CSV Checking'", outcome);
 
-        // The job processor (real hosted service, 1s poll) picks the batch up. The job mutated the
-        // row in its own scope — drop this scope's tracked copy so the tools re-read fresh state.
+        // The job mutated the row in its own scope — drop this scope's tracked copy so the
+        // tools re-read fresh state.
         await WaitForBatchAsync(stored.Id, expected: "parsed");
         services.GetRequiredService<FinanceDbContext>().ChangeTracker.Clear();
 
@@ -79,7 +82,9 @@ public sealed class StatementImportTests(IntegrationFixture fixture)
         var stored = await services.GetRequiredService<IFileStore>()
             .SaveAsync("bank-digital.pdf", "application/pdf", stream, source: "test");
 
-        await services.GetRequiredService<StatementImportTools>().ImportStatement(stored.Id.ToString(), "PDF Checking");
+        var outcome = await services.GetRequiredService<StatementImportTools>()
+            .ImportStatement(stored.Id.ToString(), "PDF Checking");
+        Assert.Contains("3 line(s)", outcome);
         await WaitForBatchAsync(stored.Id, expected: "parsed");
         services.GetRequiredService<FinanceDbContext>().ChangeTracker.Clear();
 
@@ -107,7 +112,12 @@ public sealed class StatementImportTests(IntegrationFixture fixture)
         var stored = await services.GetRequiredService<IFileStore>()
             .SaveAsync("opaque-junk.bin", "application/octet-stream", stream, source: "test");
 
-        await services.GetRequiredService<StatementImportTools>().ImportStatement(stored.Id.ToString(), "Junk Target");
+        // The failure is the tool's OWN return value now — the agent relays it in the same turn
+        // instead of leaving the user to discover it on the review tab.
+        var outcome = await services.GetRequiredService<StatementImportTools>()
+            .ImportStatement(stored.Id.ToString(), "Junk Target");
+        Assert.Contains("FAILED", outcome);
+        Assert.Contains("CSV and OFX/QFX", outcome);
         await WaitForBatchAsync(stored.Id, expected: "failed");
         services.GetRequiredService<FinanceDbContext>().ChangeTracker.Clear();
 

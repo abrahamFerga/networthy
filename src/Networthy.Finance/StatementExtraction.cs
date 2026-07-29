@@ -36,11 +36,13 @@ public sealed record StatementExtractionResult(
 
 /// <summary>
 /// The document/AI leg of ADR-0004's hybrid extraction: statements the CSV/OFX templates can't
-/// read (PDFs above all). The default registration is
-/// <see cref="PlatformDocumentStatementExtractor"/> — the platform's document reader extracts
-/// the text (digital PDFs keylessly; scanned ones through the platform's OCR capability, e.g.
-/// Azure Document Intelligence, when the deployment configures it), then the deterministic
-/// line parser takes over. A host can swap the whole leg with one DI registration.
+/// read (PDFs above all). The default registration is <see cref="ModelStatementExtractor"/> —
+/// the platform's document reader extracts the text (digital PDFs keylessly; scanned ones
+/// through the platform's OCR capability when configured), the household's own model parses it
+/// with a persisted reconciliation warning when a statement summary disagrees, and the
+/// deterministic line parsers are the floor when no model is available or its answer is malformed.
+/// A host can swap the whole leg with one DI registration
+/// (<see cref="PlatformDocumentStatementExtractor"/> = deterministic only).
 /// </summary>
 public interface IStatementAiExtractor
 {
@@ -188,7 +190,7 @@ public static partial class StatementExtraction
     /// </summary>
     public static IReadOnlyList<ExtractedLine>? TryExtractText(string text, IReadOnlyList<string> categories)
     {
-        // Anchors yearless "29 Mar" lines (Banamex prints the year only in the request header).
+        // Anchors yearless "29 Mar" lines (Mexican banks often print the year only in the header).
         var reference = DocumentReferenceDate(text);
 
         var parsed = new List<(DateOnly Date, string Description, decimal Signed, bool PlusSigned)>();
@@ -205,16 +207,11 @@ public static partial class StatementExtraction
             {
                 continue;
             }
-            if (!TryParseDate(dateMatch.Value, out var date))
+            if (!TryResolveLineDate(dateMatch.Value, reference, out var date))
             {
                 // A yearless day+month resolves against the document's reference date; without a
                 // reference the line is honestly skipped rather than guessed into some year.
-                if (reference is not { } anchor
-                    || !TryParseDayMonth(dateMatch.Value, out var day, out var month)
-                    || !TryResolveYearless(day, month, anchor, out date))
-                {
-                    continue;
-                }
+                continue;
             }
 
             // The amount lives either at the END of the line (classic "DESC      -82.45"
@@ -276,6 +273,24 @@ public static partial class StatementExtraction
         // Row-wise found nothing? OCR of a tabular statement often reads COLUMNS as blocks —
         // every date, then every description, then every amount. Reconstruct the rows.
         return result.Count > 0 ? result : TryExtractColumnarText(text, categories);
+    }
+
+    /// <summary>A full date, or a yearless day+month anchored to the document's reference date.</summary>
+    private static bool TryResolveLineDate(string token, DateOnly? reference, out DateOnly date)
+    {
+        if (TryParseDate(token, out date))
+        {
+            return true;
+        }
+
+        if (reference is { } anchor && TryParseDayMonth(token, out var day, out var month)
+            && TryResolveYearless(day, month, anchor, out date))
+        {
+            return true;
+        }
+
+        date = default;
+        return false;
     }
 
     /// <summary>
@@ -412,15 +427,16 @@ public static partial class StatementExtraction
     }
 
     // Years are REGEX-bounded to 19xx/20xx: without the bound, "29 Mar 6472" (a day, a month, and
-    // an ATM branch number) parses as the year 6472 — a real Banamex line did exactly that. The
-    // final alternative matches a YEARLESS "29 Mar" (banks that print the year only in the header);
-    // the lookahead keeps it from half-eating a dated form, and the caller resolves the year
-    // against the document's reference date.
-    [GeneratedRegex(@"\b((?:19|20)\d{2}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/(?:19|20)\d{2}|\d{1,2}\s+\p{L}{3,10}\.?,?\s+(?:19|20)\d{2}|\p{L}{3,10}\.?\s+\d{1,2},?\s+(?:19|20)\d{2}|\d{1,2}\s+\p{L}{3,10}\.?(?!,?\s+(?:19|20)\d{2}))\b", RegexOptions.IgnoreCase)]
+    // an ATM branch number) parses as the year 6472 — a real statement line did exactly that. The
+    // "31 de mayo de(l) 2026" alternative is how Mexican statements spell their cut-off dates.
+    // The final alternative matches a YEARLESS "29 Mar" (banks that print the year only in the
+    // header); the lookahead keeps it from half-eating a dated form, and the caller resolves the
+    // year against the document's reference date.
+    [GeneratedRegex(@"\b((?:19|20)\d{2}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/(?:19|20)\d{2}|\d{1,2}\s+de\s+\p{L}{3,10}\.?\s+(?:de|del)\s+(?:19|20)\d{2}|\d{1,2}\s+\p{L}{3,10}\.?,?\s+(?:19|20)\d{2}|\p{L}{3,10}\.?\s+\d{1,2},?\s+(?:19|20)\d{2}|\d{1,2}\s+\p{L}{3,10}\.?(?!,?\s+(?:19|20)\d{2}))\b", RegexOptions.IgnoreCase)]
     private static partial Regex TextDatePattern();
 
     /// <summary>Dates that carry their own year — scanned document-wide to anchor yearless lines.</summary>
-    [GeneratedRegex(@"\b((?:19|20)\d{2}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/(?:19|20)\d{2}|\d{1,2}\s+\p{L}{3,10}\.?,?\s+(?:19|20)\d{2})\b", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"\b((?:19|20)\d{2}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/(?:19|20)\d{2}|\d{1,2}\s+de\s+\p{L}{3,10}\.?\s+(?:de|del)\s+(?:19|20)\d{2}|\d{1,2}\s+\p{L}{3,10}\.?,?\s+(?:19|20)\d{2})\b", RegexOptions.IgnoreCase)]
     private static partial Regex FullDatePattern();
 
     [GeneratedRegex(@"\(?[+-]?\$?\d{1,3}(,\d{3})*\.\d{2}\)?-?(\s?(CR|DR))?$", RegexOptions.IgnoreCase)]
@@ -487,9 +503,13 @@ public static partial class StatementExtraction
         }
 
         // "03 Mar, 2026" / "3 ene 2026" / "Mar 3, 2026" — month names in English or Spanish,
-        // resolved by 3-letter prefix so the host's locale never matters. Unknown words simply
-        // fail here, which is also what rejects date-shaped phrases the regex over-matched.
-        var tokens = text.Split([' ', ',', '.'], StringSplitOptions.RemoveEmptyEntries);
+        // resolved by 3-letter prefix so the host's locale never matters. Spanish connectives
+        // drop first, so "31 de mayo del 2026" reads as its three real tokens. Unknown words
+        // simply fail here, which is also what rejects date-shaped phrases the regex over-matched.
+        var tokens = text.Split([' ', ',', '.'], StringSplitOptions.RemoveEmptyEntries)
+            .Where(t => !t.Equals("de", StringComparison.OrdinalIgnoreCase)
+                        && !t.Equals("del", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
         if (tokens.Length == 3)
         {
             var (dayToken, monthToken) = char.IsLetter(tokens[0][0]) ? (tokens[1], tokens[0]) : (tokens[0], tokens[1]);
@@ -505,7 +525,7 @@ public static partial class StatementExtraction
         }
 
         // Deliberately NO permissive DateOnly.TryParse fallback: invariant parsing accepts
-        // "29 Mar 6472" as the year 6472 (a Banamex ATM branch number) and "10 May" as
+        // "29 Mar 6472" as the year 6472 (an ATM branch number) and "10 May" as
         // 2010-05-01 (year-month form). Every accepted shape is listed explicitly above;
         // yearless day+month forms go through TryParseDayMonth + the document reference instead.
         date = default;
@@ -654,6 +674,14 @@ public static partial class StatementExtraction
             last4 = digits.Length >= 4 ? digits[^4..] : null;
         }
         last4 ??= FirstGroup(EndingInPattern().Match(text)) ?? FirstGroup(MaskedNumberPattern().Match(text));
+        // Mexican statements print the checking account UNMASKED on a labeled line ("Número de
+        // cuenta de cheques 70177434092") — its trailing four digits are the same identity every
+        // mask spelling would carry.
+        if (last4 is null && AccountNumberLinePattern().Match(text) is { Success: true } acct
+            && acct.Groups[1].Value is { Length: >= 4 } number)
+        {
+            last4 = number[^4..];
+        }
 
         var institution = OfxOrgPattern().Match(text) is { Success: true } org
             ? org.Groups[1].Value.Trim()
@@ -678,7 +706,9 @@ public static partial class StatementExtraction
             .ToList();
         if (counts.Count == 0)
         {
-            return null;
+            // Mexican statements rarely tag amounts with ISO codes — they say it in words
+            // ("En pesos Moneda Nacional").
+            return MonedaNacionalPattern().IsMatch(text) ? "MXN" : null;
         }
 
         var total = counts.Sum(c => c.Count);
@@ -693,9 +723,10 @@ public static partial class StatementExtraction
     /// </summary>
     private static string? DetectInstitutionFromHeader(string text)
     {
-        foreach (var raw in text.Replace("\r\n", "\n").Split('\n').Take(8))
+        var headerLines = text.Replace("\r\n", "\n").Split('\n');
+        for (var i = 0; i < headerLines.Length && i < 8; i++)
         {
-            var line = raw.Trim();
+            var line = headerLines[i].Trim();
             if (line.Length is < 3 or > 64
                 || line.Count(c => c == ',') >= 2                       // a CSV header, not a title
                 || line.Contains('<')                                    // markup
@@ -708,6 +739,8 @@ public static partial class StatementExtraction
                 || TextDatePattern().IsMatch(line)
                 || TextAmountPattern().IsMatch(line)
                 || ColumnHeaderWords.Count(w => line.Contains(w, StringComparison.OrdinalIgnoreCase)) >= 2
+                || line.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length > 6 // a sentence, not a title
+                || LooksLikeAddressee(headerLines, i)
                 || line.Count(char.IsLetter) < 3)
             {
                 continue;
@@ -734,7 +767,7 @@ public static partial class StatementExtraction
             }
         }
 
-        // Still nothing — the bank's web footer is the last-resort brand ("www.banamex.com").
+        // Still nothing — the bank's web footer is the last-resort brand ("www.bancodemo.com").
         if (WebDomainPattern().Match(text) is { Success: true } domain)
         {
             return CultureInfo.InvariantCulture.TextInfo.ToTitleCase(domain.Groups[1].Value.ToLowerInvariant());
@@ -751,6 +784,38 @@ public static partial class StatementExtraction
     private static readonly string[] GreetingWords =
         ["hola", "hello", "dear ", "estimado", "estimada", "estos son", "these are"];
 
+    /// <summary>
+    /// The window-envelope block: a statement's first lines carry the CUSTOMER's name with the
+    /// street address right under it. A title-shaped line whose next line or two reads as an
+    /// address (digit-heavy, no statement vocabulary) is the addressee, never the bank.
+    /// </summary>
+    private static bool LooksLikeAddressee(string[] lines, int index)
+    {
+        for (var j = index + 1; j <= index + 2 && j < lines.Length; j++)
+        {
+            var next = lines[j].Trim();
+            if (next.Length == 0)
+            {
+                continue;
+            }
+
+            if (next.Count(char.IsDigit) >= 4 && next.Count(char.IsLetter) >= 3
+                && !StatementVocabulary.Any(w => next.Contains(w, StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Words a statement line uses about ITSELF — their presence means "not a mailing address".</summary>
+    private static readonly string[] StatementVocabulary =
+    [
+        "account", "cuenta", "statement", "estado", "period", "período", "periodo",
+        "ending", "termina", "page", "página", "member fdic",
+    ];
+
     private static string? FirstGroup(Match match) => match.Success ? match.Groups[1].Value : null;
 
     [GeneratedRegex(@"<ACCTID>\s*([A-Za-z0-9*\-]+)", RegexOptions.IgnoreCase)]
@@ -762,14 +827,22 @@ public static partial class StatementExtraction
     [GeneratedRegex(@"\b(?:ending|termina)\s+(?:in|en)\s+(\d{4})\b", RegexOptions.IgnoreCase)]
     private static partial Regex EndingInPattern();
 
-    // {3,4} trailing digits: Banamex masks cards as "**877" — three visible digits, not four.
+    // {3,4} trailing digits: some Mexican banks mask cards as "**877" — three visible digits, not four.
     [GeneratedRegex(@"(?:[*•xX]{2,}|(?:account|acct|cuenta)\s*(?:no\.?|number|núm\.?|#)?\s*[:#]\s*[*•xX\d\- ]*?)[\- ]?(\d{3,4})(?!\d)", RegexOptions.IgnoreCase)]
     private static partial Regex MaskedNumberPattern();
+
+    /// <summary>An unmasked, labeled account-number line ("Número de cuenta de cheques 70177434092").</summary>
+    [GeneratedRegex(@"(?:n[úu]mero\s+de\s+cuenta(?:\s+de\s+cheques)?|cuenta\s+de\s+cheques)\s*(?:no\.?|#)?\s*[:#]?\s*(\d{7,20})\b", RegexOptions.IgnoreCase)]
+    private static partial Regex AccountNumberLinePattern();
+
+    /// <summary>How Mexican statements declare their currency in words instead of ISO tags.</summary>
+    [GeneratedRegex(@"\bmoneda\s+nacional\b|\ben\s+pesos\b", RegexOptions.IgnoreCase)]
+    private static partial Regex MonedaNacionalPattern();
 
     [GeneratedRegex(@"\b(?:account\s+)?(?:statement|estado\s+de\s+cuenta|env[ií]o\s+de\s+movimientos|movimientos)\b.*$", RegexOptions.IgnoreCase)]
     private static partial Regex StatementSuffixPattern();
 
-    /// <summary>The bank's own web footer ("www.banamex.com") — the last-resort brand signal.</summary>
+    /// <summary>The bank's own web footer ("www.bancodemo.com") — the last-resort brand signal.</summary>
     [GeneratedRegex(@"\bwww\.([a-z0-9-]{3,40})\.(?:com\.mx|com|mx|net|org)\b", RegexOptions.IgnoreCase)]
     private static partial Regex WebDomainPattern();
 
