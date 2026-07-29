@@ -11,8 +11,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Plenipo.Connectors.Sdk" Version="0.1.0-alpha.27" />
-    <PackageReference Include="Plenipo.Application" Version="0.1.0-alpha.27" />
+    <PackageReference Include="Plenipo.Connectors.Sdk" Version="0.1.0-alpha.28" />
+    <PackageReference Include="Plenipo.Application" Version="0.1.0-alpha.28" />
   </ItemGroup>
 
   <ItemGroup>
