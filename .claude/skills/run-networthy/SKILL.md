@@ -39,6 +39,7 @@ performs **real, audited tool calls and triggers the approval gate**.
 | start it (Aspire / headless / compose) | §2 Run |
 | know when it's ready | §2 Ready signals |
 | authenticate a request | §3 — `X-Dev-Subject` / `X-Dev-Tenant` / `X-Dev-Roles` |
+| fire a ready-made request at any endpoint | [`networthy.http`](../../../networthy.http) — the committed catalog |
 | send a chat turn and read the event stream | §4 AG-UI |
 | **understand why a chat-driven test behaves oddly** | §4 *How the Mock provider behaves* |
 | drive the approval round trip | §4 Approvals |

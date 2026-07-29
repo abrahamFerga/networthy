@@ -1,0 +1,15 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "networthy",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": ["run", "--project", "src/Networthy.AppHost"],
+      "port": 5173
+    },
+    {
+      "name": "networthy-ui-attach",
+      "url": "http://localhost:5173"
+    }
+  ]
+}
