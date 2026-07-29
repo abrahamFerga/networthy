@@ -112,6 +112,34 @@ public sealed class AccountDetectionTests
     }
 
     [Fact]
+    public void MexicanStatementHeader_YieldsChequesLastFourAndMxn_NeverTheCustomer()
+    {
+        // A Citibanamex-style PDF header: the brand exists only as a LOGO (no text, no web
+        // footer), the first title-shaped line is the CUSTOMER's name above their address, the
+        // checking account is printed unmasked on a labeled line, and the currency is spelled
+        // in words. The customer must not pose as the institution — honest null asks instead.
+        const string text = """
+            Página 1 de 2
+            000123.B04EXAMPLE.AR.0531.01
+            MARIA EJEMPLO SOLIS
+            AVENIDA SIEMPREVIVA 742
+            25000 SALTILLO, COAHUILA C.R.25001
+            Estado de Cuenta
+            Fecha de corte 31 de mayo de 2026
+            Número de cuenta de cheques 00112234321
+            Resumen Cuenta Ejemplo En Pesos Moneda Nacional
+            """;
+
+        var hint = StatementExtraction.DetectAccountHint(text);
+
+        Assert.NotNull(hint);
+        Assert.Null(hint!.Institution);
+        Assert.Equal("4321", hint.MaskLast4);
+        Assert.Equal("MXN", hint.Currency);
+        Assert.Equal("account ••••4321", hint.Label);
+    }
+
+    [Fact]
     public void DetectedLabel_IncludesCurrencyWhenKnown()
     {
         var batch = new StatementImportBatch

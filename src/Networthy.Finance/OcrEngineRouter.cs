@@ -33,6 +33,7 @@ public sealed class OcrEngineRouter(
     IOptions<OcrOptions> deploymentOcr,
     IHttpClientFactory httpClients,
     OutboundUrlPolicy outboundUrls,
+    OcrDiagnostics diagnostics,
     ILogger<OcrEngineRouter> logger) : IOcrEngine
 {
     public const string TikaConnectorId = "ocr-apache-tika";
@@ -68,6 +69,7 @@ public sealed class OcrEngineRouter(
             && adi.TryGetValue(AdiEndpointKey, out var endpoint) && !string.IsNullOrWhiteSpace(endpoint)
             && adi.TryGetValue(AdiApiKeyKey, out var key) && !string.IsNullOrWhiteSpace(key))
         {
+            diagnostics.EngineConfigured = true;
             var viaConnector = await TryAdiAsync(endpoint, key, document, contentType, "connector", cancellationToken);
             if (viaConnector is not null)
             {
@@ -78,6 +80,7 @@ public sealed class OcrEngineRouter(
         var deployment = deploymentOcr.Value;
         if (deployment.IsAzureDocumentIntelligence)
         {
+            diagnostics.EngineConfigured = true;
             var viaDeployment = await TryAdiAsync(
                 deployment.Endpoint!, deployment.ApiKey!, document, contentType, "deployment", cancellationToken);
             if (viaDeployment is not null)
@@ -98,6 +101,7 @@ public sealed class OcrEngineRouter(
             return null;
         }
 
+        diagnostics.EngineConfigured = true;
         try
         {
             // The deployment's egress policy applies to household-entered URLs (an in-network
@@ -121,6 +125,8 @@ public sealed class OcrEngineRouter(
                 .SendAsync(request, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
+                diagnostics.EngineFailure ??=
+                    $"the household's self-hosted Tika OCR server ({baseUrl}) answered HTTP {(int)response.StatusCode}";
                 logger.LogWarning(
                     "The Tika OCR server answered {Status} for a {ContentType} document; trying the next OCR source",
                     (int)response.StatusCode, contentType);
@@ -134,6 +140,8 @@ public sealed class OcrEngineRouter(
         }
         catch (Exception ex) when (ex is HttpRequestException or ArgumentException or InvalidOperationException or TaskCanceledException)
         {
+            diagnostics.EngineFailure ??=
+                $"the household's self-hosted Tika OCR server ({baseUrl}) could not be reached ({ex.Message})";
             logger.LogWarning(ex, "Self-hosted Tika OCR failed; trying the next OCR source");
             return null;
         }
@@ -157,6 +165,8 @@ public sealed class OcrEngineRouter(
         }
         catch (Exception ex) when (ex is RequestFailedException or UriFormatException)
         {
+            diagnostics.EngineFailure ??=
+                $"Azure Document Intelligence ({source}) could not process the document ({ex.Message})";
             logger.LogWarning(ex,
                 "Azure Document Intelligence ({Source}) could not process a {ContentType} document",
                 source, contentType);
@@ -164,5 +174,15 @@ public sealed class OcrEngineRouter(
         }
     }
 
-    private static string? NullIfBlank(string text) => string.IsNullOrWhiteSpace(text) ? null : text;
+    /// <summary>An engine ANSWERED with blank text — a real read that found nothing, not an outage.</summary>
+    private string? NullIfBlank(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            diagnostics.EngineReadNoText = true;
+            return null;
+        }
+
+        return text;
+    }
 }

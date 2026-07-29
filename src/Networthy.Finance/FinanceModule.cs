@@ -152,7 +152,13 @@ public sealed class FinanceModule : IModule
             "Suggest a category when logging (match the Categories tab); if none fits, log uncategorized " +
             "and offer categorize_transaction afterwards. STATEMENTS: when the user attaches a bank " +
             "statement, import_statement (file id from the attachment block; the account is OPTIONAL — " +
-            "omit it and the statement's own account is detected). If the batch comes back " +
+            "omit it and the statement's own account is detected). The tool WAITS for extraction, so " +
+            "its result usually IS the outcome — relay it faithfully. FAILED extraction: give the user " +
+            "the reason and the fix it names (start the OCR engine, or export CSV/OFX instead) — never " +
+            "pretend it may still succeed. Still running: SAY so, and that the outcome lands on the " +
+            "Statement review tab and the bell; check review_import_batch when the user next asks. You " +
+            "CANNOT act between messages, so NEVER promise to 'come back', 'monitor', or 'follow up' " +
+            "on your own — only name what happens when the user returns. If the batch comes back " +
             "needs-account, tell the user what it looks like (institution + masked number) and ASK: " +
             "an existing account, or create it? Resolve with assign_import_account (createIfMissing " +
             "to create — never create without the user saying so). Then review_import_batch to show " +
@@ -300,7 +306,7 @@ public sealed class FinanceModule : IModule
             new ToolDescriptor
             {
                 Name = "import_statement",
-                Description = "Import an uploaded bank statement (CSV/OFX/QFX) for extraction and review. Runs ungated: it only queues extraction into the review pipeline — approving the reviewed batch is the human gate, and discard undoes an unwanted import.",
+                Description = "Import an uploaded bank statement (CSV/OFX/QFX/PDF) for extraction and review. Waits briefly and usually returns the extraction outcome (line count, needs-account question, or the failure reason); longer extractions continue in the background. Runs ungated: extraction only feeds the review pipeline — approving the reviewed batch is the human gate, and discard undoes an unwanted import.",
                 Permission = Permissions.ForTool(Id, "import_statement"),
             },
             new ToolDescriptor
@@ -1003,9 +1009,10 @@ public sealed class FinanceModule : IModule
         // Per-user mutable notification streams: declaring a category here lets each household
         // member mute it for themselves (Notifications bell -> Preferences) without silencing
         // anyone else. Ids must match what the emitters publish — BillReminderService for
-        // finance.bill, DailyDigestJobHandler for finance.budgets / finance.recurring, and the
-        // PLATFORM for finance.approvals (its "{moduleId}.approvals", sent when an AI action
-        // queues for a human decision) and StatementReminderJobHandler for finance.statements.
+        // finance.bill, DailyDigestJobHandler for finance.budgets / finance.recurring,
+        // StatementParseJobHandler for finance.imports, and the PLATFORM for finance.approvals
+        // (its "{moduleId}.approvals", sent when an AI action queues for a human decision) and
+        // StatementReminderJobHandler for finance.statements.
         NotificationCategories =
         [
             new("finance.bill", "Bill reminders",
@@ -1016,6 +1023,8 @@ public sealed class FinanceModule : IModule
                 "The daily digest flags charges that just became detectable."),
             new("finance.statements", "Statement reminders",
                 "A once-per-period nudge to upload a fresh statement — or to confirm rolling steady income forward."),
+            new("finance.imports", "Statement extraction outcomes",
+                "An imported statement failed extraction, or finished after you stopped watching — the review tab has it."),
             new("finance.approvals", "Approval requests",
                 "An assistant action is waiting for a human decision."),
         ],
@@ -1049,6 +1058,9 @@ public sealed class FinanceModule : IModule
         // Document Intelligence), deployment Ocr config as fallback, honest null when nothing
         // is configured — see OcrEngineRouter.
         services.AddScoped<IOcrEngine, OcrEngineRouter>();
+        // One evidence trail per extraction scope: written by the router and the extractor,
+        // read by StatementParseJobHandler to compose a failure reason that names the real fix.
+        services.AddScoped<OcrDiagnostics>();
         services.AddSingleton<Plenipo.Application.Jobs.IJobHandler, StatementParseJobHandler>();
         services.AddSingleton<Plenipo.Application.Jobs.IJobHandler, DailyDigestJobHandler>();
         services.AddSingleton<Plenipo.Application.Jobs.IJobHandler, StatementReminderJobHandler>();

@@ -50,10 +50,12 @@ public sealed class StatementAccountDetectionTests(IntegrationFixture fixture)
         var stored = await services.GetRequiredService<IFileStore>()
             .SaveAsync("masked-checking.ofx", "application/x-ofx", stream, source: "test");
 
-        // No account named — detection should attach it to the ••••7788 account on its own.
-        var queued = await services.GetRequiredService<StatementImportTools>()
+        // No account named — detection attaches it to the ••••7788 account on its own, and the
+        // tool's bounded wait reports that landing in the same call.
+        var outcome = await services.GetRequiredService<StatementImportTools>()
             .ImportStatement(stored.Id.ToString());
-        Assert.Contains("detect which account", queued);
+        Assert.Contains("1 line(s)", outcome);
+        Assert.Contains("'Masked Checking'", outcome);
 
         await WaitForBatchAsync(stored.Id, expected: "parsed");
 
