@@ -138,12 +138,15 @@ public sealed class FinanceModule : IModule
             "PLAYBOOK: accounts with create_account/list_accounts; net worth with get_net_worth. " +
             "A member's own purchase -> log_own_transaction (instant, no approval); anything else that " +
             "changes records (categorize_transaction, edit_transaction, create_account) waits for the " +
-            "user's approval - tell them so. Approvals are decided OUTSIDE this chat and their outcome " +
-            "is never posted back into it: a tool result saying an action awaits approval only means it " +
-            "had not run AT THAT MOMENT, and you cannot see or reopen the approval prompt. When the user " +
-            "says they approved something or asks whether it ran, never answer from earlier messages - " +
-            "check live state first (list_pending_approvals for what is still waiting; " +
-            "list_import_batches for what a statement import produced) and report what the tools return. " +
+            "user's approval - tell them so. CALLING a gated tool is what CREATES the approval prompt: " +
+            "when the user asks for a gated action - or insists after you have relayed a warning - CALL " +
+            "the tool, then tell them to decide on the Approve/Reject prompt that just appeared in this " +
+            "chat. NEVER refuse because a gate exists, and NEVER tell the user to approve something " +
+            "'outside the chat' when nothing is pending - that is a dead end. Outcomes are reported " +
+            "back automatically: you receive an [Approval outcomes] note next turn, and the user sees " +
+            "the result message the moment they click. When unsure what actually ran, check live state " +
+            "(list_pending_approvals for what is still waiting; list_import_batches for what a " +
+            "statement import produced) instead of trusting earlier messages. " +
             "'How much did we spend on X' -> summarize_spending. " +
             "'Can I afford X' -> can_i_afford and give the verdict verbatim - never soften a 'no'. " +
             "Suggest a category when logging (match the Categories tab); if none fits, log uncategorized " +
@@ -154,7 +157,11 @@ public sealed class FinanceModule : IModule
             "an existing account, or create it? Resolve with assign_import_account (createIfMissing " +
             "to create — never create without the user saying so). Then review_import_batch to show " +
             "the extracted lines, and only after the user confirms, approve_import_batch. Relay any " +
-            "duplicate-period warning the review shows. Never post lines the user hasn't seen. When " +
+            "duplicate-period warning the review shows, and when a batch duplicates an ALREADY-APPROVED " +
+            "statement's period, recommend discard_import_batch instead of approving twice — but if the " +
+            "user still wants it posted, call approve_import_batch and let them decide at the gate. " +
+            "discard_import_batch removes an unposted batch (duplicate upload, abandoned import); posted " +
+            "data is never touched. Never post lines the user hasn't seen. When " +
             "several statements are in flight, list_import_batches enumerates what's pending — review " +
             "and approve each by its file name; no batch is limited to being 'the latest'. " +
             "TRANSFERS: money moving between the household's OWN accounts (e.g. a Payoneer USD withdrawal " +
@@ -293,9 +300,8 @@ public sealed class FinanceModule : IModule
             new ToolDescriptor
             {
                 Name = "import_statement",
-                Description = "Import an uploaded bank statement (CSV/OFX/QFX) for extraction and review. Side-effecting: brings external data in and requires human approval.",
+                Description = "Import an uploaded bank statement (CSV/OFX/QFX) for extraction and review. Runs ungated: it only queues extraction into the review pipeline — approving the reviewed batch is the human gate, and discard undoes an unwanted import.",
                 Permission = Permissions.ForTool(Id, "import_statement"),
-                RequiresApproval = true,
             },
             new ToolDescriptor
             {
@@ -315,6 +321,13 @@ public sealed class FinanceModule : IModule
                 Name = "approve_import_batch",
                 Description = "Post a reviewed batch's lines as transactions. Side-effecting: writes data and requires human approval.",
                 Permission = Permissions.ForTool(Id, "approve_import_batch"),
+                RequiresApproval = true,
+            },
+            new ToolDescriptor
+            {
+                Name = "discard_import_batch",
+                Description = "Remove an UNPOSTED import batch (duplicate upload, abandoned import). Posted data is never touched. Side-effecting and requires human approval.",
+                Permission = Permissions.ForTool(Id, "discard_import_batch"),
                 RequiresApproval = true,
             },
             new ToolDescriptor
@@ -695,7 +708,11 @@ public sealed class FinanceModule : IModule
             },
             new TabDescriptor
             {
-                Id = "income", Label = "Income", Route = "/finance/income", Icon = "banknote", Order = 5,
+                // "Income sources", deliberately not "Income": this tab is the household's declared
+                // paycheck SCHEDULES (cadence for goal plans and cash-flow checks), not an income
+                // ledger — a first-timer reading "Income" expects their positive transactions here
+                // and concludes the app lost them. Money-in lives on the Transactions tab.
+                Id = "income", Label = "Income sources", Route = "/finance/income", Icon = "banknote", Order = 5,
                 Permission = ViewFinance,
                 DataEndpoint = "/api/finance/income-sources",
                 Columns =
@@ -815,30 +832,32 @@ public sealed class FinanceModule : IModule
                     new("lineCount", "Lines"), new("totals", "Totals (−/+)"),
                     new("status", "Status"),
                 ],
-                // …and each row drills into a detail document of that batch's extracted lines.
+                // …and each row drills into a detail document of that batch's extracted lines,
+                // which carries ITS OWN actions (approve / assign account / create detected /
+                // discard, composed per state in the detail endpoint below). The human clicking
+                // IS the approval — always on the batch in front of them. There is deliberately
+                // NO tab-level "approve latest" button: a button whose target is invisible reads
+                // as "approve what I'm looking at" and dead-ends when no parsed batch exists.
                 DetailEndpoint = "/api/finance/imports/{id}/detail",
                 Placeholder = "Nothing awaiting review. Attach a bank statement in Chat and ask to import it; each parsed batch lands here for inspection and approval.",
-                // One button posts the NEWEST parsed batch — tab actions POST to a fixed endpoint,
-                // so per-row approval isn't expressible here; any other batch is approved in Chat
-                // (approve_import_batch with its file name). The human clicking IS the approval.
-                Actions =
-                [
-                    new TabAction
-                    {
-                        Id = "approve-latest",
-                        Label = "Approve latest batch",
-                        Endpoint = "/api/finance/imports/latest/approve",
-                        Permission = ReviewImports,
-                        Confirm = "Post the most recent parsed batch's lines as transactions? Balances update immediately.",
-                    },
-                ],
                 // The "should I create this account?" answer for batches imported without one:
                 // the row action creates the DETECTED account (institution + mask from the
-                // statement) and attaches the batch. Picking an existing account instead is a
-                // chat action (assign_import_account) — row actions carry no input fields. On
+                // statement) and attaches the batch. Picking an existing account instead lives
+                // in the DETAIL view's assign action (row actions carry no input fields). On
                 // rows that already have an account the endpoint answers with a harmless refusal.
                 RowActions =
                 [
+                    // Approve THIS row — the reviewer should never have to reason about which
+                    // batch a tab-level button will pick. Non-parsed rows answer with the
+                    // endpoint's honest refusal.
+                    new TabRowAction
+                    {
+                        Id = "approve",
+                        Label = "Approve",
+                        EndpointTemplate = "/api/finance/imports/{id}/approve",
+                        Permission = ReviewImports,
+                        Confirm = "Post this batch's lines as transactions? Balances update immediately.",
+                    },
                     new TabRowAction
                     {
                         Id = "create-detected-account",
@@ -848,6 +867,18 @@ public sealed class FinanceModule : IModule
                         Confirm = "Create the account this statement looks like (detected institution and " +
                                   "masked number, household default currency) and attach the batch to it? " +
                                   "Nothing posts until you approve the batch afterwards.",
+                    },
+                    // The way OUT for a batch that should never post — a duplicate upload, a failed
+                    // parse, an abandoned import. Approved batches refuse server-side: their lines
+                    // are in the ledger and their period arms the duplicate warning.
+                    new TabRowAction
+                    {
+                        Id = "discard",
+                        Label = "Discard",
+                        EndpointTemplate = "/api/finance/imports/{id}/discard",
+                        Permission = ManageFinance,
+                        Confirm = "Discard this batch? Nothing has posted from it, so no account changes; " +
+                                  "the uploaded file itself stays stored.",
                     },
                 ],
             },
@@ -1384,6 +1415,29 @@ public sealed class FinanceModule : IModule
             .RequireAuthorization(PermissionRequirement.PolicyName(ManageFinance))
             .WithName("Finance_CreateDetectedAccount");
 
+        // The review tab's "Discard" row action: removes an unposted batch (duplicate upload,
+        // failed parse, abandoned import). Approved batches refuse — their lines posted and their
+        // period arms the duplicate-period warning.
+        group.MapPost("/imports/{batchId:guid}/discard", async (
+                Guid batchId, FinanceDbContext db, CancellationToken cancellationToken) =>
+            {
+                var batch = await db.ImportBatches.FirstOrDefaultAsync(b => b.Id == batchId, cancellationToken);
+                if (batch is null)
+                {
+                    return Results.NotFound();
+                }
+                if (batch.Status == "approved")
+                {
+                    return Results.BadRequest(new { error = $"'{batch.FileName}' was approved and its lines posted — an approved batch cannot be discarded." });
+                }
+
+                db.ImportBatches.Remove(batch);
+                await db.SaveChangesAsync(cancellationToken);
+                return Results.Ok(new { message = $"Discarded '{batch.FileName}' — nothing had posted, no account changed." });
+            })
+            .RequireAuthorization(PermissionRequirement.PolicyName(ManageFinance))
+            .WithName("Finance_DiscardImportBatch");
+
         group.MapGet("/imports/latest/lines", async (FinanceDbContext db, CancellationToken cancellationToken) =>
                 ListBatchLines(await LatestParsedBatchAsync(db, cancellationToken)))
             .RequireAuthorization(PermissionRequirement.PolicyName(ReviewImports))
@@ -1426,11 +1480,22 @@ public sealed class FinanceModule : IModule
             .WithName("Finance_DropBatchLine");
 
         group.MapPost("/imports/latest/approve", async (
-                StatementImportTools imports, CancellationToken cancellationToken) =>
+                StatementImportTools imports, FinanceDbContext db, CancellationToken cancellationToken) =>
             {
                 // The reviewer clicking the button IS the human approval this batch waits for.
-                var message = await imports.ApproveImportBatch(fileName: null, cancellationToken);
-                return Results.Ok(new { message });
+                // "Latest" means the latest PARSED batch — resolving the newest batch of ANY
+                // status made the button refuse on an already-approved newer one while the row
+                // actually awaiting review sat visible right below it. Refusals are error
+                // statuses, not 200s — a quiet gray "nothing happened" under a confirm dialog
+                // reads as a dead button (the needs-account incident).
+                var batch = await LatestParsedBatchAsync(db, cancellationToken);
+                if (batch is null)
+                {
+                    return Results.BadRequest(new { error = "No parsed batch is awaiting approval." });
+                }
+
+                var (ok, message) = await imports.ApproveBatchAsync(batch, cancellationToken);
+                return ok ? Results.Ok(new { message }) : Results.BadRequest(new { error = message });
             })
             .RequireAuthorization(PermissionRequirement.PolicyName(ReviewImports))
             .WithName("Finance_ApproveLatestImport");
@@ -1444,15 +1509,47 @@ public sealed class FinanceModule : IModule
                     return Results.NotFound();
                 }
 
-                var message = await imports.ApproveBatchAsync(batch, cancellationToken);
-                return Results.Ok(new { message });
+                var (ok, message) = await imports.ApproveBatchAsync(batch, cancellationToken);
+                return ok ? Results.Ok(new { message }) : Results.BadRequest(new { error = message });
             })
             .RequireAuthorization(PermissionRequirement.PolicyName(ReviewImports))
             .WithName("Finance_ApproveImportBatch");
 
+        // The detail view's "assign to an existing account" action for a needs-account batch:
+        // the picker lists the household's accounts (same options endpoint the editors use), so
+        // this endpoint only ever attaches EXISTING accounts — creating the detected one is the
+        // create-account endpoint; creating under a custom name stays a chat action.
+        group.MapPost("/imports/{batchId:guid}/assign-account", async (
+                AssignImportAccountRequest body, Guid batchId, StatementImportTools imports, FinanceDbContext db,
+                CancellationToken cancellationToken) =>
+            {
+                var batch = await db.ImportBatches.FirstOrDefaultAsync(b => b.Id == batchId, cancellationToken);
+                if (batch is null)
+                {
+                    return Results.NotFound();
+                }
+                if (batch.Status != "needs-account")
+                {
+                    return Results.BadRequest(new { error = $"'{batch.FileName}' is not waiting for an account." });
+                }
+
+                var name = body.AccountName?.Trim() ?? "";
+                if (name.Length == 0)
+                {
+                    return Results.BadRequest(new { error = "Pick the account this statement belongs to." });
+                }
+
+                var (ok, message) = await imports.AssignAccountAsync(
+                    batch, name, createIfMissing: false, accountType: null, cancellationToken);
+                return ok ? Results.Ok(new { message }) : Results.BadRequest(new { error = message });
+            })
+            .RequireAuthorization(PermissionRequirement.PolicyName(ManageFinance))
+            .WithName("Finance_AssignImportAccount");
+
         // A batch as a generic DETAIL DOCUMENT — the Review tab's drill-down from the batch list.
         group.MapGet("/imports/{batchId:guid}/detail", async (
-                Guid batchId, FinanceDbContext db, CancellationToken cancellationToken) =>
+                Guid batchId, FinanceDbContext db, Plenipo.Core.Identity.ICurrentUser user,
+                CancellationToken cancellationToken) =>
             {
                 var batch = await db.ImportBatches.FirstOrDefaultAsync(b => b.Id == batchId, cancellationToken);
                 if (batch is null)
@@ -1464,6 +1561,66 @@ public sealed class FinanceModule : IModule
                 var lines = StatementImportTools.Deserialize(batch.ExtractedLinesJson);
                 var expense = lines.Where(l => l.Direction == "expense").Sum(l => l.Amount);
                 var income = lines.Where(l => l.Direction == "income").Sum(l => l.Amount);
+
+                // Commands on THIS batch, composed per state and per caller — the shell's detail
+                // view renders them beside the lines under review, so approving, assigning, and
+                // discarding happen on the batch in front of the reviewer, never on a hidden
+                // "latest". The endpoints stay authorization-gated regardless of what's sent.
+                var actions = new List<object>();
+                if (batch.Status == "parsed")
+                {
+                    // Reaching this endpoint already required ReviewImports — approving is theirs.
+                    actions.Add(new
+                    {
+                        id = "approve",
+                        label = "Approve",
+                        endpoint = $"/api/finance/imports/{batch.Id}/approve",
+                        confirm = "Post this batch's lines as transactions? Balances update immediately.",
+                    });
+                }
+                if (user.HasPermission(ManageFinance))
+                {
+                    if (batch.Status == "needs-account")
+                    {
+                        actions.Add(new
+                        {
+                            id = "assign-account",
+                            label = "Assign",
+                            endpoint = $"/api/finance/imports/{batch.Id}/assign-account",
+                            field = new
+                            {
+                                field = "accountName",
+                                label = "Assign to account",
+                                optionsEndpoint = "/api/finance/accounts",
+                                optionsField = "name",
+                            },
+                        });
+                        if (batch.DetectedInstitution is not null || batch.DetectedAccountMask is not null)
+                        {
+                            actions.Add(new
+                            {
+                                id = "create-detected-account",
+                                label = "Create detected account",
+                                endpoint = $"/api/finance/imports/{batch.Id}/create-account",
+                                confirm = "Create the account this statement looks like (detected institution and " +
+                                          "masked number, household default currency) and attach the batch to it? " +
+                                          "Nothing posts until you approve the batch afterwards.",
+                            });
+                        }
+                    }
+
+                    if (batch.Status != "approved")
+                    {
+                        actions.Add(new
+                        {
+                            id = "discard",
+                            label = "Discard",
+                            endpoint = $"/api/finance/imports/{batch.Id}/discard",
+                            confirm = "Discard this batch? Nothing has posted from it, so no account changes; " +
+                                      "the uploaded file itself stays stored.",
+                        });
+                    }
+                }
 
                 var sections = new List<object>
                 {
@@ -1491,6 +1648,20 @@ public sealed class FinanceModule : IModule
                 {
                     sections.Insert(0, new { heading = "Extraction failed", text = batch.FailureReason });
                 }
+                if (batch.Status == "needs-account")
+                {
+                    // Say what's blocking and every way out, right where the reviewer is looking —
+                    // this batch used to dead-end here (the only visible button targeted "latest
+                    // parsed", which this batch is not).
+                    sections.Insert(0, new
+                    {
+                        heading = "Needs an account",
+                        text = $"This statement looks like {StatementImportTools.DetectedLabel(batch)}, and no existing " +
+                               "account matched — its lines cannot post until it has one. Assign an existing account " +
+                               "above, create the detected one, or tell the assistant in Chat which account it " +
+                               "belongs to (that path can also create it under a name you choose).",
+                    });
+                }
 
                 return Results.Ok(new
                 {
@@ -1498,6 +1669,7 @@ public sealed class FinanceModule : IModule
                     subtitle = $"{batch.Status} · {lines.Count} line(s) · into '{account?.Name ?? "(unknown account)"}' " +
                                $"· imported {batch.CreatedAt:yyyy-MM-dd HH:mm}",
                     sections,
+                    actions,
                 });
             })
             .RequireAuthorization(PermissionRequirement.PolicyName(ReviewImports))
@@ -1700,6 +1872,9 @@ public sealed record CategoryDto(Guid Id, string Name, string? ParentName);
 
 /// <summary>Body of the review tab's line edit: which line, and its corrected category (empty clears it).</summary>
 public sealed record ReviewLineRequest(int Index, string? Category);
+
+/// <summary>Body of the detail view's assign action: the EXISTING account picked for a needs-account batch.</summary>
+public sealed record AssignImportAccountRequest(string AccountName);
 
 public sealed record UpsertCategoryRequest(Guid? Id, string Name, string? ParentName);
 

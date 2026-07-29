@@ -188,6 +188,9 @@ public static partial class StatementExtraction
     /// </summary>
     public static IReadOnlyList<ExtractedLine>? TryExtractText(string text, IReadOnlyList<string> categories)
     {
+        // Anchors yearless "29 Mar" lines (Banamex prints the year only in the request header).
+        var reference = DocumentReferenceDate(text);
+
         var parsed = new List<(DateOnly Date, string Description, decimal Signed, bool PlusSigned)>();
         foreach (var raw in text.Replace("\r\n", "\n").Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
@@ -198,9 +201,20 @@ public static partial class StatementExtraction
             }
 
             var dateMatch = TextDatePattern().Match(line);
-            if (!dateMatch.Success || !TryParseDate(dateMatch.Value, out var date))
+            if (!dateMatch.Success)
             {
                 continue;
+            }
+            if (!TryParseDate(dateMatch.Value, out var date))
+            {
+                // A yearless day+month resolves against the document's reference date; without a
+                // reference the line is honestly skipped rather than guessed into some year.
+                if (reference is not { } anchor
+                    || !TryParseDayMonth(dateMatch.Value, out var day, out var month)
+                    || !TryResolveYearless(day, month, anchor, out date))
+                {
+                    continue;
+                }
             }
 
             // The amount lives either at the END of the line (classic "DESC      -82.45"
@@ -383,7 +397,8 @@ public static partial class StatementExtraction
 
     private static bool LooksLikeIncome(string description)
     {
-        string[] hints = ["deposit", "payroll", "salary", "direct dep", "interest", "payment received", "refund", "income"];
+        string[] hints = ["deposit", "payroll", "salary", "direct dep", "interest", "payment received", "refund", "income",
+            "abono", "depósito", "deposito", "nómina", "nomina", "reembolso"];
         return hints.Any(h => description.Contains(h, StringComparison.OrdinalIgnoreCase));
     }
 
@@ -396,10 +411,19 @@ public static partial class StatementExtraction
         return noise.Any(n => line.StartsWith(n, StringComparison.OrdinalIgnoreCase));
     }
 
-    [GeneratedRegex(@"\b(\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/\d{4}|\d{1,2}\s+\p{L}{3,10}\.?,?\s+\d{4}|\p{L}{3,10}\.?\s+\d{1,2},?\s+\d{4})\b", RegexOptions.IgnoreCase)]
+    // Years are REGEX-bounded to 19xx/20xx: without the bound, "29 Mar 6472" (a day, a month, and
+    // an ATM branch number) parses as the year 6472 — a real Banamex line did exactly that. The
+    // final alternative matches a YEARLESS "29 Mar" (banks that print the year only in the header);
+    // the lookahead keeps it from half-eating a dated form, and the caller resolves the year
+    // against the document's reference date.
+    [GeneratedRegex(@"\b((?:19|20)\d{2}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/(?:19|20)\d{2}|\d{1,2}\s+\p{L}{3,10}\.?,?\s+(?:19|20)\d{2}|\p{L}{3,10}\.?\s+\d{1,2},?\s+(?:19|20)\d{2}|\d{1,2}\s+\p{L}{3,10}\.?(?!,?\s+(?:19|20)\d{2}))\b", RegexOptions.IgnoreCase)]
     private static partial Regex TextDatePattern();
 
-    [GeneratedRegex(@"\(?-?\$?\d{1,3}(,\d{3})*\.\d{2}\)?-?(\s?(CR|DR))?$", RegexOptions.IgnoreCase)]
+    /// <summary>Dates that carry their own year — scanned document-wide to anchor yearless lines.</summary>
+    [GeneratedRegex(@"\b((?:19|20)\d{2}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/(?:19|20)\d{2}|\d{1,2}\s+\p{L}{3,10}\.?,?\s+(?:19|20)\d{2})\b", RegexOptions.IgnoreCase)]
+    private static partial Regex FullDatePattern();
+
+    [GeneratedRegex(@"\(?[+-]?\$?\d{1,3}(,\d{3})*\.\d{2}\)?-?(\s?(CR|DR))?$", RegexOptions.IgnoreCase)]
     private static partial Regex TextAmountPattern();
 
     /// <summary>
@@ -453,12 +477,12 @@ public static partial class StatementExtraction
 
     private static bool TryParseDate(string text, out DateOnly date)
     {
-        string[] formats = ["yyyy-MM-dd", "MM/dd/yyyy", "M/d/yyyy", "dd/MM/yyyy", "yyyyMMdd", "MMM d, yyyy"];
+        string[] formats = ["yyyy-MM-dd", "yyyy/MM/dd", "MM/dd/yyyy", "M/d/yyyy", "dd/MM/yyyy", "yyyyMMdd", "MMM d, yyyy"];
         foreach (var format in formats)
         {
             if (DateOnly.TryParseExact(text, format, CultureInfo.InvariantCulture, DateTimeStyles.None, out date))
             {
-                return true;
+                return PlausibleYear(date);
             }
         }
 
@@ -472,7 +496,7 @@ public static partial class StatementExtraction
             if (monthToken.Length >= 3 && MonthNamesByPrefix.TryGetValue(monthToken[..3], out var month)
                 && int.TryParse(dayToken, out var day)
                 && int.TryParse(tokens[2], out var year)
-                && year is >= 1900 and <= 2100
+                && year is >= 1990 and <= 2100
                 && day >= 1 && day <= DateTime.DaysInMonth(year, month))
             {
                 date = new DateOnly(year, month, day);
@@ -480,7 +504,66 @@ public static partial class StatementExtraction
             }
         }
 
-        return DateOnly.TryParse(text, CultureInfo.InvariantCulture, out date);
+        // Deliberately NO permissive DateOnly.TryParse fallback: invariant parsing accepts
+        // "29 Mar 6472" as the year 6472 (a Banamex ATM branch number) and "10 May" as
+        // 2010-05-01 (year-month form). Every accepted shape is listed explicitly above;
+        // yearless day+month forms go through TryParseDayMonth + the document reference instead.
+        date = default;
+        return false;
+    }
+
+    private static bool PlausibleYear(DateOnly date) => date.Year is >= 1990 and <= 2100;
+
+    /// <summary>"29 Mar" / "21 abr." — a day and a month name with NO year on the line.</summary>
+    private static bool TryParseDayMonth(string text, out int day, out int month)
+    {
+        day = 0;
+        month = 0;
+        var tokens = text.Split([' ', '.'], StringSplitOptions.RemoveEmptyEntries);
+        return tokens.Length == 2
+               && int.TryParse(tokens[0], out day) && day is >= 1 and <= 31
+               && tokens[1].Length >= 3 && MonthNamesByPrefix.TryGetValue(tokens[1][..3], out month);
+    }
+
+    /// <summary>
+    /// The document's own "as of" moment: the latest plausible fully-dated value anywhere in the
+    /// text (period headers, "Solicitados el 11/05/2026", issue dates). Yearless statement lines
+    /// resolve against it — banks list the PAST, so a month/day lands on its most recent
+    /// occurrence at or before this date.
+    /// </summary>
+    private static DateOnly? DocumentReferenceDate(string text)
+    {
+        DateOnly? reference = null;
+        foreach (Match match in FullDatePattern().Matches(text))
+        {
+            if (TryParseDate(match.Value, out var date) && (reference is null || date > reference))
+            {
+                reference = date;
+            }
+        }
+
+        return reference;
+    }
+
+    private static bool TryResolveYearless(int day, int month, DateOnly reference, out DateOnly date)
+    {
+        // Most recent occurrence of this month/day at or before the reference: "27 Dic" on a
+        // statement requested 2026-05-11 is December LAST year, not a date seven months ahead.
+        for (var year = reference.Year; year >= reference.Year - 1; year--)
+        {
+            if (day <= DateTime.DaysInMonth(year, month))
+            {
+                var candidate = new DateOnly(year, month, day);
+                if (candidate <= reference)
+                {
+                    date = candidate;
+                    return true;
+                }
+            }
+        }
+
+        date = default;
+        return false;
     }
 
     /// <summary>English + Spanish month-name prefixes (full names share them: "marzo" → "mar").</summary>
@@ -618,6 +701,10 @@ public static partial class StatementExtraction
                 || line.Contains('<')                                    // markup
                 || char.IsDigit(line[0])
                 || line.Count(char.IsDigit) >= 3                         // street address / id line
+                || line.EndsWith(':')                                    // a label or a greeting
+                || line.Contains("www.", StringComparison.OrdinalIgnoreCase) // a URL is a footer, not a title
+                || line.Contains("http", StringComparison.OrdinalIgnoreCase)
+                || GreetingWords.Any(w => line.Contains(w, StringComparison.OrdinalIgnoreCase))
                 || TextDatePattern().IsMatch(line)
                 || TextAmountPattern().IsMatch(line)
                 || ColumnHeaderWords.Count(w => line.Contains(w, StringComparison.OrdinalIgnoreCase)) >= 2
@@ -647,12 +734,22 @@ public static partial class StatementExtraction
             }
         }
 
+        // Still nothing — the bank's web footer is the last-resort brand ("www.banamex.com").
+        if (WebDomainPattern().Match(text) is { Success: true } domain)
+        {
+            return CultureInfo.InvariantCulture.TextInfo.ToTitleCase(domain.Groups[1].Value.ToLowerInvariant());
+        }
+
         return null;
     }
 
     /// <summary>Words that, two or more together, read as a table's column header, not a bank name.</summary>
     private static readonly string[] ColumnHeaderWords =
         ["date", "description", "amount", "currency", "balance", "debit", "credit", "payee", "fecha", "importe", "saldo"];
+
+    /// <summary>A line addressed to the CUSTOMER is never the bank's name ("Hola, ABRAHAM:").</summary>
+    private static readonly string[] GreetingWords =
+        ["hola", "hello", "dear ", "estimado", "estimada", "estos son", "these are"];
 
     private static string? FirstGroup(Match match) => match.Success ? match.Groups[1].Value : null;
 
@@ -665,11 +762,16 @@ public static partial class StatementExtraction
     [GeneratedRegex(@"\b(?:ending|termina)\s+(?:in|en)\s+(\d{4})\b", RegexOptions.IgnoreCase)]
     private static partial Regex EndingInPattern();
 
-    [GeneratedRegex(@"(?:[*•xX]{2,}|(?:account|acct|cuenta)\s*(?:no\.?|number|núm\.?|#)?\s*[:#]\s*[*•xX\d\- ]*?)[\- ]?(\d{4})(?!\d)", RegexOptions.IgnoreCase)]
+    // {3,4} trailing digits: Banamex masks cards as "**877" — three visible digits, not four.
+    [GeneratedRegex(@"(?:[*•xX]{2,}|(?:account|acct|cuenta)\s*(?:no\.?|number|núm\.?|#)?\s*[:#]\s*[*•xX\d\- ]*?)[\- ]?(\d{3,4})(?!\d)", RegexOptions.IgnoreCase)]
     private static partial Regex MaskedNumberPattern();
 
-    [GeneratedRegex(@"\b(?:account\s+)?(?:statement|estado\s+de\s+cuenta)\b.*$", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"\b(?:account\s+)?(?:statement|estado\s+de\s+cuenta|env[ií]o\s+de\s+movimientos|movimientos)\b.*$", RegexOptions.IgnoreCase)]
     private static partial Regex StatementSuffixPattern();
+
+    /// <summary>The bank's own web footer ("www.banamex.com") — the last-resort brand signal.</summary>
+    [GeneratedRegex(@"\bwww\.([a-z0-9-]{3,40})\.(?:com\.mx|com|mx|net|org)\b", RegexOptions.IgnoreCase)]
+    private static partial Regex WebDomainPattern();
 
     [GeneratedRegex(@"(?:©|\(c\)|copyright)\s*(?:\d{4}\s*[-–—]\s*\d{4}|\d{4})?\s*([\p{L}][\p{L}\p{N} .&'-]{1,40}?)\s*,?\s+(?:all\s+rights\s+reserved|todos\s+los\s+derechos)", RegexOptions.IgnoreCase)]
     private static partial Regex CopyrightBrandPattern();

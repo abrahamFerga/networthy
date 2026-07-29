@@ -12,9 +12,10 @@ namespace Networthy.Finance;
 
 /// <summary>
 /// The statement-import pipeline (SPEC must-have #1): upload → extraction job → human review →
-/// approved lines become Transactions. Two approval gates on purpose: importing external data
-/// starts gated (import_statement), and NOTHING posts until approve_import_batch — reviewing the
-/// extracted lines is the product's core "AI drafts, human decides" moment.
+/// approved lines become Transactions. ONE approval gate, placed where it matters: importing
+/// runs ungated (it only queues extraction into the review pipeline, and discard undoes it),
+/// and NOTHING posts until the batch is approved — reviewing the extracted lines is the
+/// product's core "AI drafts, human decides" moment. Two gates was approval ceremony squared.
 /// </summary>
 public sealed class StatementImportTools(
     FinanceDbContext db,
@@ -24,7 +25,7 @@ public sealed class StatementImportTools(
     ICurrentUser currentUser,
     TransferTools transfers)
 {
-    [Description("Import an uploaded bank statement (CSV/OFX/QFX/PDF; the file id comes from the message's attachment block). The account name is OPTIONAL: leave it out and Networthy detects which account the statement belongs to (asking before creating anything). Extraction runs in the background; review with review_import_batch before anything posts. Side-effecting and requires approval.")]
+    [Description("Import an uploaded bank statement (CSV/OFX/QFX/PDF; the file id comes from the message's attachment block). The account name is OPTIONAL: leave it out and Networthy detects which account the statement belongs to (asking before creating anything). Extraction runs in the background; review with review_import_batch before anything posts. Runs without an approval prompt: it only queues extraction into the review pipeline — approving the reviewed batch is the gate, and discard_import_batch undoes an unwanted import.")]
     public async Task<string> ImportStatement(
         [Description("The stored file id (a GUID) of the uploaded statement.")] string fileId,
         [Description("Optional: the account name this statement belongs to. Omit to auto-detect from the statement itself.")] string? accountName = null,
@@ -102,11 +103,23 @@ public sealed class StatementImportTools(
             return "No import batch is waiting for an account. list_import_batches shows what's pending.";
         }
 
+        return (await AssignAccountAsync(batch, trimmed, createIfMissing, accountType, cancellationToken)).Message;
+    }
+
+    /// <summary>
+    /// The assignment core, shared by the chat tool (which resolves the batch by file name and
+    /// may create the account) and the review-page endpoint (which resolves by id and only picks
+    /// existing accounts — its picker lists them, so a miss is a race, not a typo).
+    /// </summary>
+    internal async Task<(bool Ok, string Message)> AssignAccountAsync(
+        StatementImportBatch batch, string accountName, bool createIfMissing, string? accountType,
+        CancellationToken cancellationToken)
+    {
         var account = await db.Accounts.FirstOrDefaultAsync(
-            a => EF.Functions.ILike(a.Name, trimmed), cancellationToken);
+            a => EF.Functions.ILike(a.Name, accountName), cancellationToken);
         if (account is not null && !account.IsVisibleTo(currentUser.UserId))
         {
-            return $"'{account.Name}' is private to another member — pick a different account.";
+            return (false, $"'{account.Name}' is private to another member — pick a different account.");
         }
 
         if (account is null)
@@ -114,21 +127,21 @@ public sealed class StatementImportTools(
             if (!createIfMissing)
             {
                 var visible = await VisibleAccountsAsync(cancellationToken);
-                var closest = SuggestAccountNames(trimmed, visible);
-                return $"No account named '{trimmed}' exists."
+                var closest = SuggestAccountNames(accountName, visible);
+                return (false, $"No account named '{accountName}' exists."
                        + (closest.Count > 0 ? $" Did you mean {string.Join(" or ", closest.Select(n => $"'{n}'"))}?" : "")
-                       + $" To create it for this statement ({DetectedLabel(batch)}), call again with createIfMissing.";
+                       + $" To create it for this statement ({DetectedLabel(batch)}), use assign_import_account with createIfMissing.");
             }
 
-            account = await CreateAccountFromDetectionAsync(batch, trimmed, accountType, cancellationToken);
+            account = await CreateAccountFromDetectionAsync(batch, accountName, accountType, cancellationToken);
         }
 
         batch.AccountId = account.Id;
         batch.Status = "parsed";
         await db.SaveChangesAsync(cancellationToken);
 
-        return $"'{batch.FileName}' will import into '{account.Name}'. " +
-               "Review the lines with review_import_batch — nothing posts until you approve.";
+        return (true, $"'{batch.FileName}' will import into '{account.Name}'. " +
+               "Review the lines — nothing posts until you approve.");
     }
 
     [Description("Show an import batch's extracted lines (dates, amounts, suggested categories) for review before approval. Defaults to the most recent batch.")]
@@ -234,38 +247,73 @@ public sealed class StatementImportTools(
         return sb.ToString();
     }
 
-    [Description("Approve a reviewed import batch: its lines post as transactions (with the suggested categories) and the account balance updates. Side-effecting and requires approval.")]
-    public async Task<string> ApproveImportBatch(
-        [Description("Optional file name (or part of it) to pick a specific batch; defaults to the most recent parsed one.")] string? fileName = null,
+    [Description("Discard an UNPOSTED import batch (queued, parsed, needs-account, or failed) — a duplicate upload, or a statement the household decided not to post. The uploaded file stays in the file store and posted data is never touched; an approved batch cannot be discarded. Side-effecting and requires approval.")]
+    public async Task<string> DiscardImportBatch(
+        [Description("File name (or part of it) of the batch to discard; defaults to the most recent batch.")] string? fileName = null,
         CancellationToken cancellationToken = default)
     {
         var batch = await FindBatchAsync(fileName, cancellationToken);
         if (batch is null)
         {
-            return "No import batches yet. Attach a statement and run import_statement.";
+            return "No import batches to discard. list_import_batches shows what exists.";
+        }
+        if (batch.Status == "approved")
+        {
+            // Approved batches are history: their period feeds the duplicate-period warning, and
+            // their lines already posted. Removing the record would silently disarm both.
+            return $"'{batch.FileName}' was approved and its lines are posted — an approved batch " +
+                   "cannot be discarded. Correct individual transactions with edit_transaction instead.";
         }
 
-        return await ApproveBatchAsync(batch, cancellationToken);
+        var status = batch.Status;
+        db.ImportBatches.Remove(batch);
+        await db.SaveChangesAsync(cancellationToken);
+        return $"Discarded '{batch.FileName}' ({status}). Nothing had posted, so no account changed; " +
+               "the uploaded file itself is still stored and can be re-imported.";
+    }
+
+    [Description("Approve a reviewed import batch: its lines post as transactions (with the suggested categories) and the account balance updates. Side-effecting and requires approval.")]
+    public async Task<string> ApproveImportBatch(
+        [Description("Optional file name (or part of it) to pick a specific batch; defaults to the most recent parsed one.")] string? fileName = null,
+        CancellationToken cancellationToken = default)
+    {
+        // No name = "the one awaiting approval": resolve the newest PARSED batch, as documented.
+        // Resolving the newest batch of ANY status made the default refuse on an already-approved
+        // newer upload while a parsed one sat waiting.
+        var batch = string.IsNullOrWhiteSpace(fileName)
+            ? await FindBatchAsync(null, cancellationToken, status: "parsed")
+            : await FindBatchAsync(fileName, cancellationToken);
+        if (batch is null)
+        {
+            return string.IsNullOrWhiteSpace(fileName)
+                ? "No parsed batch is awaiting approval. list_import_batches shows every batch and its status."
+                : "No import batches yet. Attach a statement and run import_statement.";
+        }
+
+        return (await ApproveBatchAsync(batch, cancellationToken)).Message;
     }
 
     /// <summary>The approval core, shared by the chat tool (which resolves by file name) and the
-    /// review endpoints (which resolve the latest parsed batch, or one by id).</summary>
-    internal async Task<string> ApproveBatchAsync(StatementImportBatch batch, CancellationToken cancellationToken)
+    /// review endpoints (which resolve the latest parsed batch, or one by id). Ok=false is a
+    /// refusal — the endpoints turn it into an error status so the UI can't mistake it for
+    /// success.</summary>
+    internal async Task<(bool Ok, string Message)> ApproveBatchAsync(StatementImportBatch batch, CancellationToken cancellationToken)
     {
         if (batch.Status == "needs-account" || batch.AccountId is null)
         {
-            return $"'{batch.FileName}' has no account yet (it looks like {DetectedLabel(batch)}). " +
-                   "Resolve with assign_import_account first — then review and approve.";
+            return (false, $"'{batch.FileName}' has no account yet (it looks like {DetectedLabel(batch)}). " +
+                   "Assign one first — the Assign action on the review page, or assign_import_account in Chat " +
+                   "— then review and approve.");
         }
         if (batch.Status != "parsed")
         {
-            return $"'{batch.FileName}' is {batch.Status} — only a parsed batch can be approved.";
+            return (false, $"'{batch.FileName}' is {batch.Status} — only a parsed batch can be approved.");
         }
 
         var lines = Deserialize(batch.ExtractedLinesJson);
         if (lines.Count == 0)
         {
-            return $"'{batch.FileName}' has no lines to post.";
+            return (false, $"'{batch.FileName}' has no lines to post.");
         }
 
         var account = await db.Accounts.FirstAsync(a => a.Id == batch.AccountId, cancellationToken);
@@ -301,8 +349,8 @@ public sealed class StatementImportTools(
         // still see the statement in their head — rather than let income/spending quietly inflate.
         var transferFollowUp = await transfers.DescribePostApprovalCandidatesAsync(account.Id, cancellationToken);
 
-        return $"Posted {lines.Count} transaction(s) from '{batch.FileName}' to '{account.Name}'. " +
-               $"New balance: {account.CachedBalance:N2} {account.CurrencyCode}." + transferFollowUp;
+        return (true, $"Posted {lines.Count} transaction(s) from '{batch.FileName}' to '{account.Name}'. " +
+               $"New balance: {account.CachedBalance:N2} {account.CurrencyCode}." + transferFollowUp);
     }
 
     private async Task<StatementImportBatch?> FindBatchAsync(

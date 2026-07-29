@@ -89,6 +89,29 @@ public sealed class AccountDetectionTests
     }
 
     [Fact]
+    public void GreetingHeadersAndWebFooter_YieldTheBrandAndShortMask()
+    {
+        // Banamex's export has no bank-titled header at all: greeting lines, a "**123" 3-digit
+        // card mask, and the brand only in the web footer. None of the prose may pose as the
+        // institution.
+        const string text = """
+            Envío de movimientos
+            Hola, CASANDRA:
+            Estos son los movimientos de tu
+            Joy Banamex **123
+            Solicitados el 11/05/2026 a las 15:35
+            10 May gasolinera ejemplo mpos EN PROCESO $1,075.34
+            www.banamex.com
+            """;
+
+        var hint = StatementExtraction.DetectAccountHint(text);
+
+        Assert.NotNull(hint);
+        Assert.Equal("Banamex", hint!.Institution);
+        Assert.Equal("123", hint.MaskLast4);
+    }
+
+    [Fact]
     public void DetectedLabel_IncludesCurrencyWhenKnown()
     {
         var batch = new StatementImportBatch
