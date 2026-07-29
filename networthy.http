@@ -1,0 +1,572 @@
+# =============================================================================
+# Networthy API request catalog
+# -----------------------------------------------------------------------------
+# Exercise a running Networthy from your IDE (VS Code "REST Client", JetBrains
+# HTTP Client, etc.). Start it first — see RUNBOOK.md §2:
+#   dotnet run --project src/Networthy.AppHost   (Aspire; take the networthy-api
+#                                                 URL from the dashboard)
+#   docker compose up -d                         (compose → http://localhost:8080)
+#   RUNBOOK §2 Mode B                            (headless → http://127.0.0.1:8094)
+#
+# Auth: in Development the API accepts dev-auth headers (X-Dev-*) that stand in
+# for a real OIDC token (RUNBOOK §3). system_admin holds *; Networthy's own
+# roles are household-admin and household-member — send a narrower role to
+# prove an RBAC 403. In production the headers are ignored.
+#
+# GUID/id placeholders are zeroed — copy real ids from the list responses above
+# each request. When you add an endpoint, add its request here in the same PR.
+# =============================================================================
+
+@baseUrl = http://localhost:8080
+@subject = dev-user
+@tenant = dev
+@roles = system_admin
+
+# Placeholders — replace with real ids from list responses.
+@accountId = 00000000-0000-0000-0000-000000000000
+@transactionId = 00000000-0000-0000-0000-000000000000
+@budgetId = 00000000-0000-0000-0000-000000000000
+@goalId = 00000000-0000-0000-0000-000000000000
+@incomeSourceId = 00000000-0000-0000-0000-000000000000
+@categoryId = 00000000-0000-0000-0000-000000000000
+@batchId = 00000000-0000-0000-0000-000000000000
+@approvalId = 00000000-0000-0000-0000-000000000000
+@fileId = 00000000-0000-0000-0000-000000000000
+
+# ── Health (anonymous) ───────────────────────────────────────────────────────
+
+### Liveness (never calls the LLM — safe to poll)
+GET {{baseUrl}}/alive
+
+### Readiness / health checks (DB, Redis reachable)
+GET {{baseUrl}}/health
+
+# ── Platform: identity + navigation ──────────────────────────────────────────
+
+### Who am I — user, tenant, effective permissions
+GET {{baseUrl}}/api/platform/me
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Modules + tabs the caller can see (must contain "finance" — RUNBOOK §2 ready signal)
+GET {{baseUrl}}/api/platform/modules
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Deployment facts (chat enabled? mock mode?)
+GET {{baseUrl}}/api/platform/info
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Branding (name, colors the UI shell renders)
+GET {{baseUrl}}/api/platform/branding
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### AI-decision disclosures (risk tier + what the AI may decide)
+GET {{baseUrl}}/api/platform/ai-decisions
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+# ── Chat: a streamed agent turn (AG-UI over SSE) ─────────────────────────────
+
+### One turn against the finance agent. The Mock provider routes by name-token
+### match (RUNBOOK §4) and performs a real, audited tool call.
+POST {{baseUrl}}/api/agui/finance
+Content-Type: application/json
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+{
+  "messages": [{ "id": "m1", "role": "user", "content": "List our accounts" }]
+}
+
+### A gated write: fires CUSTOM(approval_required), executes NOTHING until approved
+POST {{baseUrl}}/api/agui/finance
+Content-Type: application/json
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+{
+  "messages": [{ "id": "m1", "role": "user", "content": "Create a checking account called Catalog Demo" }]
+}
+
+# ── Chat: human-in-the-loop approvals ────────────────────────────────────────
+
+### Pending approvals (side-effecting tool calls parked awaiting a human)
+GET {{baseUrl}}/api/chat/approvals
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Approve — re-executes the exact recorded call; result is the tool's own return value
+POST {{baseUrl}}/api/chat/approvals/{{approvalId}}/approve
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Reject — discards the call; the executor is never invoked
+POST {{baseUrl}}/api/chat/approvals/{{approvalId}}/reject
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+# ── Notifications (self-scoped) ──────────────────────────────────────────────
+
+### My notification inbox
+GET {{baseUrl}}/api/notifications
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### The preference switchboard (finance.bill, finance.budgets, finance.recurring,
+### finance.statements, finance.imports, finance.approvals — on by default)
+GET {{baseUrl}}/api/notifications/preferences
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Mute one category for MYSELF (per-user, never tenant-wide)
+PUT {{baseUrl}}/api/notifications/preferences/finance.bill
+Content-Type: application/json
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+{ "enabled": false }
+
+# ── Admin: security, audit, usage, ops ───────────────────────────────────────
+
+### Every tool + the permission gating it. After adding a tool this MUST list it,
+### or the manifest and FinanceToolSource disagree (RUNBOOK §4).
+GET {{baseUrl}}/api/admin/security/catalog
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Roles and the permissions each grants
+GET {{baseUrl}}/api/admin/roles
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Users in the household, with roles and active state
+GET {{baseUrl}}/api/admin/users
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Tool-call audit (append-only; blocked calls carry "Blocked: tool requires human
+### approval" — filter success==true && error==null for real executions, RUNBOOK §4)
+GET {{baseUrl}}/api/admin/audit/tool-calls
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Token usage (populated only after at least one chat turn)
+GET {{baseUrl}}/api/admin/usage?days=30
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Ops snapshot — jobs, connectors, notifications, AI budget at a glance
+GET {{baseUrl}}/api/admin/ops
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Admin-console extension pages (finance ships exchange-rates + document-scanning)
+GET {{baseUrl}}/api/admin/extensions
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+# ── Admin: AI settings (per-household provider; key is write-only) ───────────
+
+### Current provider connection + prompts + budgets
+GET {{baseUrl}}/api/admin/ai-settings
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Models the selected provider offers
+GET {{baseUrl}}/api/admin/ai-models
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Switch provider at runtime (apiKey: null=keep stored, ""=clear, value=replace)
+PUT {{baseUrl}}/api/admin/ai-settings
+Content-Type: application/json
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+{ "systemPrompt": null, "maxConversationTokens": null, "maxMonthlyTokens": null, "provider": "Mock", "model": "demo-model", "endpoint": null, "apiKey": null }
+
+# ── Admin: OCR connectors (scanned-statement engines, default-off) ───────────
+
+### Installed connectors + this household's enablement/settings (secrets report
+### hasValue, never the value)
+GET {{baseUrl}}/api/admin/connectors
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Point self-hosted OCR at a Tika server (Aspire parks one on :9998 — RUNBOOK §2)
+PUT {{baseUrl}}/api/admin/connectors/ocr-apache-tika/settings
+Content-Type: application/json
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+{ "values": { "BaseUrl": "http://localhost:9998" } }
+
+### Enable it (order matters: settings first, then enable)
+POST {{baseUrl}}/api/admin/connectors/ocr-apache-tika/enable
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Disable (tools off immediately)
+POST {{baseUrl}}/api/admin/connectors/ocr-apache-tika/disable
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Azure Document Intelligence is connector id ocr-azure-document-intelligence —
+### its Endpoint/ApiKey setting keys are listed in the connectors catalog above.
+
+# ── Finance: accounts ────────────────────────────────────────────────────────
+
+### List accounts (visibility-scoped; private accounts hidden from other members)
+GET {{baseUrl}}/api/finance/accounts
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Create an account (types: checking | savings | credit | cash | loan;
+### currencyCode blank = household default)
+POST {{baseUrl}}/api/finance/accounts
+Content-Type: application/json
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+{ "name": "Chase Checking", "type": "checking", "currencyCode": "USD", "cachedBalance": 2500, "institutionName": "Chase" }
+
+### Create a loan (APR + minimum payment power the debt-cost math)
+POST {{baseUrl}}/api/finance/accounts
+Content-Type: application/json
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+{ "name": "House mortgage", "type": "loan", "cachedBalance": -250000, "interestRateApr": 6.25, "minimumMonthlyPayment": 1800, "institutionName": "Wells Fargo" }
+
+### Delete an account
+DELETE {{baseUrl}}/api/finance/accounts/{{accountId}}
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+# ── Finance: transactions + transfers ────────────────────────────────────────
+
+### List transactions (source column tags assistant/manual/upload rows;
+### transferWith names a linked leg's counterpart account)
+GET {{baseUrl}}/api/finance/transactions
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Add one (direction: expense | income; occurredOn optional = today)
+POST {{baseUrl}}/api/finance/transactions
+Content-Type: application/json
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+{ "accountName": "Chase Checking", "description": "Groceries", "amount": 82.15, "direction": "expense", "categoryName": "Groceries" }
+
+### Delete one
+DELETE {{baseUrl}}/api/finance/transactions/{{transactionId}}
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Link every HIGH-confidence detected transfer pair (the click IS the approval;
+### linked legs stop counting as income/spending, balances unchanged)
+POST {{baseUrl}}/api/finance/transfers/link-detected
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+# ── Finance: budgets, income, goals ──────────────────────────────────────────
+
+### Budgets for the current month (spent vs target, over-budget flags)
+GET {{baseUrl}}/api/finance/budgets
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Set a category's monthly target
+POST {{baseUrl}}/api/finance/budgets
+Content-Type: application/json
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+{ "categoryName": "Groceries", "target": 400 }
+
+### Delete a budget
+DELETE {{baseUrl}}/api/finance/budgets/{{budgetId}}
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Declared income schedules (cadence: weekly | biweekly | semimonthly | monthly)
+GET {{baseUrl}}/api/finance/income-sources
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Declare one (powers per-paycheck goal plans and cash-flow checks)
+POST {{baseUrl}}/api/finance/income-sources
+Content-Type: application/json
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+{ "name": "ACME payroll", "amount": 2500, "cadence": "biweekly", "accountName": "Chase Checking" }
+
+### Delete one
+DELETE {{baseUrl}}/api/finance/income-sources/{{incomeSourceId}}
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Goals with computed progress and pace verdicts
+GET {{baseUrl}}/api/finance/goals
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Set a goal (accountName optional — its balance becomes the progress)
+POST {{baseUrl}}/api/finance/goals
+Content-Type: application/json
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+{ "name": "Hawaii", "target": 5000, "targetDate": "2027-06-01" }
+
+### Delete a goal
+DELETE {{baseUrl}}/api/finance/goals/{{goalId}}
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+# ── Finance: reads that drive the dashboard tabs ─────────────────────────────
+
+### The Overview tab's one composed read
+GET {{baseUrl}}/api/finance/overview
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### This month's spending by category (the donut; ?month=yyyy-MM for another month)
+GET {{baseUrl}}/api/finance/spending
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Money in vs out, month by month
+GET {{baseUrl}}/api/finance/cashflow
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Detected recurring charges (needs ≥3 same-merchant charges at a steady rhythm)
+GET {{baseUrl}}/api/finance/recurring
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Upcoming bills projected from recurring detection
+GET {{baseUrl}}/api/finance/bills/upcoming
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Debts with monthly interest cost
+GET {{baseUrl}}/api/finance/debts
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Net-worth history (admin-only: aggregates private accounts too)
+GET {{baseUrl}}/api/finance/net-worth/history
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+# ── Finance: statement imports (upload → extract → review → approve) ─────────
+
+### 1. Upload the statement file (multipart; returns the file id)
+POST {{baseUrl}}/api/files/
+Content-Type: multipart/form-data; boundary=NetworthyBoundary
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+--NetworthyBoundary
+Content-Disposition: form-data; name="file"; filename="statement.csv"
+Content-Type: text/csv
+
+Date,Description,Amount
+2026-07-01,COFFEE SHOP,-4.25
+2026-07-02,PAYROLL,2500.00
+--NetworthyBoundary--
+
+### 2. Queue extraction (accountName optional — omit and the statement's own
+###    account is detected, batch lands as needs-account if unknown)
+POST {{baseUrl}}/api/finance/imports
+Content-Type: application/json
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+{ "fileId": "{{fileId}}", "accountName": "Chase Checking" }
+
+### 3. Every batch not yet approved (file name, status, line count)
+GET {{baseUrl}}/api/finance/imports/batches
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### One batch as the Review tab's drill-down document (lines + per-state actions)
+GET {{baseUrl}}/api/finance/imports/{{batchId}}/detail
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### A batch's extracted lines ("latest" = latest PARSED batch)
+GET {{baseUrl}}/api/finance/imports/{{batchId}}/lines
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Recategorize one extracted line before approval (by zero-based index)
+POST {{baseUrl}}/api/finance/imports/{{batchId}}/lines
+Content-Type: application/json
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+{ "index": 0, "category": "Dining" }
+
+### Drop one extracted line before approval
+DELETE {{baseUrl}}/api/finance/imports/{{batchId}}/lines/0
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Attach an EXISTING account to a needs-account batch
+POST {{baseUrl}}/api/finance/imports/{{batchId}}/assign-account
+Content-Type: application/json
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+{ "accountName": "Chase Checking" }
+
+### Or create the DETECTED account (institution + mask from the statement) and attach
+POST {{baseUrl}}/api/finance/imports/{{batchId}}/create-account
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Approve — post the batch's lines as transactions (the click IS the approval)
+POST {{baseUrl}}/api/finance/imports/{{batchId}}/approve
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Discard an UNPOSTED batch (duplicate upload, abandoned import)
+POST {{baseUrl}}/api/finance/imports/{{batchId}}/discard
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+# ── Finance: categories + settings ───────────────────────────────────────────
+
+### The household's category taxonomy (starter set seeds on first run)
+GET {{baseUrl}}/api/finance/categories
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Add/rename a category (id present = rename; parentName must exist)
+POST {{baseUrl}}/api/finance/categories
+Content-Type: application/json
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+{ "name": "Coffee", "parentName": "Dining" }
+
+### Delete a category
+DELETE {{baseUrl}}/api/finance/categories/{{categoryId}}
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Household settings (default currency, time zone, reminder cadences, thresholds)
+GET {{baseUrl}}/api/finance/settings
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Change them (currency = ISO code; timeZoneId = IANA id, blank = UTC)
+POST {{baseUrl}}/api/finance/settings
+Content-Type: application/json
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+{ "defaultCurrencyCode": "MXN", "timeZoneId": "America/Mexico_City", "billReminderLeadDays": 3 }
+
+### Saved exchange rates (multi-currency net worth combines through these —
+### always user-chosen, never fetched)
+GET {{baseUrl}}/api/finance/settings/rates
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Save one (units of the DEFAULT currency per 1 unit of the foreign one)
+POST {{baseUrl}}/api/finance/settings/rates
+Content-Type: application/json
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+{ "currencyCode": "USD", "rateToDefault": 18.7 }
+
+### Delete one
+DELETE {{baseUrl}}/api/finance/settings/rates/USD
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Which OCR engine would read a scanned statement right now, and why
+GET {{baseUrl}}/api/finance/settings/ocr
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}

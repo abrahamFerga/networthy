@@ -94,3 +94,8 @@ src/Networthy.Host/data/
 
 # networthy-ui build state
 frontend/networthy-ui/tsconfig.tsbuildinfo
+
+# Local scratch. This repo is PUBLIC and this is where real statement PDFs and
+# their rendered pages get parked while debugging the import parsers — that is
+# real financial PII and must never reach a commit.
+tmp/

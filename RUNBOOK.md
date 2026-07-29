@@ -120,6 +120,12 @@ point of the header being per-request.
 
 ## 4. Exercise it
 
+### The committed request catalog
+
+[`networthy.http`](networthy.http) is the runnable list of every endpoint — open it in VS Code
+(REST Client) or a JetBrains IDE and fire requests at a running instance; the dev-auth headers are
+already attached. **When you add an endpoint, add its request there in the same PR.**
+
 ### A chat turn over AG-UI
 
 ```powershell
@@ -235,7 +241,7 @@ not failures.
 | **1. Build** | it compiles | `dotnet build Networthy.slnx` |
 | **2. Unit / module guard** | domain logic, manifest integrity, the pinned tool list | `dotnet test tests/Networthy.Finance.Tests` |
 | **3. Integration (E2E)** | the real host, real Postgres, real migrations, real jobs, real approvals | `dotnet test tests/Networthy.IntegrationTests` |
-| **4. Golden evals** | agent *behaviour*: routing, gating, protocol | **not installed yet** — see §9 |
+| **4. Golden evals** | agent *behaviour*: routing, gating, protocol | part of rung 3 — `Evals/cases/*.json` |
 | **5. Frontend** | the UI builds and its units pass | `pnpm -C frontend/networthy-ui test && pnpm -C frontend/networthy-ui build` |
 
 Everything at once, as CI runs it:
@@ -270,6 +276,35 @@ Two entry points, and the choice is load-bearing:
 > A test asserting "this write is approval-gated" that runs through `AuthorizedScopeAsync()` will
 > pass while the gate is broken. `ChatAndApprovalTests` is the suite that actually proves the gate,
 > and it goes through `AdminClient()` throughout.
+
+### Rung 4 — golden conversation evals
+
+Prompt-shaped changes — the manifest's `AgentInstructions`, a tool's description, an agent profile
+— change behaviour without changing code. Evals give them the same regression net code has. One
+JSON file per case in `tests/Networthy.IntegrationTests/Evals/cases/`, executed by
+`GoldenConversationEvals` as part of rung 3 (drop a file, get a test — no code):
+
+```jsonc
+{
+  "name": "finance-write-requires-approval",
+  "module": "finance",
+  "message": "Create a checking account called Golden Eval",
+  "role": "system_admin",                  // optional; defaults to system_admin
+  "expectToolCalls": ["create_account"],
+  "forbidToolCalls": [],
+  "expectApproval": true,
+  "replyMustContain": ["approval"],
+  "replyMustNotContain": ["account created"]
+}
+```
+
+Every case implicitly asserts `RUN_STARTED` + `RUN_FINISHED` present and `RUN_ERROR` absent, and
+unknown fields fail loudly, so typos surface instead of silently passing. Add or adjust a case when
+you change a tool name or description (does the intent still route?), a `RequiresApproval` flag
+(`expectApproval`, and the reply must not claim success), `AgentInstructions` (`replyMustContain`),
+or an RBAC baseline (narrower `role` + `forbidToolCalls`). Phrase `message` with the tool's name
+tokens in it — that is how the Mock routes (§4) — and remember the limit that implies: evals prove
+the **platform contract** (routing, gating, protocol), not real-model reasoning quality.
 
 ## 7. The verification loop
 
@@ -309,17 +344,9 @@ means the diagnosis is wrong, not the fix.
 
 Recorded rather than hidden, so the next agent doesn't mistake absence for coverage:
 
-- **No golden-conversation evals (rung 4).** The platform has an eval runner
-  (`GoldenConversationEvals` + `Evals/cases/*.json`) that gives prompt-shaped changes — agent
-  instructions, tool descriptions, agent profiles — the same regression net code has. Networthy has
-  neither the runner nor the cases. Porting it is the highest-value next step for this repo.
 - **No `.mcp.json`.** The Aspire MCP has to be started by hand rather than being registered for the
   session.
-- **No committed `.http` request catalog.** The platform ships `plenipo.http`; this repo has no
-  equivalent, so every endpoint has to be reconstructed from source.
 - **No Playwright smoke.** Nothing catches a stale CSP hash, which no backend test can see.
-- **Postgres major drifts between run and test.** The AppHost and Mode B use `pg17`; the test fixture
-  pins `pg16`. They should match — a product should not test against a Postgres it does not ship.
 
 ## 10. CI
 
