@@ -104,10 +104,11 @@ if (builder.ExecutionContext.IsRunMode && ToolExistsOnPath("pnpm"))
             .WithEnvironment("VITE_WORKSPACE_URL", workspace.GetEndpoint("http"))
             .WithExternalHttpEndpoints();
 
-        // The workspace's "Admin" link targets the admin console (Vite serves it under its /admin base).
+        // Vite's public base is /admin/ (including the trailing slash). Without it Vite serves a
+        // plain-text "did you mean /admin/?" page instead of redirecting into the console.
         workspace.WithEnvironment(
             "VITE_ADMIN_URL",
-            ReferenceExpression.Create($"{admin.GetEndpoint("http")}/admin"));
+            ReferenceExpression.Create($"{admin.GetEndpoint("http")}/admin/"));
 
         api.WithEnvironment($"Cors__Origins__{corsIndex++}", admin.GetEndpoint("http"));
     }

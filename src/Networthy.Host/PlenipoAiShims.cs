@@ -7,7 +7,7 @@ using Plenipo.Application.Ai;
 namespace Networthy.Host;
 
 /// <summary>
-/// Host-side shims over three AI seams in Plenipo 0.1.0-alpha.25. The admin SPA and the platform
+/// Host-side shims over four AI seams in Plenipo 0.1.0-alpha.28. The admin SPA and the platform
 /// endpoints ship frozen in the packages, so until the fixes land upstream
 /// (github.com/abrahamFerga/Plenipo) the host straightens them out at the HTTP boundary:
 ///
@@ -20,6 +20,8 @@ namespace Networthy.Host;
 /// 3. GET /api/platform/info — the platform computes demoMode/chatEnabled from the deployment
 ///    defaults only, so the "Demo mode" banner keeps showing after a tenant configures a real
 ///    provider. The shim re-answers from the tenant-effective settings.
+/// 4. GET /api/admin/ops — its AI card mixes deployment provider/model with tenant-effective
+///    budget and usage. The shim makes the whole card reflect the settings the tenant actually uses.
 ///
 /// Each shim is deletion-ready: when a platform release fixes the seam, drop the branch here.
 /// </summary>
@@ -72,6 +74,36 @@ public static class PlenipoAiShims
                     }
                     obj["chatEnabled"] = effective.IsEnabled;
                     obj["demoMode"] = string.Equals(effective.Provider, "Mock", StringComparison.OrdinalIgnoreCase);
+                    return true;
+                });
+                return;
+            }
+
+            if (HttpMethods.IsGet(context.Request.Method) && path == "/api/admin/ops")
+            {
+                await RewriteOkJsonResponseAsync(context, next, async obj =>
+                {
+                    EffectiveAiSettings effective;
+                    try
+                    {
+                        effective = await context.RequestServices
+                            .GetRequiredService<ITenantAiSettings>()
+                            .ResolveAsync(context.RequestAborted);
+                    }
+                    catch (Exception)
+                    {
+                        // Preserve the platform snapshot when tenant resolution is unavailable.
+                        return false;
+                    }
+
+                    if (obj["ai"] is not JsonObject ai)
+                    {
+                        return false;
+                    }
+
+                    ai["provider"] = effective.Provider;
+                    ai["model"] = effective.Model;
+                    ai["maxMonthlyTokens"] = effective.MaxMonthlyTokens;
                     return true;
                 });
                 return;
