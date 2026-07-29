@@ -43,6 +43,18 @@ public sealed class Transaction : TenantEntityBase
 
     public Guid? CreatedByUserId { get; set; }
 
+    /// <summary>
+    /// Non-null when this transaction is one leg of a confirmed inter-account transfer; both
+    /// legs carry the same value. A linked leg still moves its own account's balance — the money
+    /// really left one pocket and landed in another — but it is not income or spending, so every
+    /// aggregate that sums a <see cref="Direction"/> must skip rows where <see cref="IsTransfer"/>.
+    /// Set only by a human-confirmed link (never by the matcher alone) and cleared on unlink.
+    /// </summary>
+    public Guid? TransferGroupId { get; set; }
+
+    /// <summary>One leg of a linked inter-account transfer — excluded from income/expense math.</summary>
+    public bool IsTransfer => TransferGroupId is not null;
+
     /// <summary>Normalizes free-text directions to the two the module speaks.</summary>
     public static string? NormalizeDirection(string? direction) => direction?.Trim().ToLowerInvariant() switch
     {

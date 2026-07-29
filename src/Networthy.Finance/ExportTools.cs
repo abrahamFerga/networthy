@@ -23,7 +23,7 @@ public sealed class ExportTools(
     ICurrentUser currentUser,
     HouseholdContext household)
 {
-    [Description("Export the caller-visible transactions as a downloadable CSV file (date, account, category, direction, amount, currency, description), optionally limited to a date range. Read-only: creates a file, changes no records.")]
+    [Description("Export the caller-visible transactions as a downloadable CSV file (date, account, category, direction, amount, currency, description, transfer counterpart), optionally limited to a date range. Read-only: creates a file, changes no records.")]
     public async Task<string> ExportTransactions(
         [Description("Optional period start, ISO date inclusive (yyyy-MM-dd).")] string? fromDate = null,
         [Description("Optional period end, ISO date inclusive (yyyy-MM-dd).")] string? toDate = null,
@@ -77,6 +77,10 @@ public sealed class ExportTools(
                    ". Log some first, or widen the date range.";
         }
 
+        // Linked transfer legs stay IN the export (it is the ledger, not a spending summary),
+        // each naming its counterpart account so a spreadsheet can filter them out honestly.
+        var counterpartByTransaction = await CounterpartAccountNamesAsync(rows, cancellationToken);
+
         var csv = ExportMath.BuildTransactionsCsv(rows.Select(x => new ExportMath.TransactionRow(
             x.OccurredOn,
             visibleAccounts[x.AccountId],
@@ -84,7 +88,8 @@ public sealed class ExportTools(
             x.Direction,
             x.Amount,
             x.CurrencyCode,
-            x.Description)));
+            x.Description,
+            counterpartByTransaction.GetValueOrDefault(x.Id, ""))));
 
         var range = (from, to) switch
         {
@@ -116,11 +121,15 @@ public sealed class ExportTools(
             .Where(a => a.IsVisibleTo(currentUser.UserId))
             .ToList();
         var visibleIds = visibleAccounts.Select(a => a.Id).ToHashSet();
-        var monthRows = (await db.Transactions
+        var allMonthRows = (await db.Transactions
                 .Where(t => t.OccurredOn >= period && t.OccurredOn <= monthEnd)
                 .ToListAsync(cancellationToken))
             .Where(t => visibleIds.Contains(t.AccountId))
             .ToList();
+        // Money moved between the household's own accounts is neither income nor spending —
+        // the report says how many legs it set aside instead of silently absorbing them.
+        var monthRows = allMonthRows.Where(t => !t.IsTransfer).ToList();
+        var transferLegs = allMonthRows.Count - monthRows.Count;
         var categories = await db.Categories.ToDictionaryAsync(c => c.Id, c => c.Name, cancellationToken);
 
         // BuildPdf treats "\n\n" as the paragraph break (single newlines collapse into the same
@@ -128,7 +137,7 @@ public sealed class ExportTools(
         var body = new StringBuilder();
         body.Append($"Money in and out, {period:yyyy-MM-dd} to {monthEnd:yyyy-MM-dd}.");
 
-        if (monthRows.Count == 0)
+        if (allMonthRows.Count == 0)
         {
             body.Append("\n\nNo transactions recorded this month.");
         }
@@ -141,6 +150,12 @@ public sealed class ExportTools(
                 var income = group.Where(t => t.Direction == "income").Sum(t => t.Amount);
                 var expense = group.Where(t => t.Direction == "expense").Sum(t => t.Amount);
                 body.Append($"\n\n{group.Key}: income {income:N2}, expenses {expense:N2}, net {income - expense:N2}.");
+            }
+
+            if (transferLegs > 0)
+            {
+                body.Append($"\n\nInter-account transfers: {transferLegs} linked leg(s) excluded from the " +
+                            "totals above — money moved between your own accounts, not income or spending.");
             }
 
             var topExpenses = SpendingMath.SummarizeByCategory(
@@ -273,15 +288,53 @@ public sealed class ExportTools(
         return $"Exported {events.Count} activity event(s) from the last {clamped} day(s) to " +
                $"'{stored.FileName}' ({stored.SizeBytes:N0} bytes). File id: {stored.Id}. Download: /api/files/{stored.Id}";
     }
+
+    /// <summary>
+    /// For every linked leg among <paramref name="rows"/>, the OTHER leg's account name — looked
+    /// up beyond the exported window (the counterpart may sit outside the date range), and honest
+    /// about accounts the caller cannot see.
+    /// </summary>
+    private async Task<Dictionary<Guid, string>> CounterpartAccountNamesAsync(
+        IReadOnlyList<Transaction> rows, CancellationToken cancellationToken)
+    {
+        var groups = rows.Where(r => r.TransferGroupId is not null)
+            .Select(r => r.TransferGroupId!.Value)
+            .Distinct()
+            .ToList();
+        if (groups.Count == 0)
+        {
+            return [];
+        }
+
+        var accountNames = await db.Accounts.ToDictionaryAsync(a => a.Id, a => a, cancellationToken);
+        var legs = await db.Transactions
+            .Where(t => t.TransferGroupId != null && groups.Contains(t.TransferGroupId.Value))
+            .ToListAsync(cancellationToken);
+
+        var result = new Dictionary<Guid, string>();
+        foreach (var leg in legs.Where(l => rows.Any(r => r.Id == l.Id)))
+        {
+            var counterpart = legs.FirstOrDefault(o => o.TransferGroupId == leg.TransferGroupId && o.Id != leg.Id);
+            result[leg.Id] = counterpart is null
+                ? "transfer"
+                : accountNames.TryGetValue(counterpart.AccountId, out var account)
+                  && account.IsVisibleTo(currentUser.UserId)
+                    ? $"transfer ⇄ {account.Name}"
+                    : "transfer ⇄ (private account)";
+        }
+
+        return result;
+    }
 }
 
 /// <summary>Pure CSV-building logic, unit-tested without a database.</summary>
 public static class ExportMath
 {
-    /// <summary>One CSV line of the transactions export, already resolved to display strings.</summary>
+    /// <summary>One CSV line of the transactions export, already resolved to display strings.
+    /// <paramref name="Transfer"/> is empty for ordinary rows, else the counterpart label.</summary>
     public sealed record TransactionRow(
         DateOnly Date, string Account, string Category, string Direction,
-        decimal Amount, string Currency, string Description);
+        decimal Amount, string Currency, string Description, string Transfer = "");
 
     /// <summary>Spreadsheet-safe RFC-4180 escaping. User-controlled values that could be
     /// interpreted as formulas are prefixed with an apostrophe before normal CSV quoting.</summary>
@@ -313,7 +366,7 @@ public static class ExportMath
     /// <summary>The transactions export: fixed columns, invariant-culture amounts and dates.</summary>
     public static string BuildTransactionsCsv(IEnumerable<TransactionRow> rows) =>
         BuildCsv(
-            ["date", "account", "category", "direction", "amount", "currency", "description"],
+            ["date", "account", "category", "direction", "amount", "currency", "description", "transfer"],
             rows.Select(r => (IReadOnlyList<string>)
             [
                 r.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
@@ -323,6 +376,7 @@ public static class ExportMath
                 r.Amount.ToString("0.00", CultureInfo.InvariantCulture),
                 r.Currency,
                 r.Description,
+                r.Transfer,
             ]));
 
     /// <summary>UTC timestamp formatting shared by the activity export's rows.</summary>

@@ -37,7 +37,8 @@ internal static class SpendingEndpoint
                     .Select(a => a.Id)
                     .ToHashSet();
                 var expenses = (await db.Transactions
-                        .Where(t => t.Direction == "expense" && t.OccurredOn >= period && t.OccurredOn <= monthEnd)
+                        .Where(t => t.Direction == "expense" && t.TransferGroupId == null
+                                    && t.OccurredOn >= period && t.OccurredOn <= monthEnd)
                         .ToListAsync(cancellationToken))
                     .Where(t => visibleIds.Contains(t.AccountId) &&
                                 t.CurrencyCode.Equals(currencyCode, StringComparison.OrdinalIgnoreCase))

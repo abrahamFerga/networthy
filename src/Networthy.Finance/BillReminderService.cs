@@ -58,7 +58,7 @@ public sealed class BillReminderService(
         var since = utcToday.AddDays(-RecurringTools.LookbackDays - 2);
 
         var expenses = await db.Transactions.IgnoreQueryFilters()
-            .Where(t => t.Direction == "expense" && t.OccurredOn >= since)
+            .Where(t => t.Direction == "expense" && t.TransferGroupId == null && t.OccurredOn >= since)
             .ToListAsync(cancellationToken);
         var alreadySent = (await db.BillReminders.IgnoreQueryFilters()
                 .Where(r => r.ExpectedOn >= utcToday.AddDays(-1))

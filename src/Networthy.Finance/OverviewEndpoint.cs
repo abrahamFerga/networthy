@@ -59,7 +59,8 @@ internal static class OverviewEndpoint
                 // ── Budgets + safe-to-spend (same spent computation as the budgets tab) ──
                 var budgets = await db.Budgets.Where(b => b.PeriodMonth == period).ToListAsync(cancellationToken);
                 var monthExpenses = (await db.Transactions
-                        .Where(t => t.Direction == "expense" && t.OccurredOn >= period && t.OccurredOn <= monthEnd)
+                        .Where(t => t.Direction == "expense" && t.TransferGroupId == null
+                                    && t.OccurredOn >= period && t.OccurredOn <= monthEnd)
                         .ToListAsync(cancellationToken))
                     .Where(t => visibleIds.Contains(t.AccountId))
                     .ToList();

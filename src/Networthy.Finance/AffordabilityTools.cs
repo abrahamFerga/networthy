@@ -45,7 +45,7 @@ public sealed class AffordabilityTools(
         var monthStart = new DateOnly(today.Year, today.Month, 1);
         var visibleIds = accounts.Select(a => a.Id).ToHashSet();
         var monthSpend = (await db.Transactions
-                .Where(t => t.Direction == "expense" && t.OccurredOn >= monthStart)
+                .Where(t => t.Direction == "expense" && t.TransferGroupId == null && t.OccurredOn >= monthStart)
                 .ToListAsync(cancellationToken))
             .Where(t => visibleIds.Contains(t.AccountId))
             .Sum(t => t.Amount);
@@ -72,7 +72,8 @@ public sealed class AffordabilityTools(
             if (categoryRow is not null)
             {
                 var categorySpend = (await db.Transactions
-                        .Where(t => t.Direction == "expense" && t.OccurredOn >= monthStart && t.CategoryId == categoryRow.Id)
+                        .Where(t => t.Direction == "expense" && t.TransferGroupId == null
+                                    && t.OccurredOn >= monthStart && t.CategoryId == categoryRow.Id)
                         .ToListAsync(cancellationToken))
                     .Where(t => visibleIds.Contains(t.AccountId))
                     .Sum(t => t.Amount);

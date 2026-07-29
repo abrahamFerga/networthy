@@ -22,7 +22,8 @@ public sealed class StatementImportTools(
     IFileStore files,
     IJobQueue jobs,
     ITenantContext tenant,
-    ICurrentUser currentUser)
+    ICurrentUser currentUser,
+    TransferTools transfers)
 {
     [Description("Import an uploaded bank statement (CSV/OFX/QFX/PDF; the file id comes from the message's attachment block). The account name is OPTIONAL: leave it out and Networthy detects which account the statement belongs to (asking before creating anything). Extraction runs in the background; review with review_import_batch before anything posts. Runs without an approval prompt: it only queues extraction into the review pipeline — approving the reviewed batch is the gate, and discard_import_batch undoes an unwanted import.")]
     public async Task<string> ImportStatement(
@@ -343,8 +344,13 @@ public sealed class StatementImportTools(
         batch.ReviewedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(cancellationToken);
 
+        // The statement just landed in ONE account; if any of its lines mirror a line in another
+        // account (the household's money changing pockets), say so now — the moment the user can
+        // still see the statement in their head — rather than let income/spending quietly inflate.
+        var transferFollowUp = await transfers.DescribePostApprovalCandidatesAsync(account.Id, cancellationToken);
+
         return (true, $"Posted {lines.Count} transaction(s) from '{batch.FileName}' to '{account.Name}'. " +
-               $"New balance: {account.CachedBalance:N2} {account.CurrencyCode}.");
+               $"New balance: {account.CachedBalance:N2} {account.CurrencyCode}." + transferFollowUp);
     }
 
     private async Task<StatementImportBatch?> FindBatchAsync(

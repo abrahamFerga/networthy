@@ -191,12 +191,13 @@ public sealed class TransactionTools(
         return $"Updated: {transaction.OccurredOn:yyyy-MM-dd} · {transaction.Amount:N2} {transaction.CurrencyCode} · {transaction.Description}.";
     }
 
-    [Description("Search transactions by text, category, and/or date range (newest first).")]
+    [Description("Search transactions by text, category, account, and/or date range (newest first). Linked inter-account transfers are marked with their counterpart account.")]
     public async Task<string> SearchTransactions(
         [Description("Optional text to match in the description.")] string? text = null,
         [Description("Optional category name to filter by.")] string? category = null,
         [Description("Optional period start, ISO date inclusive.")] string? fromDate = null,
         [Description("Optional period end, ISO date inclusive.")] string? toDate = null,
+        [Description("Optional account name — only that account's own ledger.")] string? accountName = null,
         CancellationToken cancellationToken = default)
     {
         var query = db.Transactions.AsQueryable();
@@ -216,6 +217,18 @@ public sealed class TransactionTools(
             }
 
             query = query.Where(t => t.CategoryId == categoryRow.Id);
+        }
+
+        Account? scopedAccount = null;
+        if (!string.IsNullOrWhiteSpace(accountName))
+        {
+            scopedAccount = await FindVisibleAccountAsync(accountName, cancellationToken);
+            if (scopedAccount is null)
+            {
+                return $"No account named '{accountName}' exists (or it is private to another member). Use list_accounts.";
+            }
+
+            query = query.Where(t => t.AccountId == scopedAccount.Id);
         }
 
         if (!string.IsNullOrWhiteSpace(fromDate) && DateOnly.TryParse(fromDate, CultureInfo.InvariantCulture, out var from))
@@ -238,20 +251,59 @@ public sealed class TransactionTools(
             .ToList();
         if (results.Count == 0)
         {
-            return "No transactions match. Log one with log_own_transaction, or import a statement.";
+            return scopedAccount is null
+                ? "No transactions match. Log one with log_own_transaction, or import a statement."
+                : $"No transactions match on '{scopedAccount.Name}'. Import one of its statements, or widen the search.";
         }
 
         var categories = await db.Categories.ToDictionaryAsync(c => c.Id, c => c.Name, cancellationToken);
-        var sb = new StringBuilder("Transactions (newest first):\n");
+        var counterparts = await TransferCounterpartsAsync(results, visibleAccounts, cancellationToken);
+        var sb = new StringBuilder(scopedAccount is null
+            ? "Transactions (newest first):\n"
+            : $"Transactions on '{scopedAccount.Name}' (newest first):\n");
         foreach (var t in results)
         {
+            var tag = t.IsTransfer
+                ? $" [transfer ⇄ {counterparts.GetValueOrDefault(t.Id, "your other account")}]"
+                : t.CategoryId is { } c && categories.TryGetValue(c, out var name) ? $" [{name}]" : " [uncategorized]";
             sb.AppendLine(
                 $"- {t.OccurredOn:yyyy-MM-dd} · {(t.Direction == "income" ? "+" : "-")}{t.Amount:N2} {t.CurrencyCode} · " +
-                $"{t.Description} — {visibleAccounts[t.AccountId]}" +
-                $"{(t.CategoryId is { } c && categories.TryGetValue(c, out var name) ? $" [{name}]" : " [uncategorized]")}");
+                $"{t.Description} — {visibleAccounts[t.AccountId]}{tag}");
         }
 
         return sb.ToString();
+    }
+
+    /// <summary>For each linked leg in <paramref name="results"/>, the other leg's account name
+    /// (or "(private account)" when the counterpart is scoped away from the caller).</summary>
+    private async Task<Dictionary<Guid, string>> TransferCounterpartsAsync(
+        IReadOnlyList<Transaction> results,
+        IReadOnlyDictionary<Guid, string> visibleAccounts,
+        CancellationToken cancellationToken)
+    {
+        var groups = results.Where(t => t.TransferGroupId is not null)
+            .Select(t => t.TransferGroupId!.Value)
+            .Distinct()
+            .ToList();
+        if (groups.Count == 0)
+        {
+            return [];
+        }
+
+        var legs = await db.Transactions
+            .Where(t => t.TransferGroupId != null && groups.Contains(t.TransferGroupId.Value))
+            .ToListAsync(cancellationToken);
+        var map = new Dictionary<Guid, string>();
+        foreach (var leg in legs)
+        {
+            var other = legs.FirstOrDefault(o => o.TransferGroupId == leg.TransferGroupId && o.Id != leg.Id);
+            if (other is not null)
+            {
+                map[leg.Id] = visibleAccounts.TryGetValue(other.AccountId, out var name) ? name : "(private account)";
+            }
+        }
+
+        return map;
     }
 
     [Description("Spending (or income) summed by category over a period — answers 'how much did we spend on X'. Defaults to the current month.")]
@@ -295,6 +347,7 @@ public sealed class TransactionTools(
             .ToHashSet();
 
         var rows = (await db.Transactions
+                .Where(t => t.TransferGroupId == null) // pocket-to-pocket moves are not spending or income
                 .Where(t => t.Direction == normalizedDirection && t.OccurredOn >= from && t.OccurredOn <= to)
                 .Where(t => categoryId == null || t.CategoryId == categoryId)
                 .ToListAsync(cancellationToken))

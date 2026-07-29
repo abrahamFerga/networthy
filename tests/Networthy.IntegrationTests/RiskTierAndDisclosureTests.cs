@@ -45,7 +45,7 @@ public sealed class RiskTierAndDisclosureTests(IntegrationFixture fixture)
         // future tool joins the compact one-tap tier only by editing BOTH the declaration
         // (rationale block in FinanceToolSource) and this guard.
         Assert.Equal(
-            ["categorize_transaction", "contribute_to_goal", "set_exchange_rate"],
+            ["categorize_transaction", "contribute_to_goal", "set_exchange_rate", "unlink_transfer"],
             tools.Where(t => t.Risk == ApprovalRisk.Low).Select(t => t.Name).Order());
 
         // Risk is review-surface ceremony for GATED tools; Low on an ungated tool would be

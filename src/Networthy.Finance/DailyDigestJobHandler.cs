@@ -45,7 +45,8 @@ public sealed class DailyDigestJobHandler : IJobHandler
         var budgets = await db.Budgets.Where(b => b.PeriodMonth == period).ToListAsync(cancellationToken);
         var categoryNames = await db.Categories.ToDictionaryAsync(c => c.Id, c => c.Name, cancellationToken);
         var monthExpenses = await db.Transactions
-            .Where(t => t.Direction == "expense" && t.OccurredOn >= period && t.OccurredOn <= today)
+            .Where(t => t.Direction == "expense" && t.TransferGroupId == null
+                        && t.OccurredOn >= period && t.OccurredOn <= today)
             .ToListAsync(cancellationToken);
 
         var recipients = await db.Transactions

@@ -44,7 +44,10 @@ wave added (SPEC.md): `GoalTools`/`GoalPlanning`, `HealthTools`, `IncomeSourceTo
 `RecurringTools`/`RecurringDetection`, `HouseholdSettingsTools`/`HouseholdContext`,
 `ExportTools`, `AffordabilityTools`, plus the hosted services `BillReminderService`,
 `BudgetRolloverService`, `NetWorthSnapshotService` and the job handlers `DailyDigestJobHandler`,
-`StatementReminderJobHandler`. The v2 dashboard/visualization reads (`OverviewEndpoint`,
+`StatementReminderJobHandler`. SPEC v2.1's multi-account money movement adds
+`TransferTools`/`TransferMatching` (ADR-0009): inter-account transfer candidates are computed at
+read time, surfaced by `StatementImportTools`' approval message, and linked only on a human's
+confirmation. The v2 dashboard/visualization reads (`OverviewEndpoint`,
 `SpendingEndpoint`, `CashFlowEndpoint`, `UpcomingBillsEndpoint`) and the direct-human-bookkeeping
 `ManualCrudEndpoints` (RBAC-gated, not approval-gated — see API surface below) round out the
 module. `FinanceToolSource` is the DI-bound tool catalog; `FinanceModule.Manifest.Tools` is the
@@ -86,6 +89,8 @@ src/
                               REST surface (see API surface below):
                               OverviewEndpoint.cs, SpendingEndpoint.cs, CashFlowEndpoint.cs,
                               UpcomingBillsEndpoint.cs, ManualCrudEndpoints.cs
+                            — plus SPEC v2.1's multi-account money movement (ADR-0009):
+                              TransferTools.cs (+ TransferMatching.cs)
                             — and the module scaffolding itself:
                               FinanceModule.cs (manifest + pinned tool list),
                               FinanceToolSource.cs (DI-bound tool catalog)
