@@ -6,7 +6,9 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Networthy.Finance;
 
 /// <summary>Supplies the Finance module's executable tools. Grows feature by feature; every
-/// entry stays permission-gated and record-changing tools stay approval-gated (ADR-0002).</summary>
+/// entry stays permission-gated and record-changing tools stay approval-gated (ADR-0002).
+/// Two deliberate exceptions, each with its own ADR note: log_own_transaction (ADR-0005) and
+/// import_statement (ADR-0002 amendment — the review queue is the gate).</summary>
 public sealed class FinanceToolSource : IModuleToolSource
 {
     public string ModuleId => FinanceModule.Id;
@@ -35,8 +37,13 @@ public sealed class FinanceToolSource : IModuleToolSource
     //                                  write the issue's full review card is for.
     //   set_account_visibility  HIGH — standing privacy configuration: changes which
     //                                  members can see an account.
-    //   import_statement        HIGH — admits an external batch into the review
-    //                                  pipeline; the start of a bulk operation.
+    //   import_statement        UNGATED — queues extraction of a file the user attached
+    //                                  into the review pipeline. Nothing posts from it
+    //                                  (approve_import_batch is the gate ADR-0002 means),
+    //                                  and discard_import_batch is the one-call undo.
+    //                                  Gating it produced approval²: approve the import,
+    //                                  then approve the batch — pure ceremony (ADR-0002
+    //                                  amendment, statement imports).
     //   approve_import_batch    HIGH — posts N lines as transactions and moves the
     //                                  balance; bulk by definition.
     //   set_goal                HIGH — creates/updates goal structure (target, date,
@@ -177,7 +184,7 @@ public sealed class FinanceToolSource : IModuleToolSource
                 Name = "import_statement",
                 Permission = Permissions.ForTool(ModuleId, "import_statement"),
                 Function = AIFunctionFactory.Create(imports.ImportStatement, name: "import_statement"),
-                RequiresApproval = true,
+                // Deliberately ungated (see the tier table above): the review queue IS the gate.
             },
             new ModuleTool
             {
