@@ -163,9 +163,11 @@ public sealed class FinanceModule : IModule
             "an existing account, or create it? Resolve with assign_import_account (createIfMissing " +
             "to create — never create without the user saying so). Then review_import_batch to show " +
             "the extracted lines, and only after the user confirms, approve_import_batch. Relay any " +
-            "duplicate-period warning the review shows, and when a batch duplicates an ALREADY-APPROVED " +
-            "statement's period, recommend discard_import_batch instead of approving twice — but if the " +
-            "user still wants it posted, call approve_import_batch and let them decide at the gate. " +
+            "duplicate-period warning the review shows, INCLUDING the count of lines already posted — " +
+            "approving skips those rather than duplicating them, so a household that uploads the PDF and " +
+            "then the CSV for the same month ends up with one copy. Say that plainly instead of implying " +
+            "they must choose one file. When a batch adds nothing new, discard_import_batch is the tidier " +
+            "resolution, but approving it is safe and posts nothing. " +
             "discard_import_batch removes an unposted batch (duplicate upload, abandoned import); posted " +
             "data is never touched. Never post lines the user hasn't seen. When " +
             "several statements are in flight, list_import_batches enumerates what's pending — review " +
@@ -1573,7 +1575,8 @@ public sealed class FinanceModule : IModule
                         id = "approve",
                         label = "Approve",
                         endpoint = $"/api/finance/imports/{batch.Id}/approve",
-                        confirm = "Post this batch's lines as transactions? Balances update immediately.",
+                        confirm = "Post this batch's lines as transactions? Balances update immediately. " +
+                                  "Lines already posted to this account are skipped, not duplicated.",
                     });
                 }
                 if (user.HasPermission(ManageFinance))
@@ -1642,6 +1645,33 @@ public sealed class FinanceModule : IModule
                         }).ToArray(),
                     },
                 };
+                // How much of this file the account already holds, counted before anything posts —
+                // the reviewer approves knowing the re-imported period will be skipped, not doubled.
+                if (batch.Status == "parsed" && batch.AccountId is { } targetAccountId && lines.Count > 0)
+                {
+                    var from = lines.Min(l => l.Date);
+                    var to = lines.Max(l => l.Date);
+                    var posted = await db.Transactions
+                        .Where(t => t.AccountId == targetAccountId && t.OccurredOn >= from && t.OccurredOn <= to)
+                        .Select(t => new { t.OccurredOn, t.Amount, t.Direction, t.Description })
+                        .ToListAsync(cancellationToken);
+                    var (toPost, already) = StatementDeduplication.Partition(
+                        lines,
+                        posted.Select(t => StatementDeduplication.ContentKey(
+                            t.OccurredOn, t.Amount, t.Direction, t.Description)));
+                    if (already.Count > 0)
+                    {
+                        sections.Insert(0, new
+                        {
+                            heading = "Already posted",
+                            text = $"{already.Count} of these {lines.Count} line(s) are already on " +
+                                   $"'{account?.Name}' with the same date, amount and description. Approving posts " +
+                                   $"the remaining {toPost.Count} and skips the rest — importing this period twice " +
+                                   "does not duplicate it.",
+                        });
+                    }
+                }
+
                 if (batch.Status == "failed")
                 {
                     sections.Insert(0, new { heading = "Extraction failed", text = batch.FailureReason });
