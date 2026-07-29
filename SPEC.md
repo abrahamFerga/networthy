@@ -21,6 +21,10 @@ chat, with every AI-initiated change reviewable and audited before it sticks.
 - When I set a savings or spending goal, I want to track progress against it over time.
 - When the AI categorizes a transaction or imports a statement, I want to review and approve the
   change before it's final, and see a record of what it did.
+- When I move money between my own accounts (income lands in one, moves to another for taxes,
+  then to the one that pays the bills, while savings grow in a fourth), I want each hop's two
+  statement lines recognized as one transfer — not double-counted as income plus spending — and
+  I want to read any account's ledger on its own.
 
 ## Target personas
 
@@ -101,6 +105,19 @@ citations. Ordered as the persona jobs-to-be-done they serve, not build order (t
 | Two-factor / passkey authentication | A second factor at login, for an app holding full transaction and statement history. | Household admin, Household member, Self-hosting power user |
 | Masked balances by default | Account numbers and balances masked with a reveal toggle everywhere they appear, not just the Accounts tab. | Household admin, Household member |
 | Power-user API & custom reports | A scoped, personal-access-token-authenticated API surface for self-hosters to build on, plus ad-hoc filter-and-save reports and a tax-category export mapping, extending the existing Reports & exports capability. | Self-hosting power user |
+
+### Must have (v2.1 — owner-requested, 2026-07-28)
+
+Requested directly by the product owner from daily use, not from the competitive research: the
+owner's real flow spans five accounts — income arrives in a USD Payoneer account, moves to an
+MXN account kept for tax purposes, then on to the account that pays the bills, while a separate
+savings account grows. Every hop is two statement lines in two different accounts (often two
+currencies) that are really *one* transfer.
+
+| Capability | One-line description | Personas |
+|---|---|---|
+| Inter-account transfer matching | Statement lines that are money moving between the household's own accounts are detected on import (same- and cross-currency), suggested for confirmation, and — once linked — never counted as income or spending anywhere, while balances stay exact. | Household admin, Self-hosting power user |
+| Account-centric ledger views | Every transaction surface can be scoped to one account — the Transactions tab gains an account filter, the chat assistant answers "show me the movements on X", and each Accounts-tab row drills into that account's own ledger. | Household admin, Household member |
 
 ### Differentiators (v2)
 

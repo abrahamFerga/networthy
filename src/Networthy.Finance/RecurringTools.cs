@@ -63,7 +63,9 @@ public sealed class RecurringTools(
             .Select(a => a.Id)
             .ToHashSet();
         var expenses = (await db.Transactions
-                .Where(t => t.Direction == "expense" && t.OccurredOn >= since)
+                // A monthly Payoneer→bank transfer has subscription-shaped rhythm; a linked
+                // transfer is not a bill, so it must not be "detected" as one.
+                .Where(t => t.Direction == "expense" && t.TransferGroupId == null && t.OccurredOn >= since)
                 .ToListAsync(cancellationToken))
             .Where(t => visibleIds.Contains(t.AccountId))
             .Select(t => new RecurringDetection.Observation(t.OccurredOn, t.Amount, t.Description));

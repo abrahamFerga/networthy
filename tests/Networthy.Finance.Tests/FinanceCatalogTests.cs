@@ -33,19 +33,20 @@ public sealed class FinanceCatalogTests
         Assert.Equal(
             ["create_account", "list_accounts", "get_net_worth", "log_own_transaction",
              "categorize_transaction", "edit_transaction", "search_transactions", "summarize_spending",
-             "can_i_afford", "list_pending_approvals", "get_activity_log", "set_budget", "get_budget_status", "set_account_visibility", "import_statement", "assign_import_account", "review_import_batch", "approve_import_batch", "set_goal", "contribute_to_goal", "list_goals", "update_account_terms", "get_financial_health", "set_income_source", "list_income_sources", "get_goal_plan", "list_recurring", "get_household_settings", "update_household_settings", "set_exchange_rate", "export_transactions", "generate_monthly_report", "export_activity_log", "list_import_batches"],
+             "can_i_afford", "list_pending_approvals", "get_activity_log", "set_budget", "get_budget_status", "set_account_visibility", "import_statement", "assign_import_account", "review_import_batch", "approve_import_batch", "set_goal", "contribute_to_goal", "list_goals", "update_account_terms", "get_financial_health", "set_income_source", "list_income_sources", "get_goal_plan", "list_recurring", "get_household_settings", "update_household_settings", "set_exchange_rate", "export_transactions", "generate_monthly_report", "export_activity_log", "list_import_batches", "suggest_transfer_links", "link_transfers", "unlink_transfer"],
             manifest.Tools.Select(t => t.Name));
 
         // Record-changing tools are approval-gated (ADR-0002); reads are not.
         Assert.All(
             manifest.Tools.Where(t => t.Name is "create_account" or "categorize_transaction" or "edit_transaction"
-                or "import_statement" or "assign_import_account" or "approve_import_batch" or "set_account_visibility" or "set_budget" or "set_goal" or "contribute_to_goal" or "update_account_terms" or "set_income_source" or "update_household_settings" or "set_exchange_rate"),
+                or "import_statement" or "assign_import_account" or "approve_import_batch" or "set_account_visibility" or "set_budget" or "set_goal" or "contribute_to_goal" or "update_account_terms" or "set_income_source" or "update_household_settings" or "set_exchange_rate" or "link_transfers" or "unlink_transfer"),
             t => Assert.True(t.RequiresApproval));
         // log_own_transaction is the module's ONE deliberately ungated write (ADR-0005); reads are never gated.
         Assert.All(
             manifest.Tools.Where(t => t.Name is "list_accounts" or "get_net_worth" or "log_own_transaction"
                 or "search_transactions" or "summarize_spending" or "can_i_afford" or "review_import_batch"
-                or "get_budget_status" or "list_pending_approvals" or "get_activity_log" or "list_import_batches"),
+                or "get_budget_status" or "list_pending_approvals" or "get_activity_log" or "list_import_batches"
+                or "suggest_transfer_links"),
             t => Assert.False(t.RequiresApproval));
     }
 

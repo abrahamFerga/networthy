@@ -49,14 +49,19 @@ public sealed class ExportMathTests
                 1234.5m, "USD", "Tacos, al pastor"),
             new ExportMath.TransactionRow(
                 new DateOnly(2026, 7, 10), "Cash", "", "income", 6m, "USD", "found a bill"),
+            new ExportMath.TransactionRow(
+                new DateOnly(2026, 7, 11), "Payoneer USD", "", "expense", 1000m, "USD",
+                "Withdrawal to bank", "transfer ⇄ BBVA Tax MXN"),
         ]);
 
         var lines = csv.TrimEnd().Split(Environment.NewLine);
-        Assert.Equal("date,account,category,direction,amount,currency,description", lines[0]);
+        Assert.Equal("date,account,category,direction,amount,currency,description,transfer", lines[0]);
         // The comma-bearing description is quoted; the amount is invariant "0.00".
-        Assert.Equal("2026-07-09,Chase Checking,Dining,expense,1234.50,USD,\"Tacos, al pastor\"", lines[1]);
+        Assert.Equal("2026-07-09,Chase Checking,Dining,expense,1234.50,USD,\"Tacos, al pastor\",", lines[1]);
         // An uncategorized row exports an empty category field, not a placeholder.
-        Assert.Equal("2026-07-10,Cash,,income,6.00,USD,found a bill", lines[2]);
+        Assert.Equal("2026-07-10,Cash,,income,6.00,USD,found a bill,", lines[2]);
+        // A linked leg names its counterpart account so spreadsheets can filter transfers out.
+        Assert.Equal("2026-07-11,Payoneer USD,,expense,1000.00,USD,Withdrawal to bank,transfer ⇄ BBVA Tax MXN", lines[3]);
     }
 
     [Fact]

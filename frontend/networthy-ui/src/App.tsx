@@ -4,17 +4,20 @@ import { BudgetsTab } from "./finance/BudgetsTab";
 import { OverviewTab } from "./finance/OverviewTab";
 import { RecurringTab } from "./finance/RecurringTab";
 import { SpendingTab } from "./finance/SpendingTab";
+import { TransactionsTab } from "./finance/TransactionsTab";
 
 // Networthy's app entry (ADR-0008): the stock Plenipo shell plus the finance tabs that need
-// more than the generic rendering — the Overview dashboard, and issue #46's month-picking
-// Spending donut, budget progress bars, and bills calendar (each of which still composes
-// GenericTab for the server-driven part). Every other tab stays fully server-driven.
+// more than the generic rendering — the Overview dashboard, issue #46's month-picking
+// Spending donut, budget progress bars, and bills calendar, and SPEC v2.1's account-scopable
+// Transactions ledger (each of which still composes GenericTab for the server-driven part).
+// Every other tab stays fully server-driven.
 const finance = defineModule("finance", {
   tabs: {
     overview: OverviewTab,
     spending: SpendingTab,
     budgets: BudgetsTab,
     recurring: RecurringTab,
+    transactions: TransactionsTab,
   },
 });
 

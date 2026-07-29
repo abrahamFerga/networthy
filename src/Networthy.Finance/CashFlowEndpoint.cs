@@ -85,7 +85,8 @@ internal static class CashFlowEndpoint
                     .Select(a => a.Id)
                     .ToHashSet();
                 var rows = (await db.Transactions
-                        .Where(t => t.OccurredOn >= windowStart)
+                        // Linked transfers would show as fake matching income+expense bars.
+                        .Where(t => t.TransferGroupId == null && t.OccurredOn >= windowStart)
                         .ToListAsync(cancellationToken))
                     .Where(t => visibleIds.Contains(t.AccountId) &&
                                 t.CurrencyCode.Equals(currencyCode, StringComparison.OrdinalIgnoreCase))

@@ -90,7 +90,8 @@ public sealed class BudgetTools(
             .Select(a => a.Id)
             .ToHashSet();
         var spentRows = (await db.Transactions
-                .Where(t => t.Direction == "expense" && t.OccurredOn >= period && t.OccurredOn <= monthEnd)
+                .Where(t => t.Direction == "expense" && t.TransferGroupId == null
+                            && t.OccurredOn >= period && t.OccurredOn <= monthEnd)
                 .ToListAsync(cancellationToken))
             .Where(t => visibleAccountIds.Contains(t.AccountId))
             .ToList();

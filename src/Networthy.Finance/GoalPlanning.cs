@@ -94,7 +94,7 @@ public sealed class GoalPlanTools(
             var since = today.AddDays(-90);
             var visibleIds = accounts.Select(a => a.Id).ToHashSet();
             var expense90 = (await db.Transactions
-                    .Where(t => t.Direction == "expense" && t.OccurredOn >= since)
+                    .Where(t => t.Direction == "expense" && t.TransferGroupId == null && t.OccurredOn >= since)
                     .ToListAsync(cancellationToken))
                 .Where(t => visibleIds.Contains(t.AccountId) &&
                             t.CurrencyCode.Equals(goal.CurrencyCode, StringComparison.OrdinalIgnoreCase))

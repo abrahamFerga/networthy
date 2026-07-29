@@ -105,6 +105,22 @@ Foundations or re-derives anything already built; every v2 epic is additive.
     **Flagged** — this is the system's first REST *write* surface, a deliberate exception to
     ADR-0002; see Open questions below.
 
+15. **Multi-Account Money Movement** *(v2.1, owner-requested 2026-07-28)* — Capabilities (from
+    SPEC): *Inter-account transfer matching*, *Account-centric ledger views*. The owner's real
+    flow is five accounts (USD Payoneer income → MXN tax account → bills account, savings apart):
+    each hop's two statement lines are one transfer, not income plus expense. A transfer link on
+    `Transaction` (shared pair id) with a conservative matcher — opposite directions, different
+    accounts, small date window, exact amount same-currency, household-FX-plausible cross-currency,
+    description signals (transfer/wire/withdrawal, SPEI/transferencia/traspaso/retiro, Payoneer) —
+    surfaced right after statement approval and confirmable in one approval-gated action,
+    reversible with an unlink. Every income/expense aggregate (spending summaries and donut, cash
+    flow, savings rate, affordability, recurring detection, budgets/digest, monthly report)
+    excludes linked transfers; account balances are untouched. Per-account scoping lands on the
+    transactions surfaces (`?account=` on the read, an account picker on the Transactions tab,
+    `accountName` on `search_transactions`) and each Accounts-tab row drills into that account's
+    own ledger. Depends on: Accounts & Transactions, Statement Import, the shipped FX
+    administration (household exchange rates power the cross-currency plausibility check).
+
 **The two v2 differentiators need no epic of their own**, same pattern as v1 —
 *"Regulatory-hedge positioning"* is a marketing/positioning claim about the architecture epics
 2 and 6 already shipped, not a new work item; *"AI-decision transparency as ADMT-readiness"* is
@@ -225,6 +241,11 @@ per-matter.
   problem.
 - **Debt payoff comparator** *(epic 12)* — no new entity; a computed view over the existing
   `Debt`/loan rows already in the shipped Debts capability.
+- **Transfer link** *(epic 15)* — no new entity; a nullable `TransferGroupId` (shared pair id)
+  on `Transaction`, stamped on both legs when a transfer is confirmed and cleared on unlink.
+  Candidate detection is computed at read time from existing rows (date window, amounts,
+  household FX rates, description signals) — nothing stored until a human confirms the link,
+  per the standing "AI drafts, human decides" rule.
 
 ## RBAC model (as built)
 

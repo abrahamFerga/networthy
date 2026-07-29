@@ -73,6 +73,7 @@ public sealed class FinanceDbContext(
             b.HasIndex(x => new { x.TenantId, x.OccurredOn });
             b.HasIndex(x => x.AccountId);
             b.HasIndex(x => x.CategoryId);
+            b.HasIndex(x => x.TransferGroupId); // finding a leg's counterpart, and the unlinked (null) majority
             b.HasOne<Account>().WithMany().HasForeignKey(x => x.AccountId).OnDelete(DeleteBehavior.Cascade);
             b.HasOne<Category>().WithMany().HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.SetNull);
             b.HasQueryFilter(x => x.TenantId == tenantContext.TenantId);

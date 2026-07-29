@@ -70,7 +70,7 @@ public sealed class StatementReminderJobHandler : IJobHandler
             .Where(i => i.CurrencyCode == currencyCode)
             .ToListAsync(cancellationToken);
         var previousIncome = await db.Transactions
-            .Where(t => t.Direction == "income" && t.CurrencyCode == currencyCode &&
+            .Where(t => t.Direction == "income" && t.TransferGroupId == null && t.CurrencyCode == currencyCode &&
                         t.OccurredOn >= previousStart && t.OccurredOn <= previousEnd)
             .ToListAsync(cancellationToken);
 

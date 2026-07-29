@@ -47,10 +47,15 @@ public sealed class FinanceToolSource : IModuleToolSource
     //                                  plans and cash-flow verdicts.
     //   update_household_settings HIGH — currency/time-zone/thresholds recolor every
     //                                  read in the product.
+    //   link_transfers          HIGH — bulk by design (every high-confidence pair in
+    //                                  one act) and recolors income/spending math.
+    //   unlink_transfer         LOW  — clears one link on one pair; re-linking the
+    //                                  same two legs is the same-sized inverse.
     public IReadOnlyList<ModuleTool> GetTools(IServiceProvider scopedServices)
     {
         var accounts = scopedServices.GetRequiredService<AccountTools>();
         var transactions = scopedServices.GetRequiredService<TransactionTools>();
+        var transfers = scopedServices.GetRequiredService<TransferTools>();
         var affordability = scopedServices.GetRequiredService<AffordabilityTools>();
         var imports = scopedServices.GetRequiredService<StatementImportTools>();
         var household = scopedServices.GetRequiredService<HouseholdTools>();
@@ -323,6 +328,33 @@ public sealed class FinanceToolSource : IModuleToolSource
                 Name = "list_import_batches",
                 Permission = Permissions.ForTool(ModuleId, "list_import_batches"),
                 Function = AIFunctionFactory.Create(imports.ListImportBatches, name: "list_import_batches"),
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "suggest_transfer_links",
+                Permission = Permissions.ForTool(ModuleId, "suggest_transfer_links"),
+                Function = AIFunctionFactory.Create(transfers.SuggestTransferLinks, name: "suggest_transfer_links"),
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                // Bulk by design (links every high-confidence pair in one act), so it keeps the
+                // High default even though each pair is individually reversible via unlink.
+                Name = "link_transfers",
+                Permission = Permissions.ForTool(ModuleId, "link_transfers"),
+                Function = AIFunctionFactory.Create(transfers.LinkTransfers, name: "link_transfers"),
+                RequiresApproval = true,
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "unlink_transfer",
+                Permission = Permissions.ForTool(ModuleId, "unlink_transfer"),
+                Function = AIFunctionFactory.Create(transfers.UnlinkTransfer, name: "unlink_transfer"),
+                RequiresApproval = true,
+                Risk = ApprovalRisk.Low, // undoes one link on one pair; the exact inverse (re-linking
+                                         // the same two legs) is one equally-small call away
             },
         ];
     }

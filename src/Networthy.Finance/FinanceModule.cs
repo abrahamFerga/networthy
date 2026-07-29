@@ -156,7 +156,18 @@ public sealed class FinanceModule : IModule
             "the extracted lines, and only after the user confirms, approve_import_batch. Relay any " +
             "duplicate-period warning the review shows. Never post lines the user hasn't seen. When " +
             "several statements are in flight, list_import_batches enumerates what's pending — review " +
-            "and approve each by its file name; no batch is limited to being 'the latest'. HOUSEHOLD: members and " +
+            "and approve each by its file name; no batch is limited to being 'the latest'. " +
+            "TRANSFERS: money moving between the household's OWN accounts (e.g. a Payoneer USD withdrawal " +
+            "arriving in an MXN account, then on to the account that pays the bills) is NEVER income or " +
+            "spending. approve_import_batch's result may end with detected transfer candidates — always " +
+            "relay them. suggest_transfer_links lists likely pairs with the evidence for each; after the " +
+            "user confirms, link_transfers links every HIGH pair at once (or one specific pair given both " +
+            "descriptions); unlink_transfer undoes a wrong link. Linked legs keep both balances exact but " +
+            "leave every spending/income figure. Cross-currency matching trusts only the household's saved " +
+            "rates (set_exchange_rate) — never invent or fetch a rate. " +
+            "BY ACCOUNT: 'show me the movements on X' / 'what happened in my Payoneer account' -> " +
+            "search_transactions with accountName; the Transactions tab has the same per-account filter. " +
+            "HOUSEHOLD: members and " +
             "roles are managed by admins under Admin -> Users (household-admin / household-member); " +
             "set_account_visibility makes an account private to its owner or shared again. BUDGETS: " +
             "set_budget for targets ('set the grocery budget to $400'); get_budget_status answers " +
@@ -408,6 +419,26 @@ public sealed class FinanceModule : IModule
                 Description = "List every import batch not yet approved (file name, imported when, status, line count). Read-only — enumerate what's pending before picking one for review or approval.",
                 Permission = Permissions.ForTool(Id, "list_import_batches"),
             },
+            new ToolDescriptor
+            {
+                Name = "suggest_transfer_links",
+                Description = "Scan recent transactions for pairs that look like money moved between the household's own accounts (same currency or via saved exchange rates). Read-only — nothing links without link_transfers.",
+                Permission = Permissions.ForTool(Id, "suggest_transfer_links"),
+            },
+            new ToolDescriptor
+            {
+                Name = "link_transfers",
+                Description = "Link transfer pair(s) so they stop counting as income/spending (balances unchanged): every high-confidence candidate at once, or one named pair. Side-effecting: writes data and requires human approval; reversible.",
+                Permission = Permissions.ForTool(Id, "link_transfers"),
+                RequiresApproval = true,
+            },
+            new ToolDescriptor
+            {
+                Name = "unlink_transfer",
+                Description = "Undo a transfer link so both legs count as ordinary income/expense again. Side-effecting: writes data and requires human approval.",
+                Permission = Permissions.ForTool(Id, "unlink_transfer"),
+                RequiresApproval = true,
+            },
         ],
         Onboarding = new OnboardingDescriptor
         {
@@ -585,8 +616,27 @@ public sealed class FinanceModule : IModule
                     // ledger (issue #49): "assistant" = chat-tool write, "manual" = form,
                     // "upload"/"plaid" = imported bank data.
                     new("source", "Source"),
+                    // A linked leg names its counterpart account (SPEC v2.1) — the row reads as
+                    // "money to/from there", not as spending or income.
+                    new("transferWith", "Transfer"),
                 ],
                 Placeholder = "No transactions yet. Add one here, capture it in Chat ('Log $6.50 coffee on Chase Checking'), or upload a bank statement and review the extracted lines.",
+                // Bulk-links every HIGH-confidence transfer pair; the click (plus its confirm)
+                // IS the human approval, mirroring the review tab's "Approve latest batch".
+                Actions =
+                [
+                    new TabAction
+                    {
+                        Id = "link-detected-transfers",
+                        Label = "Link detected transfers",
+                        Endpoint = "/api/finance/transfers/link-detected",
+                        Permission = ManageFinance,
+                        Confirm = "Link every high-confidence transfer pair (matching amounts in two of your " +
+                                  "accounts within days, or cross-currency amounts that agree with your saved " +
+                                  "rates)? Linked pairs stop counting as income/spending; balances don't change; " +
+                                  "each link can be undone in Chat with unlink_transfer.",
+                    },
+                ],
                 Editor = new TabEditor
                 {
                     UpsertEndpoint = "/api/finance/transactions",
@@ -946,6 +996,7 @@ public sealed class FinanceModule : IModule
             options.UseNpgsql(configuration.GetConnectionString(FinanceDbContext.ConnectionName)));
         services.AddScoped<AccountTools>();
         services.AddScoped<TransactionTools>();
+        services.AddScoped<TransferTools>();
         services.AddScoped<AffordabilityTools>();
         services.AddScoped<StatementImportTools>();
         services.AddScoped<HouseholdTools>();
@@ -1012,16 +1063,60 @@ public sealed class FinanceModule : IModule
             .WithName("Finance_Accounts");
 
         group.MapGet("/transactions", async (
-                FinanceDbContext db, Plenipo.Core.Identity.ICurrentUser currentUser,
+                string? account, FinanceDbContext db, Plenipo.Core.Identity.ICurrentUser currentUser,
                 CancellationToken cancellationToken) =>
             {
                 var visibleAccounts = (await db.Accounts.ToListAsync(cancellationToken))
                     .Where(a => a.IsVisibleTo(currentUser.UserId))
                     .ToDictionary(a => a.Id, a => a.Name);
+
+                // ?account=Name scopes the read to ONE account's ledger (SPEC v2.1) — filtered
+                // server-side BEFORE the row caps, so a busy household still sees a quiet
+                // account's history. An unknown or invisible name yields an honest empty table.
+                var query = db.Transactions.AsQueryable();
+                if (!string.IsNullOrWhiteSpace(account))
+                {
+                    var wanted = account.Trim();
+                    var scoped = visibleAccounts
+                        .Where(kv => kv.Value.Equals(wanted, StringComparison.OrdinalIgnoreCase))
+                        .Select(kv => (Guid?)kv.Key)
+                        .FirstOrDefault();
+                    if (scoped is null)
+                    {
+                        return Results.Ok(Array.Empty<object>());
+                    }
+
+                    query = query.Where(t => t.AccountId == scoped.Value);
+                }
+
                 var categoryNames = await db.Categories.ToDictionaryAsync(c => c.Id, c => c.Name, cancellationToken);
-                var rows = (await db.Transactions.OrderByDescending(t => t.OccurredOn).Take(500).ToListAsync(cancellationToken))
+                var rows = (await query.OrderByDescending(t => t.OccurredOn).Take(500).ToListAsync(cancellationToken))
                     .Where(t => visibleAccounts.ContainsKey(t.AccountId))
-                    .Take(200);
+                    .Take(200)
+                    .ToList();
+
+                // Linked transfer legs name their counterpart account right in the table.
+                var transferGroups = rows.Where(t => t.TransferGroupId is not null)
+                    .Select(t => t.TransferGroupId!.Value)
+                    .Distinct()
+                    .ToList();
+                var counterpartByTransaction = new Dictionary<Guid, string>();
+                if (transferGroups.Count > 0)
+                {
+                    var legs = await db.Transactions
+                        .Where(t => t.TransferGroupId != null && transferGroups.Contains(t.TransferGroupId.Value))
+                        .ToListAsync(cancellationToken);
+                    foreach (var leg in legs)
+                    {
+                        var other = legs.FirstOrDefault(o => o.TransferGroupId == leg.TransferGroupId && o.Id != leg.Id);
+                        if (other is not null)
+                        {
+                            counterpartByTransaction[leg.Id] =
+                                visibleAccounts.TryGetValue(other.AccountId, out var name) ? name : "(private account)";
+                        }
+                    }
+                }
+
                 return Results.Ok(rows.Select(t => new
                 {
                     id = t.Id,
@@ -1033,10 +1128,23 @@ public sealed class FinanceModule : IModule
                     categoryName = t.CategoryId is { } c && categoryNames.TryGetValue(c, out var name) ? name : null,
                     accountName = visibleAccounts[t.AccountId],
                     source = t.Source,
+                    transferWith = t.TransferGroupId is null
+                        ? null
+                        : "⇄ " + counterpartByTransaction.GetValueOrDefault(t.Id, "transfer"),
                 }));
             })
             .RequireAuthorization(PermissionRequirement.PolicyName(ViewFinance))
             .WithName("Finance_Transactions");
+
+        // The Transactions tab's "Link detected transfers" action (and anything else that wants
+        // the bulk link): links every HIGH-confidence candidate pair in one human-confirmed step.
+        group.MapPost("/transfers/link-detected", async (TransferTools transfers, CancellationToken cancellationToken) =>
+            {
+                var message = await transfers.LinkHighConfidenceAsync(90, cancellationToken);
+                return Results.Ok(new { message });
+            })
+            .RequireAuthorization(PermissionRequirement.PolicyName(ManageFinance))
+            .WithName("Finance_LinkDetectedTransfers");
 
         group.MapGet("/budgets", async (
                 FinanceDbContext db, Plenipo.Core.Identity.ICurrentUser currentUser,
@@ -1055,7 +1163,8 @@ public sealed class FinanceModule : IModule
                     .Select(a => a.Id)
                     .ToHashSet();
                 var spentRows = (await db.Transactions
-                        .Where(t => t.Direction == "expense" && t.OccurredOn >= period && t.OccurredOn <= monthEnd)
+                        .Where(t => t.Direction == "expense" && t.TransferGroupId == null
+                                    && t.OccurredOn >= period && t.OccurredOn <= monthEnd)
                         .ToListAsync(cancellationToken))
                     .Where(t => visibleIds.Contains(t.AccountId))
                     .ToList();

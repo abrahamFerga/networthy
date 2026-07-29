@@ -441,6 +441,68 @@ naming the deleted org, which is why nothing should depend on it.
 
 ---
 
+## ADR-0009: Inter-account transfers are a human-confirmed link between two rows, not a third direction
+
+- **Status**: accepted
+- **Date**: 2026-07-28
+- **Deciders**: Development phase (epic 15, SPEC v2.1)
+
+### Context
+
+The owner's real money flow spans five accounts (USD Payoneer income → MXN tax account → bills
+account, savings apart). Every hop lands as two statement lines — an expense in one account, an
+income in another, often in two currencies — so income and spending totals inflate with money
+that never left the household. The module needed transfers without breaking the ledger invariants
+already in place: `Direction` drives `BalanceDelta`, amounts are always positive, and every
+balance-affecting write is either human or human-approved.
+
+### Decision
+
+A transfer is a **link**: a nullable `TransferGroupId` stamped identically on both legs. No third
+`Direction` value, no new entity, no stored suggestions. Candidates are computed at read time by
+`TransferMatching` (pure, unit-tested) — opposite directions in different accounts within a small
+date window; equal amounts same-currency; cross-currency amounts vouched for ONLY by the
+household's saved `ExchangeRate` rows (never a fetched market rate); with no rate, both legs must
+carry transfer-shaped words (EN + es-MX: SPEI, transferencia, traspaso, retiro, withdrawal…).
+Nothing links until a human confirms (`link_transfers`, approval-gated; the Transactions tab's
+action button; both reversible via `unlink_transfer`). Linking clears both legs' categories.
+Every aggregate that sums a `Direction` — spending summaries and the donut, cash flow, savings
+rate, affordability, recurring detection, budgets, digests, the monthly report, statement-income
+reminders — excludes linked rows; balances are untouched because the money really did move.
+
+### Consequences
+
+- **Positive**: `BalanceDelta`, quick-capture, imports, and Plaid sync are unchanged — a linked
+  leg still moves its own account exactly as posted; only its *meaning* changes.
+- **Positive**: read-time matching means no suggestion lifecycle to store, expire, or migrate,
+  and rows imported before this feature are matchable retroactively.
+- **Positive**: the "AI drafts, human decides" differentiator extends unchanged — the matcher
+  only ever suggests; a wrong link is one `unlink_transfer` away and shows in the audit trail.
+- **Negative**: every future income/expense aggregate must remember the
+  `TransferGroupId == null` filter; accepted, mitigated by the entity doc comment stating the
+  rule and integration tests pinning the exclusions.
+- **Negative**: greedy one-to-one matching cannot represent one-to-many splits (one withdrawal
+  arriving as two deposits); accepted for now — such pairs stay unmatched rather than guessed,
+  and can be linked by naming legs explicitly once split support is worth building.
+
+### Alternatives considered
+
+- **A third `Direction` ("transfer")** — rejected: breaks `NormalizeDirection`'s closed set and
+  the `BalanceDelta` sign rule, and still needs a counterpart pointer to say *where* the money
+  went — the link alone carries all the information.
+- **A `Transfer` entity holding both legs** — rejected: a second source of truth for the same
+  movement, with cascade/orphan lifecycle for what is semantically one nullable tag on two rows.
+- **Auto-linking exact matches without confirmation** — rejected: two same-amount rows days
+  apart are *usually* a transfer but not always (rent out, salary in); a silent wrong link
+  corrupts spending math invisibly, which is precisely the failure mode the approval gate exists
+  to prevent.
+- **Fetching market FX rates to validate cross-currency pairs** — rejected: the product's
+  standing rule is that every combined number traces to a rate the household chose
+  (`ExchangeRate`'s own doc comment); a fetched rate would smuggle an untraceable number into
+  linking decisions.
+
+---
+
 ## Open items not resolved by an ADR
 
 - **Idempotency-Key guardrail for the Plaid webhook route** — `/api/connectors/plaid/webhook`

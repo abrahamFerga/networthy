@@ -38,7 +38,9 @@ public sealed class HealthTools(
         var since = today.AddDays(-90);
         var visibleIds = accounts.Select(a => a.Id).ToHashSet();
         var recent = (await db.Transactions
-                .Where(t => t.OccurredOn >= since)
+                // Linked transfers are money changing pockets — counting them would inflate BOTH
+                // sides of the savings rate (the owner's Payoneer→MXN→bills chain triples "income").
+                .Where(t => t.TransferGroupId == null && t.OccurredOn >= since)
                 .ToListAsync(cancellationToken))
             .Where(t => visibleIds.Contains(t.AccountId) &&
                         t.CurrencyCode.Equals(currencyCode, StringComparison.OrdinalIgnoreCase))
@@ -50,7 +52,7 @@ public sealed class HealthTools(
         var monthStart = new DateOnly(today.Year, today.Month, 1);
         var budgets = await db.Budgets.Where(b => b.PeriodMonth == monthStart).ToListAsync(cancellationToken);
         var monthExpenses = (await db.Transactions
-                .Where(t => t.Direction == "expense" && t.OccurredOn >= monthStart)
+                .Where(t => t.Direction == "expense" && t.TransferGroupId == null && t.OccurredOn >= monthStart)
                 .ToListAsync(cancellationToken))
             .Where(t => visibleIds.Contains(t.AccountId))
             .ToList();
