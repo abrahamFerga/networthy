@@ -116,8 +116,8 @@ app.Use(async (context, next) =>
     await next();
 });
 
-// Straighten out three AI seams of the frozen alpha.25 platform (default-model saves, the
-// unfiltered model catalog, and the demo banner that ignores tenant settings) — see PlenipoAiShims.
+// Straighten out AI seams in the frozen platform package (default-model saves, the unfiltered
+// model catalog, and deployment-only provider reporting) — see PlenipoAiShims.
 app.UsePlenipoAiShims();
 
 await app.RunPlenipoPlatformAsync();

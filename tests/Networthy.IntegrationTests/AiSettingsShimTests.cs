@@ -6,9 +6,8 @@ using Xunit;
 namespace Networthy.IntegrationTests;
 
 /// <summary>
-/// The host's shims over the frozen alpha.25 AI seams (PlenipoAiShims): saving the admin form
-/// with the "Default" model no longer fails for OpenAI, and the demo-mode flag the shell's
-/// banner reads follows the tenant's effective provider instead of the deployment default.
+/// The host's shims over the frozen platform AI seams (PlenipoAiShims): admin saves, platform
+/// status, and the Operations snapshot all follow the tenant's effective AI configuration.
 /// </summary>
 [Collection("api")]
 public sealed class AiSettingsShimTests(IntegrationFixture fixture)
@@ -77,6 +76,49 @@ public sealed class AiSettingsShimTests(IntegrationFixture fixture)
         // With no tenant override row (or after clearing one), the deployment answer stands.
         Assert.True(info.GetProperty("demoMode").GetBoolean());
         Assert.True(info.GetProperty("chatEnabled").GetBoolean());
+    }
+
+    [Fact]
+    public async Task OperationsSnapshot_UsesTenantEffectiveAiConfiguration()
+    {
+        using var admin = fixture.AdminClient();
+        try
+        {
+            var save = await admin.PutAsJsonAsync("/api/admin/ai-settings", new
+            {
+                systemPrompt = (string?)null,
+                maxConversationTokens = (int?)null,
+                maxMonthlyTokens = 600_000L,
+                provider = "OpenAI",
+                model = "gpt-4.1-mini",
+                endpoint = (string?)null,
+                apiKey = "sk-networthy-integration-test",
+            });
+            Assert.Equal(HttpStatusCode.NoContent, save.StatusCode);
+
+            var ops = await admin.GetFromJsonAsync<JsonElement>("/api/admin/ops");
+            var ai = ops.GetProperty("ai");
+
+            Assert.Equal("OpenAI", ai.GetProperty("provider").GetString());
+            Assert.Equal("gpt-4.1-mini", ai.GetProperty("model").GetString());
+            Assert.Equal(600_000L, ai.GetProperty("maxMonthlyTokens").GetInt64());
+            Assert.True(ai.GetProperty("monthTokens").GetInt64() >= 0);
+        }
+        finally
+        {
+            using var cleanup = fixture.AdminClient();
+            var reset = await cleanup.PutAsJsonAsync("/api/admin/ai-settings", new
+            {
+                systemPrompt = (string?)null,
+                maxConversationTokens = (int?)null,
+                maxMonthlyTokens = (long?)null,
+                provider = (string?)null,
+                model = (string?)null,
+                endpoint = (string?)null,
+                apiKey = "",
+            });
+            reset.EnsureSuccessStatusCode();
+        }
     }
 
     [Fact]
