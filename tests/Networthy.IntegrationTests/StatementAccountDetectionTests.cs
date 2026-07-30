@@ -87,10 +87,12 @@ public sealed class StatementAccountDetectionTests(IntegrationFixture fixture)
 
         services.GetRequiredService<FinanceDbContext>().ChangeTracker.Clear();
 
-        // Approving too early is refused with directions, not a crash.
+        // Approving too early is refused with directions, not a crash — and not an internal tool
+        // name (StatementImportTools no longer names itself in user-facing refusals).
         var early = await services.GetRequiredService<StatementImportTools>().ApproveImportBatch("unknown-account.csv");
         Assert.Contains("has no account yet", early);
-        Assert.Contains("Assign one first", early);
+        Assert.Contains("Assign action", early);
+        Assert.DoesNotContain("assign_import_account", early);
 
         // Review explains the situation and still shows the lines.
         var review = await services.GetRequiredService<StatementImportTools>().ReviewImportBatch("unknown-account.csv");
@@ -149,9 +151,12 @@ public sealed class StatementAccountDetectionTests(IntegrationFixture fixture)
         services.GetRequiredService<FinanceDbContext>().ChangeTracker.Clear();
         var tools = services.GetRequiredService<StatementImportTools>();
 
-        // Without createIfMissing the tool asks rather than creating.
+        // Without createIfMissing the tool asks rather than creating — and asks in plain language,
+        // not by naming its own parameter.
         var asked = await tools.AssignImportAccount("Fresh daily", fileName: "fresh-bank.ofx");
-        Assert.Contains("No account named 'Fresh daily' exists", asked);
+        Assert.Contains("No account named", asked);
+        Assert.Contains("Ask the user", asked);
+        Assert.DoesNotContain("createIfMissing", asked);
 
         var db = services.GetRequiredService<FinanceDbContext>();
         Assert.False(await db.Accounts.AnyAsync(a => a.Name == "Fresh daily")); // declined, not created
