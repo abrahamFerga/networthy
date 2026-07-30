@@ -1,0 +1,21 @@
+{
+  // list_import_batches is read-only (no approval gate), so — unlike assign/discard/approve, which
+  // the approval middleware blocks before their C# body ever runs — this tool's real return string
+  // reaches the reply every time. Its footer used to say "...with review_import_batch; nothing
+  // posts until approve_import_batch." (two leaked names in one sentence), its needs-account row
+  // detail said "...resolve with assign_import_account", and the empty-list branch named
+  // import_statement.
+  //
+  // Red before the fix in EVERY data state — this is a shared fixture, so which branch fires
+  // depends on what other tests in the collection left behind: empty test data leaks
+  // import_statement; any pending batch leaks review_import_batch + approve_import_batch via the
+  // footer; a needs-account batch additionally leaks assign_import_account. The fix removes all of
+  // them, so the assertion holds regardless of ambient state (same defensive design as
+  // finance-review-leaks-no-tool-names.json).
+  "name": "finance-list-batches-no-tool-names",
+  "module": "finance",
+  "message": "List my pending import batches",
+  "expectToolCalls": ["list_import_batches"],
+  "expectApproval": false,
+  "replyMustNotContain": ["import_statement", "assign_import_account", "review_import_batch", "discard_import_batch", "approve_import_batch"]
+}

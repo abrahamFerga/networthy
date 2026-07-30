@@ -71,7 +71,7 @@ public sealed class StatementImportTools(
     {
         if (!Guid.TryParse(fileId, out var id))
         {
-            return (null, $"'{fileId}' is not a file id. Attach the statement, or use list_documents to find it.");
+            return (null, $"'{fileId}' is not a file id. Attach the statement, or look for it among the uploaded documents.");
         }
 
         var stored = await files.FindAsync(id, cancellationToken);
