@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Networthy.Finance;
 using Xunit;
 
 namespace Networthy.IntegrationTests;
@@ -39,6 +40,13 @@ public sealed class PlatformSurfaceTests(IntegrationFixture fixture)
         // The Overview tab is the declared home (epic 8): the shell opens the app on it.
         var overview = finance.GetProperty("tabs").EnumerateArray().Single(t => t.GetProperty("id").GetString() == "overview");
         Assert.True(overview.GetProperty("home").GetBoolean());
+
+        // The chat starters reach the browser on this same read (issue #134) — the shell renders
+        // suggestedPrompts as one-click chips in the empty chat, so a manifest that declares them
+        // but a payload that drops them is still a bare pane.
+        var starters = finance.GetProperty("suggestedPrompts").EnumerateArray()
+            .Select(p => p.GetString()).ToList();
+        Assert.Equal(FinanceCatalog.StarterPrompts.Select(p => p.Prompt), starters);
     }
 
     [Fact]

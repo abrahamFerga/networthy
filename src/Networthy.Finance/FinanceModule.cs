@@ -200,7 +200,8 @@ public sealed class FinanceModule : IModule
             "roles are managed by admins under Admin -> Users (household-admin / household-member); " +
             "set_account_visibility makes an account private to its owner or shared again. BUDGETS: " +
             "set_budget for targets ('set the grocery budget to $400'); get_budget_status answers " +
-            "'how are we doing this month' and flags OVER categories - report those honestly. " +
+            "'how are we doing this month' / 'what's our budget status' and flags OVER categories - " +
+            "report those honestly. " +
             "TRANSPARENCY: list_pending_approvals shows what you are waiting on; get_activity_log shows " +
             "what changed and where it came from - offer these whenever the user asks what the AI did. " +
             "GOALS: set_goal for savings targets ('save $5,000 for Hawaii by June'), optionally tracked " +
@@ -228,6 +229,12 @@ public sealed class FinanceModule : IModule
             "REPORTS: export_transactions (CSV, optional date range), generate_monthly_report (PDF " +
             "month summary), and export_activity_log (CSV) each store a file and return its download " +
             "link - relay that link so the user can download it; they change nothing, so no approval is needed.",
+        // The chat empty state's one-click starters (issue #134). Opening Chat used to be a blank
+        // pane: the assistant answers "what can you help me with?" well, but only for someone who
+        // already thought to ask. The shell renders each of these as a chip and SENDS THE TEXT
+        // VERBATIM, so the copy lives in FinanceCatalog.StarterPrompts next to the tool each one is
+        // meant to reach — see the invariants documented there.
+        SuggestedPrompts = [.. FinanceCatalog.StarterPrompts.Select(p => p.Prompt)],
         Tools =
         [
             new ToolDescriptor
@@ -595,7 +602,13 @@ public sealed class FinanceModule : IModule
 
         Tabs =
         [
-            new TabDescriptor { Id = "chat", Label = "Chat", Route = "/finance/chat", Icon = "message-circle", Order = 0 },
+            new TabDescriptor
+            {
+                Id = "chat", Label = "Chat", Route = "/finance/chat", Icon = "message-circle", Order = 0,
+                Placeholder = "Nothing here yet - pick one of the starters, or just ask in your own words. " +
+                              "Reading and summarising happen straight away; anything that changes your books " +
+                              "waits for your approval.",
+            },
             new TabDescriptor
             {
                 // The household command center (epic 8, ADR-0008): rendered by networthy-ui's
@@ -1965,4 +1978,42 @@ public static class FinanceCatalog
         "Entertainment", "Shopping", "Subscriptions", "Travel", "Education", "Personal Care",
         "Debt Payments", "Savings", "Gifts & Donations", "Salary", "Interest", "Other Income", "Other",
     ];
+
+    /// <summary>
+    /// The chat empty state's one-click starters (issue #134), each paired with the tool it exists
+    /// to reach. Three invariants:
+    /// <list type="number">
+    /// <item>The text is sent VERBATIM when the chip is clicked, so it is phrased the way the
+    /// manifest's PLAYBOOK above already tunes the agent for — not new phrasing the agent never
+    /// saw. An author's rule; no test can judge it.</item>
+    /// <item>Every <see cref="StarterPrompt.Tool"/> is a registered tool (manifest + tool source) —
+    /// a chip that reaches nothing is worse than no chip. Guarded by <c>FinanceCatalogTests</c>.</item>
+    /// <item>Each one wins its target tool under the keyless <c>Mock</c> provider's name-token
+    /// routing — the default a fresh install meets. A prompt the Mock cannot route falls through to
+    /// a canned reply that lists every tool name, which is exactly the plumbing the household must
+    /// never be handed. Guarded at L1 by <c>FinanceCatalogTests</c> and proven at L3 by
+    /// <c>StarterPromptRoutingTests</c>.</item>
+    /// </list>
+    /// They span the assistant's range on purpose — reads, a budget check, an affordability
+    /// verdict, the ungated quick capture, a statement import, the computed health check — so the
+    /// first screen answers "what can this thing do?" without the user having to ask it.
+    /// English-only for now; Spanish lands with issue #66 (localization), which owns every
+    /// user-facing string at once rather than translating this set in isolation.
+    /// No real bank, product, or city names: this repo is public.
+    /// </summary>
+    public static readonly IReadOnlyList<StarterPrompt> StarterPrompts =
+    [
+        new("What's our net worth right now?", "get_net_worth"),
+        new("How much are we spending on groceries this month?", "summarize_spending"),
+        new("What's our budget status this month?", "get_budget_status"),
+        new("Can I afford to spend 200 on dining this month?", "can_i_afford"),
+        new("Log a 4.50 coffee transaction", "log_own_transaction"),
+        new("Import my bank statement", "import_statement"),
+        new("How is our financial health?", "get_financial_health"),
+    ];
 }
+
+/// <summary>A chat starter chip: the copy the user clicks, and the tool it is meant to reach.</summary>
+/// <param name="Prompt">User-facing text, sent verbatim as the user's message.</param>
+/// <param name="Tool">The registered tool this prompt should route to.</param>
+public readonly record struct StarterPrompt(string Prompt, string Tool);
