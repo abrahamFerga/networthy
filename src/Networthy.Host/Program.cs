@@ -55,6 +55,11 @@ builder.Services.AddPlenipoRole("household-admin",
     "tools.connectors.plaid.*",
     FinanceModule.ViewFinance, FinanceModule.ManageCategories, FinanceModule.ReviewImports,
     FinanceModule.ManageFinance,
+    // Clearing a pending AI action (chat.approvals.manage) — without this, every gated write a
+    // household triggers parks forever: only system_admin could resolve it, and that is not a
+    // real household role. household-member stays excluded on purpose (below): a member can be
+    // gated but may not clear another member's gate.
+    Permissions.ManageApprovals,
 ]);
 builder.Services.AddPlenipoRole("household-member",
 [

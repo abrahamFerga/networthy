@@ -1,0 +1,15 @@
+{
+  // import_statement's fileId comes from the model, and the Mock provider's argument synthesis
+  // fills the first required string with the user's own message text — never a real GUID — so the
+  // "'{fileId}' is not a file id" branch fires on every run, deterministically, with no file upload
+  // needed. It used to point the household at list_documents, a Documents-module tool name that has
+  // nothing to do with Finance and that a household member cannot usefully type into chat.
+  //
+  // Red before the fix: the reply's tool-result text opened "...or use list_documents to find it."
+  "name": "finance-import-invalid-file-no-tool-names",
+  "module": "finance",
+  "message": "Import my bank statement",
+  "expectToolCalls": ["import_statement"],
+  "expectApproval": false,
+  "replyMustNotContain": ["list_documents", "assign_import_account", "review_import_batch", "discard_import_batch", "approve_import_batch"]
+}
