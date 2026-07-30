@@ -50,7 +50,7 @@ public sealed class StatementImportTools(
         return finished is null
             ? message + " Extraction is STILL RUNNING (larger scans take a while) — the outcome lands on " +
               "the Statement review tab and in the notification bell; when the user next asks, " +
-              "review_import_batch has the current state."
+              "check the batch again for its current state."
             : await DescribeExtractionOutcomeAsync(finished, cancellationToken);
     }
 
@@ -72,7 +72,7 @@ public sealed class StatementImportTools(
     {
         if (!Guid.TryParse(fileId, out var id))
         {
-            return (null, $"'{fileId}' is not a file id. Attach the statement, or use list_documents to find it.");
+            return (null, $"'{fileId}' is not a file id. Attach the statement, or look for it among the uploaded documents.");
         }
 
         var stored = await files.FindAsync(id, cancellationToken);
@@ -116,10 +116,10 @@ public sealed class StatementImportTools(
 
         var message = account is null
             ? $"Import of '{stored.FileName}' is queued for extraction. Networthy will detect which account " +
-              "it belongs to — an unambiguous match is used directly; otherwise the batch waits and " +
-              "assign_import_account picks or creates the account. Nothing posts until you approve."
+              "it belongs to — an unambiguous match is used directly; otherwise the batch waits on the " +
+              "Statement review tab until an account is picked or created. Nothing posts until you approve."
             : $"Import of '{stored.FileName}' into '{account.Name}' is queued for extraction. " +
-              "Once parsed, review the lines with review_import_batch — nothing posts until you approve.";
+              "Once parsed, review the lines on the Statement review tab — nothing posts until you approve.";
         return (batch, message);
     }
 
@@ -152,8 +152,8 @@ public sealed class StatementImportTools(
         {
             return $"Extraction of '{batch.FileName}' FAILED: {batch.FailureReason} " +
                    "Tell the user plainly. The batch sits on the Statement review tab; once the cause is " +
-                   "fixed, import_statement with the same attachment retries it, and discard_import_batch " +
-                   "drops it.";
+                   "fixed, importing the same attachment again retries it, or it can be discarded from " +
+                   "that tab.";
         }
 
         var lines = Deserialize(batch.ExtractedLinesJson);
@@ -168,8 +168,8 @@ public sealed class StatementImportTools(
         {
             return $"'{batch.FileName}' extracted {lines.Count} line(s){period} and looks like a statement " +
                    $"from {DetectedLabel(batch)}, but no existing account matches. Ask the user whether to " +
-                   "use an existing account or create the detected one, then assign_import_account " +
-                   $"(createIfMissing to create). Nothing posts until they approve.{warning}";
+                   "use an existing account or create the detected one (it would inherit the detected " +
+                   $"institution and masked number). Nothing posts until they approve.{warning}";
         }
 
         // "parsed" — extraction landed in an account (named up front, or auto-matched by detection).
@@ -205,7 +205,7 @@ public sealed class StatementImportTools(
         var batch = await FindBatchAsync(fileName, cancellationToken, status: "needs-account");
         if (batch is null)
         {
-            return "No import batch is waiting for an account. list_import_batches shows what's pending.";
+            return "No import batch is waiting for an account. The Statement review tab shows what's pending.";
         }
 
         return (await AssignAccountAsync(batch, trimmed, createIfMissing, accountType, cancellationToken)).Message;
@@ -235,7 +235,7 @@ public sealed class StatementImportTools(
                 var closest = SuggestAccountNames(accountName, visible);
                 return (false, $"No account named '{accountName}' exists."
                        + (closest.Count > 0 ? $" Did you mean {string.Join(" or ", closest.Select(n => $"'{n}'"))}?" : "")
-                       + $" To create it for this statement ({DetectedLabel(batch)}), use assign_import_account with createIfMissing.");
+                       + $" Pick an existing account, or create the detected one ({DetectedLabel(batch)}) for this statement.");
             }
 
             account = await CreateAccountFromDetectionAsync(batch, accountName, accountType, cancellationToken);
@@ -359,7 +359,7 @@ public sealed class StatementImportTools(
             .ToListAsync(cancellationToken);
         if (batches.Count == 0)
         {
-            return "No import batches are pending. Attach a statement and run import_statement.";
+            return "No import batches are pending. Attach a statement to get started.";
         }
 
         var sb = new StringBuilder($"{batches.Count} pending import batch(es), newest first:\n");
@@ -369,14 +369,14 @@ public sealed class StatementImportTools(
             {
                 "parsed" => $"{Deserialize(batch.ExtractedLinesJson).Count} line(s) awaiting review",
                 "queued" => "still being extracted",
-                "needs-account" => $"needs an account — looks like {DetectedLabel(batch)}; resolve with assign_import_account",
+                "needs-account" => $"needs an account — looks like {DetectedLabel(batch)}; resolve it on the Statement review tab",
                 "failed" => $"failed: {batch.FailureReason}",
                 _ => batch.Status,
             };
             sb.AppendLine($"- '{batch.FileName}' · imported {batch.CreatedAt:yyyy-MM-dd HH:mm} UTC · {detail}");
         }
 
-        sb.Append("Pick one by file name with review_import_batch; nothing posts until approve_import_batch.");
+        sb.Append("Pick one by file name to review it — nothing posts until it's approved.");
         return sb.ToString();
     }
 
@@ -388,7 +388,7 @@ public sealed class StatementImportTools(
         var batch = await FindBatchAsync(fileName, cancellationToken);
         if (batch is null)
         {
-            return "No import batches to discard. list_import_batches shows what exists.";
+            return "No import batches to discard. The Statement review tab shows what exists.";
         }
         if (batch.Status == "approved")
         {
@@ -419,8 +419,8 @@ public sealed class StatementImportTools(
         if (batch is null)
         {
             return string.IsNullOrWhiteSpace(fileName)
-                ? "No parsed batch is awaiting approval. list_import_batches shows every batch and its status."
-                : "No import batches yet. Attach a statement and run import_statement.";
+                ? "No parsed batch is awaiting approval. The Statement review tab shows every batch and its status."
+                : "No import batches yet. Attach a statement to import it.";
         }
 
         return (await ApproveBatchAsync(batch, cancellationToken)).Message;
@@ -435,7 +435,7 @@ public sealed class StatementImportTools(
         if (batch.Status == "needs-account" || batch.AccountId is null)
         {
             return (false, $"'{batch.FileName}' has no account yet (it looks like {DetectedLabel(batch)}). " +
-                   "Assign one first — the Assign action on the review page, or assign_import_account in Chat " +
+                   "Assign one first — the Assign action on the review page, or say which account in Chat " +
                    "— then review and approve.");
         }
         if (batch.Status != "parsed")

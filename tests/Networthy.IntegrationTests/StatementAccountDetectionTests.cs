@@ -89,7 +89,8 @@ public sealed class StatementAccountDetectionTests(IntegrationFixture fixture)
 
         // Approving too early is refused with directions, not a crash.
         var early = await services.GetRequiredService<StatementImportTools>().ApproveImportBatch("unknown-account.csv");
-        Assert.Contains("assign_import_account", early);
+        Assert.Contains("has no account yet", early);
+        Assert.Contains("Assign one first", early);
 
         // Review explains the situation and still shows the lines.
         var review = await services.GetRequiredService<StatementImportTools>().ReviewImportBatch("unknown-account.csv");
@@ -150,13 +151,15 @@ public sealed class StatementAccountDetectionTests(IntegrationFixture fixture)
 
         // Without createIfMissing the tool asks rather than creating.
         var asked = await tools.AssignImportAccount("Fresh daily", fileName: "fresh-bank.ofx");
-        Assert.Contains("createIfMissing", asked);
+        Assert.Contains("No account named 'Fresh daily' exists", asked);
+
+        var db = services.GetRequiredService<FinanceDbContext>();
+        Assert.False(await db.Accounts.AnyAsync(a => a.Name == "Fresh daily")); // declined, not created
 
         var assigned = await tools.AssignImportAccount(
             "Fresh daily", createIfMissing: true, accountType: "savings", fileName: "fresh-bank.ofx");
         Assert.Contains("'Fresh daily'", assigned);
 
-        var db = services.GetRequiredService<FinanceDbContext>();
         var created = await db.Accounts.FirstAsync(a => a.Name == "Fresh daily");
         Assert.Equal("savings", created.Type);
         Assert.Equal("Fresh Bank", created.InstitutionName);   // inherited from detection
