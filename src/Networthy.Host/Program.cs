@@ -47,7 +47,11 @@ builder.Services.AddPlenipoProduct(new ProductOffering
 // a household admin refines them per tenant afterwards. system_admin stays non-customizable.
 builder.Services.AddPlenipoRole("household-admin",
 [
-    "chat.use", "chat.conversations.view", "files.upload", "files.read",
+    "chat.use", "chat.conversations.view",
+    // The household's designated approver (SPEC.md): clears the human-in-the-loop gate on
+    // AI-proposed writes. Without this, every gated action stays pending forever.
+    Permissions.ManageApprovals,
+    "files.upload", "files.read",
     "tools.documents.read_document", "tools.documents.list_documents",
     // Every finance tool, read and write (writes stay approval-gated at the tool layer).
     "tools.finance.*",

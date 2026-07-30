@@ -130,6 +130,40 @@ public sealed class ChatAndApprovalTests(IntegrationFixture fixture)
     }
 
     /// <summary>
+    /// household-admin is the household's designated approver (SPEC.md's RBAC model: "approves
+    /// AI-suggested writes"). It must be able to clear its own household's approval queue without
+    /// the dev-only system_admin role.
+    /// </summary>
+    [Fact]
+    public async Task HouseholdAdmin_CanResolveApprovals()
+    {
+        using var householdAdmin = ClientFor("household-admin");
+
+        Assert.Contains(
+            "approval_required",
+            await ChatAsync(householdAdmin, "Create a checking account called Gate Household Admin"),
+            StringComparison.Ordinal);
+
+        // The exact repro: household-admin must see its own household's queue, not 403.
+        using var list = await householdAdmin.GetAsync("/api/chat/approvals");
+        Assert.Equal(HttpStatusCode.OK, list.StatusCode);
+
+        var id = (await FindPendingAsync(householdAdmin, GatedTool, "Gate Household Admin"))
+            .GetProperty("id").GetString()!;
+
+        using var approve = await householdAdmin.PostAsync($"/api/chat/approvals/{id}/approve", content: null);
+        approve.EnsureSuccessStatusCode();
+        var outcome = await approve.Content.ReadFromJsonAsync<JsonElement>();
+
+        // Same evidence ApprovalGatedWrite_IsNotExecuted_UntilApproved uses: the re-execution
+        // carries the tool's own result and the item leaves the queue. It is NOT a second
+        // tool-call audit entry (see the class doc above — ApprovalExecutor doesn't write one).
+        Assert.Equal("Executed", outcome.GetProperty("status").GetString());
+        Assert.False(string.IsNullOrWhiteSpace(outcome.GetProperty("result").GetString()));
+        Assert.DoesNotContain(await PendingAsync(householdAdmin), p => IdOf(p) == id);
+    }
+
+    /// <summary>
     /// ADR-0005's one ungated write: the caller's own quick capture posts immediately. Guards the
     /// gate against over-reach — a gate on everything is as wrong as a gate on nothing.
     /// </summary>
