@@ -22,26 +22,24 @@
     "visibility": "public"
   },
   "skills": {
-    "self": {
-      "marketplace": "my-skills",
-      "repo": "abrahamFerga/my-skills",
-      "plugins": ["workflow-core", "system-definition", "architecture", "development"]
-    },
     "external": [
       {
-        "marketplace": "abrahamFerga/plenipo-agents",
-        "plugins": ["harness", "deliver"],
-        "reason": "The Plenipo harness: what the platform already provides, how any product is run and proven, the loop-discipline verification ladder, plus the e2e-tester and product-improver agents that exercise Networthy at runtime rather than reading its source."
+        "marketplace": "plenipo-agents",
+        "repo": "abrahamFerga/plenipo-agents",
+        "plugins": ["plenipo", "harness", "scout", "define", "shape", "deliver"],
+        "reason": "The seven loop verbs plus the Plenipo harness: platform contract, runbook, the verification ladder, and the e2e-tester and product-improver agents that exercise Networthy at runtime rather than reading its source."
       },
       {
-        "marketplace": "dotnet/skills",
-        "plugins": ["dotnet", "dotnet-aspnet", "dotnet-data", "dotnet-ai"],
+        "marketplace": "dotnet-agent-skills",
+        "repo": "dotnet/skills",
+        "plugins": ["dotnet", "dotnet-aspnetcore", "dotnet-data", "dotnet-ai"],
         "reason": "Authoritative .NET coding-agent skills maintained by the .NET team — Aspire wiring, ASP.NET Core minimal-API conventions, EF Core migrations, MAF / Azure OpenAI patterns."
       },
       {
-        "marketplace": "anthropics/skills",
-        "plugins": ["pdf"],
-        "reason": "Bank-statement PDF parsing assistance for the statement-upload feature."
+        "marketplace": "anthropic-agent-skills",
+        "repo": "anthropics/skills",
+        "plugins": ["document-skills"],
+        "reason": "Bank-statement PDF parsing for the statement-upload feature; the pdf skill ships inside the document-skills plugin, not as a plugin of its own."
       }
     ]
   }
