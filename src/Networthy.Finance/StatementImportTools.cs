@@ -542,7 +542,19 @@ public sealed class StatementImportTools(
             query = query.Where(b => b.Status == status);
         }
 
-        return await query.OrderByDescending(b => b.CreatedAt).FirstOrDefaultAsync(cancellationToken);
+        var batch = await query.OrderByDescending(b => b.CreatedAt).FirstOrDefaultAsync(cancellationToken);
+        if (batch is not null)
+        {
+            // `db` is shared by every finance tool call within one chat turn (FinanceToolSource
+            // resolves StatementImportTools once per turn), so a batch this SAME instance already
+            // tracked earlier in the turn (e.g. import_statement's queue insert) wins EF's identity
+            // resolution and would otherwise mask a later status the parse job committed through
+            // its own, separate DbContext. Reload keeps the entity tracked (mutating callers below
+            // still SaveChangesAsync normally) while guaranteeing its values are the database's own.
+            await db.Entry(batch).ReloadAsync(cancellationToken);
+        }
+
+        return batch;
     }
 
     /// <summary>
