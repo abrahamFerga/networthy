@@ -130,6 +130,41 @@ public sealed class ChatAndApprovalTests(IntegrationFixture fixture)
     }
 
     /// <summary>
+    /// Resolving a pending action needs <c>chat.approvals.manage</c>, and household-admin — the role
+    /// meant to run the household day to day — must actually hold it. Found via live E2E
+    /// verification: the role's baseline seed omitted it, so no real Networthy user could ever clear
+    /// the approval lane; only system_admin (not a real household role) could. This is the other
+    /// half of <see cref="HouseholdMember_CannotResolveApprovals"/> — member is correctly denied,
+    /// admin must not be.
+    /// </summary>
+    [Fact]
+    public async Task HouseholdAdmin_CanResolveApprovals()
+    {
+        using var admin = fixture.AdminClient();
+
+        Assert.Contains(
+            "approval_required",
+            await ChatAsync(admin, "Create a checking account called Gate Household Admin"),
+            StringComparison.Ordinal);
+        var id = (await FindPendingAsync(admin, GatedTool, "Gate Household Admin")).GetProperty("id").GetString()!;
+
+        using var householdAdmin = ClientFor("household-admin");
+        Assert.Equal(HttpStatusCode.OK, (await householdAdmin.GetAsync("/api/chat/approvals")).StatusCode);
+
+        using var approve = await householdAdmin.PostAsync($"/api/chat/approvals/{id}/approve", content: null);
+        approve.EnsureSuccessStatusCode();
+        var outcome = await approve.Content.ReadFromJsonAsync<JsonElement>();
+
+        // Same proof ApprovalGatedWrite_IsNotExecuted_UntilApproved uses: the executor ran the
+        // recorded call (a real result only the tool body could produce) and the item left the
+        // queue. Re-execution is NOT a second audit-log entry (ApprovalExecutor does not write to
+        // the audit log — see the class doc), so an executed-count assertion here would be wrong.
+        Assert.Equal("Executed", outcome.GetProperty("status").GetString());
+        Assert.False(string.IsNullOrWhiteSpace(outcome.GetProperty("result").GetString()));
+        Assert.DoesNotContain(await PendingAsync(admin), p => IdOf(p) == id);
+    }
+
+    /// <summary>
     /// ADR-0005's one ungated write: the caller's own quick capture posts immediately. Guards the
     /// gate against over-reach — a gate on everything is as wrong as a gate on nothing.
     /// </summary>
