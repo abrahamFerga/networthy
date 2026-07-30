@@ -251,7 +251,9 @@ internal static class ManualCrudEndpoints
         // ── Statement imports (the setup wizard's upload step posts here) ───────────
         // Queue-only on purpose: a form upload answers immediately (the wizard may push several
         // statements back to back); the review tab and the notification bell carry the outcome.
-        // Chat's import_statement is the variant that waits and reports the outcome inline.
+        // Chat's import_statement is the variant that waits and reports the outcome inline —
+        // calling it here holds this HTTP response for up to StatementImportTools
+        // .ExtractionWaitBudget (8s) per statement, which is what SetupWizardTests guards against.
         group.MapPost("/imports", async (
                 ImportRequest body, StatementImportTools imports, CancellationToken ct) =>
             {

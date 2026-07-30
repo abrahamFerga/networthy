@@ -66,6 +66,58 @@ public sealed class ModelStatementExtractorTests
     }
 
     [Fact]
+    public async Task SumMismatch_NamesTheFigureThatDisagrees_AndTheDifference()
+    {
+        // "The totals did not reconcile" is not something a household can act on. The warning has
+        // to say WHICH figure disagrees and by how much, so the reviewer knows they are hunting one
+        // cent rather than re-reading eighteen lines.
+        var json = ReconcilingJson.Replace("\"totalWithdrawals\":1715.49", "\"totalWithdrawals\":1715.50");
+        var (extractor, diagnostics) = Build("an otherwise unparseable statement layout", new ScriptedChatClient(json));
+
+        await extractor.ExtractAsync(Guid.NewGuid(), "x.pdf", [], Categories);
+
+        var warning = diagnostics.ReviewWarning;
+        Assert.NotNull(warning);
+        Assert.Contains("withdrawals declared", warning);
+        Assert.Contains(1715.50m.ToString("N2"), warning);   // what the statement claims
+        Assert.Contains(1715.49m.ToString("N2"), warning);   // what the lines actually add up to
+        Assert.Contains($"off by {0.01m:N2}", warning);
+
+        // Only the withdrawals comparison fails in this fixture (1000 + 2500 - 1715.49 = 1784.51,
+        // the declared closing balance), so the warning must not cry wolf about the others.
+        Assert.DoesNotContain("deposits declared", warning);
+        Assert.DoesNotContain("closing balance declared", warning);
+
+        // The column is varchar(1000) and StatementParseJobHandler assigns straight through.
+        Assert.True(warning!.Length <= 1000, $"warning was {warning.Length} chars");
+    }
+
+    [Fact]
+    public async Task SumMismatch_ReportsEveryFigureThatDisagrees_NotJustTheFirst()
+    {
+        // Deposits AND the closing balance are both wrong here; a reviewer told only about the
+        // first would chase one discrepancy and approve with the other still unexplained.
+        const string json = """
+            {"lines":[
+              {"date":"2026-05-04","description":"TRANSFER IN","amount":2500.00,"direction":"income","suggestedCategory":null},
+              {"date":"2026-05-19","description":"CARD PAYMENT","amount":1500.00,"direction":"expense","suggestedCategory":null}],
+             "openingBalance":1000.00,"closingBalance":3000.00,
+             "totalDeposits":2400.00,"totalWithdrawals":1500.00}
+            """;
+        var (extractor, diagnostics) = Build("an otherwise unparseable statement layout", new ScriptedChatClient(json));
+
+        await extractor.ExtractAsync(Guid.NewGuid(), "x.pdf", [], Categories);
+
+        var warning = diagnostics.ReviewWarning;
+        Assert.NotNull(warning);
+        Assert.Contains("deposits declared", warning);
+        Assert.Contains("closing balance declared", warning);
+        // Withdrawals DO reconcile (1,500 declared, 1,500 extracted) — that one stays quiet.
+        Assert.DoesNotContain("withdrawals declared", warning);
+        Assert.True(warning!.Length <= 1000, $"warning was {warning.Length} chars");
+    }
+
+    [Fact]
     public async Task CreditCardBalanceConvention_ReconcilesChargesAndPayments()
     {
         const string json = """

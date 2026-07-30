@@ -11,19 +11,34 @@ public sealed record ModelStatementLine(
     string? Date, string? Description, decimal Amount, string? Direction, string? SuggestedCategory);
 
 /// <summary>
-/// The model's whole answer for one statement: every posted transaction plus the statement's OWN
-/// declared numbers (opening/closing balance, total deposits/withdrawals — copied, never computed).
+/// What the statement says about the account it belongs to, as the model reads it: the issuer brand,
+/// the statement's own name for the account (the product name a bank prints — "Cuenta Priority" —
+/// which no generic pattern recognises), and the last four digits of every number it prints for that
+/// account. Used for the account's NAME and as extra match candidates only, and never on trust:
+/// <see cref="StatementExtraction.MergeModelIdentity"/> discards any value the document text does
+/// not actually contain.
+/// </summary>
+public sealed record ModelAccountIdentity(
+    string? Institution, string? AccountName, IReadOnlyList<string>? NumberLast4);
+
+/// <summary>
+/// The model's whole answer for one statement: every posted transaction, the statement's OWN
+/// declared numbers (opening/closing balance, total deposits/withdrawals — copied, never computed),
+/// and what it says about the account it belongs to.
 /// The declared numbers allow arithmetic reconciliation when the statement exposes them. Lines that
 /// disagree with a declared number carry a review warning; a statement without usable reconciliation
-/// figures remains an explicitly human-reviewed import. Account identity deliberately
-/// stays deterministic because a model-provided account hint could select the wrong ledger.
+/// figures remains an explicitly human-reviewed import. Account identity stays GROUNDED rather than
+/// merely deterministic: the model may read a name or a number off the page, but only values the
+/// document text really contains survive the merge, so a model answer can never select a ledger the
+/// statement does not point at.
 /// </summary>
 public sealed record ModelStatementParse(
     IReadOnlyList<ModelStatementLine>? Lines,
     decimal? OpeningBalance,
     decimal? ClosingBalance,
     decimal? TotalDeposits,
-    decimal? TotalWithdrawals);
+    decimal? TotalWithdrawals,
+    ModelAccountIdentity? Account);
 
 /// <summary>
 /// The model-first document leg of ADR-0004's hybrid extraction: the platform reads the file's
@@ -57,9 +72,14 @@ public sealed class ModelStatementExtractor(
             return null;
         }
 
-        if (await TryModelExtractAsync(text, categories, cancellationToken) is { } modelLines)
+        if (await TryModelExtractAsync(text, categories, cancellationToken) is { } model)
         {
-            return new StatementExtractionResult(modelLines, StatementExtraction.DetectAccountHint(text));
+            // The patterns read the account first and keep precedence; the model only fills what
+            // they left blank, and only with strings this very document contains.
+            return new StatementExtractionResult(
+                model.Lines,
+                StatementExtraction.MergeModelIdentity(
+                    StatementExtraction.DetectAccountHint(text), model.Account, text));
         }
 
         // The deterministic floor: exact for the formats it claims, and the only leg a keyless
@@ -68,7 +88,7 @@ public sealed class ModelStatementExtractor(
         return lines is null ? null : new StatementExtractionResult(lines, StatementExtraction.DetectAccountHint(text));
     }
 
-    private async Task<IReadOnlyList<ExtractedLine>?> TryModelExtractAsync(
+    private async Task<ModelExtraction?> TryModelExtractAsync(
         string text, IReadOnlyList<string> categories, CancellationToken cancellationToken)
     {
         ModelStatementParse? parse;
@@ -101,8 +121,13 @@ public sealed class ModelStatementExtractor(
             return null;
         }
 
-        return ValidateAndMap(parse, categories);
+        return ValidateAndMap(parse, categories) is { } lines
+            ? new ModelExtraction(lines, parse?.Account)
+            : null;
     }
+
+    /// <summary>The model leg's usable answer: validated lines plus the identity it read, if any.</summary>
+    private sealed record ModelExtraction(IReadOnlyList<ExtractedLine> Lines, ModelAccountIdentity? Account);
 
     /// <summary>
     /// Every model row must be well-formed. When a statement declares usable totals or balances,
@@ -150,16 +175,31 @@ public sealed class ModelStatementExtractor(
         var income = lines.Where(l => l.Direction == "income").Sum(l => l.Amount);
         var expense = lines.Where(l => l.Direction == "expense").Sum(l => l.Amount);
         var verified = false;
-        var reconciles = true;
+
+        // Each comparison is independent and any subset may be present, so they are collected
+        // rather than AND-ed into one bool: "the totals did not reconcile" tells a household
+        // nothing it can act on, while "withdrawals declared 1,715.50, lines total 1,715.49, off
+        // by 0.01" points straight at the line to go find. Bare :N2 with no currency code follows
+        // the other batch-scoped surfaces — a batch may still be needs-account, so there is no
+        // account whose currency we could name.
+        var mismatches = new List<string>();
         if (parse.TotalDeposits is { } deposits)
         {
             verified = true;
-            reconciles &= income == deposits;
+            if (income != deposits)
+            {
+                mismatches.Add($"deposits declared {deposits:N2}, extracted lines total {income:N2} " +
+                               $"(off by {Math.Abs(income - deposits):N2})");
+            }
         }
         if (parse.TotalWithdrawals is { } withdrawals)
         {
             verified = true;
-            reconciles &= expense == withdrawals;
+            if (expense != withdrawals)
+            {
+                mismatches.Add($"withdrawals declared {withdrawals:N2}, extracted lines total {expense:N2} " +
+                               $"(off by {Math.Abs(expense - withdrawals):N2})");
+            }
         }
         if (parse is { OpeningBalance: { } opening, ClosingBalance: { } closing })
         {
@@ -167,14 +207,25 @@ public sealed class ModelStatementExtractor(
             // Asset statements rise with income and fall with expenses. Credit-card statements
             // often display the liability instead, so purchases raise and payments lower the
             // printed balance. The transaction directions remain user-facing cash-flow terms.
-            reconciles &= opening + income - expense == closing
-                          || opening - income + expense == closing;
+            var asAsset = opening + income - expense;
+            var asLiability = opening - income + expense;
+            if (asAsset != closing && asLiability != closing)
+            {
+                // Report against whichever orientation lands closer — quoting the credit-card
+                // arithmetic at someone holding a chequing statement is just confusing.
+                var closest = Math.Abs(asAsset - closing) <= Math.Abs(asLiability - closing) ? asAsset : asLiability;
+                mismatches.Add($"closing balance declared {closing:N2}, opening {opening:N2} plus these lines " +
+                               $"reaches {closest:N2} (off by {Math.Abs(closest - closing):N2})");
+            }
         }
 
-        if (!reconciles)
+        if (mismatches.Count > 0)
         {
-            diagnostics.ReviewWarning = "The model found transaction lines, but their totals did not reconcile with the " +
-                                        "statement summary. Review every line and the statement totals before approval.";
+            // Bounded by construction: at most three clauses, each a fixed shape over decimals,
+            // so this cannot approach ReviewWarning's 1000-character column.
+            diagnostics.ReviewWarning =
+                $"The model found {lines.Count} transaction line(s), but they did not reconcile with the statement " +
+                $"summary: {string.Join("; ", mismatches)}. Review every line and the statement totals before approval.";
             diagnostics.ModelNote = diagnostics.ReviewWarning;
             return lines;
         }
@@ -213,6 +264,17 @@ public sealed class ModelStatementExtractor(
             or credits to totalDeposits. Preserve each declared balance's displayed sign. Otherwise
             use null. Never calculate or invent a declared total. If the document is not a bank
             statement, return an empty lines array.
+
+            Also report, in `account`, what the statement says about the account it belongs to:
+            `institution` is the bank or issuer brand as the document prints it; `accountName` is
+            the statement's own name for the account — the product name it is headed with, such as
+            "Cuenta Priority" or "Everyday Checking"; `numberLast4` lists the last four digits of
+            every number the statement prints for THIS account, including its account number, its
+            CLABE, and its card number. Copy each value exactly as it appears in the document,
+            preserving its language. `accountName` is never the account holder's name, never the
+            document's title ("Estado de Cuenta", "Account Statement"), and never a description you
+            compose. Use null, or an empty list, for anything the document does not print — a value
+            that does not appear in the text verbatim is discarded, so a guess is worse than null.
             """),
         new(ChatRole.User, $"""
             The complete extracted statement text follows. The only permitted suggestedCategory

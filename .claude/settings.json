@@ -1,6 +1,7 @@
 {
   "extraKnownMarketplaces": {
     "my-skills": { "source": { "source": "github", "repo": "abrahamFerga/my-skills" } },
+    "abrahamFerga/plenipo-agents": { "source": { "source": "github", "repo": "abrahamFerga/plenipo-agents" } },
     "dotnet/skills": { "source": { "source": "github", "repo": "dotnet/skills" } },
     "anthropics/skills": { "source": { "source": "github", "repo": "anthropics/skills" } }
   },
@@ -9,6 +10,8 @@
     "system-definition@my-skills": false,
     "architecture@my-skills": false,
     "development@my-skills": true,
+    "harness@abrahamFerga/plenipo-agents": true,
+    "deliver@abrahamFerga/plenipo-agents": true,
     "dotnet@dotnet/skills": true,
     "dotnet-aspnet@dotnet/skills": true,
     "dotnet-data@dotnet/skills": true,

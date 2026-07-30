@@ -193,6 +193,34 @@ posts as a Transaction (ADR-0002's approval gate applies identically either way)
   for any bank without a template — a bad first impression for exactly the users the product
   is trying to win.
 
+### Amendment (account identity): grounded, not merely deterministic
+
+The model leg originally read transaction lines only. Account identity — which ledger the statement
+belongs to — was pattern-only, on the reasoning that "a model-provided account hint could select the
+wrong ledger" (`ModelStatementExtractor.cs`). The cost of that line showed up in the field: a Citi
+Priority statement filed as `Mayo.pdf` prints its account's name on every page ("Cuenta Priority"),
+but no general pattern recognises a bank's *product* name, so the created account was named from the
+uploaded file — "Mayo account". The document said what it was and the product ignored it.
+
+The fear was right about **routing** and wrong about **naming**, so the rule is now drawn on that
+line rather than on which component produced the value:
+
+- The model reports the identity it reads (`ModelAccountIdentity`: institution, the statement's own
+  name for the account, and every last-four the statement prints for it).
+- **Nothing is taken on the model's word.** `StatementExtraction.MergeModelIdentity` keeps only
+  strings the document text literally contains, and accepts a last-four only when some printed
+  number really ends in those digits. World knowledge about a brand, or a plausible-looking number,
+  is discarded — which is the actual difference between reading a page and guessing about it.
+- Pattern results keep precedence; the model only fills what they left blank, and its numbers are
+  appended as extra match candidates, never as replacements.
+- Matching is unchanged in kind: still only ever unambiguous. It now tries **every** number the
+  statement printed (a card number and the account behind it identify the same account, and the
+  household recorded whichever one they recognise), and two candidates naming two different accounts
+  is treated as a contradiction that asks, not a vote.
+
+So a model can influence what an account is *called* freely, and can only ever corroborate — never
+invent — where money *goes*. Every import still requires explicit human approval before it posts.
+
 ---
 
 ## ADR-0005: A household member's own logged transaction is an ungated quick-capture exception

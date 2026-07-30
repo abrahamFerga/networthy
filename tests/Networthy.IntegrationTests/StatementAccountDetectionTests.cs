@@ -164,6 +164,55 @@ public sealed class StatementAccountDetectionTests(IntegrationFixture fixture)
     }
 
     [Fact]
+    public async Task DetectedAccountName_BeatsTheFileName_WhenTheStatementNamedItself()
+    {
+        // The premium-tier case: a statement filed as "Mayo.pdf" whose own pages call the account
+        // "Cuenta Priority" must not create an account called "Mayo account". The name is read by
+        // the model leg (grounded against the document text) — this asserts the naming PRECEDENCE
+        // the row action applies to whatever detection recorded.
+        var (scope, _, _) = await fixture.AuthorizedScopeAsync();
+        using var _scope = scope;
+        var services = scope.ServiceProvider;
+
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(
+            "Date,Description,Amount\n2026-05-14,ABARROTES EJEMPLO,-320.50\n"));
+        var stored = await services.GetRequiredService<IFileStore>()
+            .SaveAsync("Mayo.pdf", "application/pdf", stream, source: "test");
+
+        await services.GetRequiredService<StatementImportTools>().ImportStatement(stored.Id.ToString());
+        await WaitForBatchAsync(stored.Id, expected: "needs-account");
+
+        // Stand in for the model leg's grounded answer on the real PDF.
+        using (var seed = fixture.Factory.Services.CreateScope())
+        {
+            var seedDb = seed.ServiceProvider.GetRequiredService<FinanceDbContext>();
+            var pending = await seedDb.ImportBatches.IgnoreQueryFilters()
+                .FirstAsync(b => b.SourceFileId == stored.Id);
+            pending.DetectedAccountLabel = "Cuenta Priority";
+            pending.DetectedAccountMask = "••••5597";
+            pending.DetectedCurrency = "MXN";
+            await seedDb.SaveChangesAsync();
+        }
+
+        using var admin = fixture.AdminClient();
+        var rows = await admin.GetFromJsonAsync<JsonElement>("/api/finance/imports/batches");
+        var row = rows.EnumerateArray().Single(r => r.GetProperty("fileName").GetString() == "Mayo.pdf");
+        // The reviewer sees the account's real name in the "needs an account" status, not the file's.
+        Assert.Contains("Cuenta Priority", row.GetProperty("status").GetString()!);
+
+        var create = await admin.PostAsync($"/api/finance/imports/{row.GetProperty("id").GetGuid()}/create-account", null);
+        Assert.Equal(HttpStatusCode.OK, create.StatusCode);
+        Assert.Contains("Cuenta Priority", await create.Content.ReadAsStringAsync());
+
+        services.GetRequiredService<FinanceDbContext>().ChangeTracker.Clear();
+        var db = services.GetRequiredService<FinanceDbContext>();
+        Assert.False(await db.Accounts.AnyAsync(a => a.Name == "Mayo account"));
+        var created = await db.Accounts.FirstAsync(a => a.Name == "Cuenta Priority");
+        Assert.Equal("MXN", created.CurrencyCode);
+        Assert.Equal("••••5597", created.MaskedAccountNumber); // next month's statement self-matches
+    }
+
+    [Fact]
     public async Task ExplicitTypo_GetsDidYouMean_NotALimboImport()
     {
         var (scope, _, _) = await fixture.AuthorizedScopeAsync();
