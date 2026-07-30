@@ -1,0 +1,21 @@
+{
+  // A household member must never be handed the assistant's plumbing. The reported symptom: after
+  // an import the assistant wrote "Next step: I can show the extracted lines with
+  // review_import_batch" and STOPPED — so the user typed an internal API name to see their own
+  // statement, twice in a row.
+  //
+  // What this case can and cannot catch: the Mock provider's tool summary always names the tool it
+  // just called ("I called the `review_import_batch` tool"), so review_import_batch itself can
+  // never be forbidden here. What it CAN catch is the OTHER tool names, because the Mock echoes the
+  // first 400 characters of the tool RESULT verbatim — and those results used to advertise
+  // approve_import_batch, assign_import_account and import_statement in their opening sentence.
+  //
+  // Red before the fix in either data state: with no batches the result opened "…run
+  // import_statement", and with a parsed batch it opened "— review, then approve_import_batch:".
+  "name": "finance-review-leaks-no-tool-names",
+  "module": "finance",
+  "message": "Review my latest import batch",
+  "expectToolCalls": ["review_import_batch"],
+  "expectApproval": false,
+  "replyMustNotContain": ["approve_import_batch", "assign_import_account", "import_statement"]
+}

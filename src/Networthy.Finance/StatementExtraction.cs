@@ -13,18 +13,44 @@ public sealed record ExtractedLine(
 
 /// <summary>
 /// What a statement says about WHICH account it belongs to — the institution from the header
-/// (or OFX &lt;ORG&gt;), the last four digits of a masked account number ("ending in 4321",
-/// "****4321", OFX &lt;ACCTID&gt;), and the currency its amounts are tagged with ("-6392.00 USD").
-/// Deterministic and best-effort: it feeds auto-matching and the "create this account?"
-/// suggestion, and a human confirms before anything is created or posted.
+/// (or OFX &lt;ORG&gt;), the account's own printed name when it has one ("Cuenta Priority"), the
+/// last four digits of every number the document prints for itself ("ending in 4321", "****4321",
+/// OFX &lt;ACCTID&gt;, an unmasked account line, a card number), and the currency its amounts are
+/// tagged with ("-6392.00 USD").
+/// <para>
+/// Every value is grounded in the document text. The pattern legs read it directly; the model leg
+/// may propose a name or a number, but only strings the statement actually contains survive
+/// <see cref="StatementExtraction.MergeModelIdentity"/>. It feeds auto-matching and the "create
+/// this account?" suggestion, and a human confirms before anything is created or posted.
+/// </para>
 /// </summary>
-public sealed record DetectedAccountHint(string? Institution, string? MaskLast4, string? Currency = null)
+/// <param name="Institution">The bank or issuer brand, when the document names it.</param>
+/// <param name="MaskLast4">The most identifying last-four candidate — what display uses.</param>
+/// <param name="Currency">Dominant ISO currency of the statement's amounts.</param>
+/// <param name="AccountName">
+/// The statement's own name for the account ("Cuenta Priority"), never the customer's name.
+/// </param>
+/// <param name="OtherLast4">
+/// Further last-four candidates the same statement printed. A statement commonly carries several
+/// numbers for one account (a card number AND the checking account behind it) and the household
+/// may have recorded any one of them, so matching tries all of them.
+/// </param>
+public sealed record DetectedAccountHint(
+    string? Institution,
+    string? MaskLast4,
+    string? Currency = null,
+    string? AccountName = null,
+    IReadOnlyList<string>? OtherLast4 = null)
 {
-    /// <summary>Human label, e.g. "First Example Bank ••••1234".</summary>
-    public string Label => (Institution, MaskLast4) switch
+    /// <summary>Every last-four candidate, most identifying first — what matching tries.</summary>
+    public IReadOnlyList<string> AllLast4 =>
+        MaskLast4 is null ? OtherLast4 ?? [] : [MaskLast4, .. OtherLast4 ?? []];
+
+    /// <summary>Human label, e.g. "Cuenta Priority ••••5597" / "First Example Bank ••••1234".</summary>
+    public string Label => (AccountName ?? Institution, MaskLast4) switch
     {
-        ({ } bank, { } last4) => $"{bank} ••••{last4}",
-        ({ } bank, null) => bank,
+        ({ } name, { } last4) => $"{name} ••••{last4}",
+        ({ } name, null) => name,
         (null, { } last4) => $"account ••••{last4}",
         _ => "an unidentified account",
     };
@@ -663,34 +689,125 @@ public static partial class StatementExtraction
     /// </summary>
     public static DetectedAccountHint? DetectAccountHint(string text)
     {
-        string? last4 = null;
-        // OFX is explicit about the account; trailing digits of <ACCTID> are the mask every
-        // bank prints. Otherwise fall back to how statements SAY it: "ending in 4321",
-        // "****4321" / "••••4321" / "xxxx4321", or "Account #: ...4321".
-        var acctId = OfxAcctIdPattern().Match(text);
-        if (acctId.Success)
-        {
-            var digits = new string(acctId.Groups[1].Value.Where(char.IsAsciiDigit).ToArray());
-            last4 = digits.Length >= 4 ? digits[^4..] : null;
-        }
-        last4 ??= FirstGroup(EndingInPattern().Match(text)) ?? FirstGroup(MaskedNumberPattern().Match(text));
-        // Mexican statements print the checking account UNMASKED on a labeled line ("Número de
-        // cuenta de cheques 70177434092") — its trailing four digits are the same identity every
-        // mask spelling would carry.
-        if (last4 is null && AccountNumberLinePattern().Match(text) is { Success: true } acct
-            && acct.Groups[1].Value is { Length: >= 4 } number)
-        {
-            last4 = number[^4..];
-        }
+        // Every last-four the document prints for ITSELF, most identifying first. These used to be
+        // a first-match-wins chain, but one statement legitimately carries several numbers for one
+        // account — a premium-tier statement prints a debit-card number AND the checking account
+        // behind it — and the household recorded whichever one they recognise. Collect them all and
+        // let matching try each; a candidate that names no account simply costs nothing.
+        var candidates = new List<string>();
+
+        // OFX is explicit about the account; trailing digits of <ACCTID> are the mask every bank
+        // prints, so it leads. Then how statements SAY it: "ending in 4321", "****4321" /
+        // "••••4321" / "xxxx4321", or "Account #: ...4321".
+        AddTrailingDigits(OfxAcctIdPattern().Match(text));
+        AddLast4(FirstGroup(EndingInPattern().Match(text)));
+        AddLast4(FirstGroup(MaskedNumberPattern().Match(text)));
+        // Mexican statements print numbers UNMASKED on labeled lines — the checking account
+        // ("Número de cuenta de cheques 70177434092") and the card ("Número de Tarjeta de Débito
+        // 5206949656125597"). The trailing four digits of each are the same identity every mask
+        // spelling would carry, and the card's are usually the ones the cardholder knows.
+        AddTrailingDigits(AccountNumberLinePattern().Match(text));
+        AddTrailingDigits(CardNumberLinePattern().Match(text));
 
         var institution = OfxOrgPattern().Match(text) is { Success: true } org
             ? org.Groups[1].Value.Trim()
             : DetectInstitutionFromHeader(text);
 
         var currency = DetectDominantCurrency(text);
-        return last4 is null && institution is null && currency is null
+        return candidates.Count == 0 && institution is null && currency is null
             ? null
-            : new DetectedAccountHint(institution, last4, currency);
+            : new DetectedAccountHint(
+                institution, candidates.FirstOrDefault(), currency,
+                OtherLast4: candidates.Skip(1).ToList());
+
+        // Some Mexican banks mask cards as "**877" — three visible digits, not four.
+        void AddLast4(string? digits)
+        {
+            if (digits is { Length: >= 3 } && !candidates.Contains(digits))
+            {
+                candidates.Add(digits);
+            }
+        }
+
+        void AddTrailingDigits(Match match)
+        {
+            if (!match.Success)
+            {
+                return;
+            }
+
+            var digits = new string(match.Groups[1].Value.Where(char.IsAsciiDigit).ToArray());
+            if (digits.Length >= 4)
+            {
+                AddLast4(digits[^4..]);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Folds what the household's model reported about the statement's own account into the
+    /// deterministic hint. Naming is where a model genuinely helps: statements print a product
+    /// name ("Cuenta Priority") that no generic pattern will ever recognise, and falling back to
+    /// the file name produced accounts called "Mayo account".
+    /// <para>
+    /// Money routing still may not rest on a model's word, so nothing is taken on trust — every
+    /// string the model contributes must literally appear in the document text, and a number is
+    /// accepted only when the statement really prints a number ending in those digits. A grounded
+    /// name becomes a label; an invented one is dropped. Deterministic values always win: the model
+    /// only fills what the patterns left blank, and its numbers are appended as extra match
+    /// candidates, never as replacements. Matching itself is unchanged — still only ever
+    /// unambiguous (see <c>StatementImportTools.MatchAccount</c>).
+    /// </para>
+    /// </summary>
+    public static DetectedAccountHint? MergeModelIdentity(
+        DetectedAccountHint? detected, ModelAccountIdentity? model, string text)
+    {
+        if (model is null)
+        {
+            return detected;
+        }
+
+        var institution = detected?.Institution ?? Grounded(model.Institution, text);
+        var accountName = Grounded(model.AccountName, text);
+        var candidates = new List<string>(detected?.AllLast4 ?? []);
+        foreach (var reported in model.NumberLast4 ?? [])
+        {
+            var digits = new string((reported ?? "").Where(char.IsAsciiDigit).ToArray());
+            if (digits.Length < 3)
+            {
+                continue;
+            }
+
+            var last4 = digits.Length > 4 ? digits[^4..] : digits;
+            if (!candidates.Contains(last4) && PrintsNumberEndingIn(text, last4))
+            {
+                candidates.Add(last4);
+            }
+        }
+
+        var currency = detected?.Currency;
+        return institution is null && accountName is null && candidates.Count == 0 && currency is null
+            ? null
+            : new DetectedAccountHint(
+                institution, candidates.FirstOrDefault(), currency, accountName,
+                candidates.Skip(1).ToList());
+
+        // A model string is usable only if the statement contains it — that is what separates
+        // "the document says Cuenta Priority" from the model's world knowledge about the brand.
+        static string? Grounded(string? value, string text)
+        {
+            var trimmed = value?.Trim();
+            return trimmed is { Length: >= 3 and <= 64 }
+                   && text.Contains(trimmed, StringComparison.OrdinalIgnoreCase)
+                ? trimmed
+                : null;
+        }
+
+        // And a last-four is usable only if some printed number really ends in it. A hallucinated
+        // one cannot then route this statement to a household's real ledger.
+        static bool PrintsNumberEndingIn(string text, string last4) =>
+            DigitRunPattern().Matches(text).Any(run =>
+                run.Value.Length >= last4.Length && run.Value.EndsWith(last4, StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -834,6 +951,21 @@ public static partial class StatementExtraction
     /// <summary>An unmasked, labeled account-number line ("Número de cuenta de cheques 70177434092").</summary>
     [GeneratedRegex(@"(?:n[úu]mero\s+de\s+cuenta(?:\s+de\s+cheques)?|cuenta\s+de\s+cheques)\s*(?:no\.?|#)?\s*[:#]?\s*(\d{7,20})\b", RegexOptions.IgnoreCase)]
     private static partial Regex AccountNumberLinePattern();
+
+    /// <summary>
+    /// An unmasked, labeled card-number line ("Número de Tarjeta de Débito 5206949656125597").
+    /// Its last four are the digits a cardholder actually recognises, so they are a match candidate
+    /// even when the statement also prints the account behind the card. Separators are tolerated
+    /// (banks print "5206 9496 5612 5597"); the capture is digit-stripped by the caller.
+    /// </summary>
+    [GeneratedRegex(
+        @"(?:tarjeta\s+(?:de\s+)?(?:d[ée]bito|cr[ée]dito)|(?:debit|credit)\s+card(?:\s+number)?)[^\d\r\n]{0,20}(\d[\d\- ]{10,22}\d)",
+        RegexOptions.IgnoreCase)]
+    private static partial Regex CardNumberLinePattern();
+
+    /// <summary>Every run of digits in the text — the grounding check for a model-reported number.</summary>
+    [GeneratedRegex(@"\d+")]
+    private static partial Regex DigitRunPattern();
 
     /// <summary>How Mexican statements declare their currency in words instead of ISO tags.</summary>
     [GeneratedRegex(@"\bmoneda\s+nacional\b|\ben\s+pesos\b", RegexOptions.IgnoreCase)]

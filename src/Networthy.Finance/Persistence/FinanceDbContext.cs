@@ -88,6 +88,7 @@ public sealed class FinanceDbContext(
             b.Property(x => x.FailureReason).HasMaxLength(1000);
             b.Property(x => x.ReviewWarning).HasMaxLength(1000);
             b.Property(x => x.DetectedInstitution).HasMaxLength(200);
+            b.Property(x => x.DetectedAccountLabel).HasMaxLength(200);
             b.Property(x => x.DetectedAccountMask).HasMaxLength(24);
             b.Property(x => x.DetectedCurrency).HasMaxLength(3);
             b.HasIndex(x => new { x.TenantId, x.Status });

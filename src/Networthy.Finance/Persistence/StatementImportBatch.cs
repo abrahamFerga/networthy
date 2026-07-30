@@ -30,6 +30,12 @@ public sealed class StatementImportBatch : TenantEntityBase
     /// <summary>What the statement says about its own account (DetectedAccountHint), if anything.</summary>
     public string? DetectedInstitution { get; set; }
 
+    /// <summary>
+    /// The statement's own name for the account ("Cuenta Priority") when it prints one — the name a
+    /// created account takes, in preference to the uploaded file's name.
+    /// </summary>
+    public string? DetectedAccountLabel { get; set; }
+
     /// <summary>Display mask from detection, e.g. "••••4321".</summary>
     public string? DetectedAccountMask { get; set; }
 

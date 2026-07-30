@@ -65,12 +65,19 @@ public sealed class ReviewDetailActionsTests(IntegrationFixture fixture)
 
         using var admin = fixture.AdminClient();
         var detail = await admin.GetFromJsonAsync<JsonElement>($"/api/finance/imports/{batch.Id}/detail");
-        Assert.Equal("Review warning", detail.GetProperty("sections")[0].GetProperty("heading").GetString());
-        Assert.Contains("did not reconcile", detail.GetProperty("sections")[0].GetProperty("text").GetString());
+        // The heading SHOUTS while TODO(plenipo#65) stands: the shell renders every detail section
+        // in the same grey, so severity has nowhere to live but this string. When the platform
+        // ships section tone, this becomes a plain "Review warning" plus tone = "warning" — and
+        // PlatformShimGuardTests is what goes red to say so.
+        var warningSection = detail.GetProperty("sections")[0];
+        Assert.Contains("REVIEW WARNING", warningSection.GetProperty("heading").GetString());
+        Assert.Contains("did not reconcile", warningSection.GetProperty("text").GetString());
 
         var rows = await admin.GetFromJsonAsync<JsonElement>("/api/finance/imports/batches");
         var row = rows.EnumerateArray().Single(r => r.GetProperty("id").GetGuid() == batch.Id);
         Assert.Contains("reconciliation warning", row.GetProperty("status").GetString());
+        // The destination account is on the row itself — approving posts into it.
+        Assert.Equal(account.Name, row.GetProperty("accountName").GetString());
 
         var discard = await admin.PostAsync($"/api/finance/imports/{batch.Id}/discard", null);
         Assert.Equal(HttpStatusCode.OK, discard.StatusCode);

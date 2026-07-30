@@ -176,9 +176,16 @@ public sealed class StatementImportTools(
         var accountName = batch.AccountId is { } accountId
             ? (await db.Accounts.AsNoTracking().FirstOrDefaultAsync(a => a.Id == accountId, cancellationToken))?.Name
             : null;
+        // The next step is to DISPLAY lines, which is read-only and needs nobody's permission — so
+        // say that in the imperative and say it happens NOW. Phrasing it as "show them, and after
+        // the user confirms, approve" made the model read one "confirms" as governing both verbs:
+        // it announced the display as an offer, named the tool, and stopped, leaving the household
+        // to type an internal API name to see their own statement.
         return $"'{batch.FileName}' extracted {lines.Count} line(s){period} into " +
-               $"'{accountName ?? "(unknown account)"}'. Show them with review_import_batch and, after the " +
-               $"user confirms, approve_import_batch — nothing posts until they approve.{warning}";
+               $"'{accountName ?? "(unknown account)"}'.{warning} " +
+               "NEXT, IN THIS SAME TURN: fetch the extracted lines and show them to the user — that is " +
+               "read-only, so do NOT ask permission and do NOT offer it as an option, just do it. " +
+               "Only POSTING needs their explicit yes, and nothing posts until they give it.";
     }
 
     [Description("Attach an account to an import batch that is waiting for one (status needs-account): name an existing account, or set createIfMissing to create it — the new account inherits the statement's detected institution and masked number. An existing account with no number recorded learns the statement's, so its next statement matches automatically. Side-effecting and requires approval.")]
@@ -257,7 +264,8 @@ public sealed class StatementImportTools(
         var batch = await FindBatchAsync(fileName, cancellationToken);
         if (batch is null)
         {
-            return "No import batches yet. Attach a statement and run import_statement.";
+            return "No statements have been imported yet. Tell the user to attach a bank statement to " +
+                   "a message, and import it for them when they do.";
         }
 
         switch (batch.Status)
@@ -282,14 +290,13 @@ public sealed class StatementImportTools(
             // The "ask before creating" moment: say what the statement looks like and lay out
             // both resolutions — an existing account, or creating the detected one.
             sb.AppendLine($"'{batch.FileName}' looks like a statement from {DetectedLabel(batch)}, and no " +
-                          "existing account matches. Before these lines can be reviewed for posting, pick where " +
-                          "they belong: assign_import_account with an existing account's name, or with " +
-                          "createIfMissing to create it (the new account inherits the detected institution " +
-                          "and masked number).");
+                          "existing account matches. Ask the user where these lines belong — an account they " +
+                          "already have, or a new one created from what the statement says (it would inherit " +
+                          "the detected institution and masked number). Attach it to that account before " +
+                          "anything can post; never create an account without the user saying so.");
         }
 
-        sb.AppendLine($"Extracted from '{batch.FileName}' ({lines.Count} line(s))" +
-                      (batch.Status == "parsed" ? " — review, then approve_import_batch:" : ":"));
+        sb.AppendLine($"Extracted from '{batch.FileName}' ({lines.Count} line(s)):");
         foreach (var line in lines.Take(40))
         {
             sb.AppendLine($"- {line.Date:yyyy-MM-dd} · {(line.Direction == "income" ? "+" : "-")}{line.Amount:N2} · {line.Description}" +
@@ -323,6 +330,15 @@ public sealed class StatementImportTools(
                 sb.Append($"\n{already.Count} of these {lines.Count} line(s) are already posted to this account — " +
                           $"approving will skip them and post the remaining {toPost.Count}, not double anything.");
             }
+        }
+
+        if (batch.Status == "parsed")
+        {
+            // Directed at the model, not the household: THIS is the point where a human yes is
+            // required, and it is the only one in the import flow. Displaying lines needed no
+            // permission and must not have been announced as if it did.
+            sb.Append("\n(Show these lines to the user now and ask whether to post them. Posting is " +
+                      "the gated step and needs their explicit yes.)");
         }
 
         return sb.ToString();
@@ -529,8 +545,12 @@ public sealed class StatementImportTools(
         return await query.OrderByDescending(b => b.CreatedAt).FirstOrDefaultAsync(cancellationToken);
     }
 
-    /// <summary>"First Example Bank ••••1234" from what the parse job detected; honest when nothing was.</summary>
-    internal static string DetectedLabel(StatementImportBatch batch) => ((batch.DetectedInstitution, batch.DetectedAccountMask) switch
+    /// <summary>
+    /// "Cuenta Priority ••••5597" / "First Example Bank ••••1234" from what the parse job detected;
+    /// honest when nothing was. The statement's own name for the account leads when it printed one —
+    /// it is what the household will recognise on the review tab.
+    /// </summary>
+    internal static string DetectedLabel(StatementImportBatch batch) => ((batch.DetectedAccountLabel ?? batch.DetectedInstitution, batch.DetectedAccountMask) switch
     {
         ({ } bank, { } mask) => $"'{bank} {mask}'",
         ({ } bank, null) => $"'{bank}'",
@@ -539,9 +559,15 @@ public sealed class StatementImportTools(
     }) + (batch.DetectedCurrency is null ? "" : $" ({batch.DetectedCurrency})");
 
     /// <summary>
-    /// The auto-match the parse job trusts: the masked number's last four digits are decisive when
-    /// exactly ONE visible account carries them; the institution name is accepted only when it
+    /// The auto-match the parse job trusts: a last-four the statement printed is decisive when
+    /// exactly ONE visible account carries it; the institution name is accepted only when it
     /// singles out exactly one account. Anything ambiguous returns null — the flow asks instead.
+    /// <para>
+    /// A statement usually prints more than one number for the same account (a card number and the
+    /// account behind it), and the household recorded whichever one they recognise, so EVERY
+    /// detected candidate is tried. Two candidates naming two different accounts is a contradiction,
+    /// not a majority vote: it asks. A candidate no account carries costs nothing.
+    /// </para>
     /// <para>
     /// When a rule leaves several accounts tied, the statement's own currency gets one chance to
     /// break the tie — the same four digits on an MXN account and a USD account identify different
@@ -556,22 +582,50 @@ public sealed class StatementImportTools(
             return null;
         }
 
-        if (hint.MaskLast4 is { } last4)
+        Account? resolved = null;
+        var someNumberNamedAnAccount = false;
+        foreach (var last4 in hint.AllLast4)
         {
             var byMask = candidates
                 .Where(a => a.MaskedAccountNumber is { } mask
                             && new string(mask.Where(char.IsAsciiDigit).ToArray()).EndsWith(last4, StringComparison.Ordinal))
                 .ToList();
-            if (byMask.Count == 1)
+            if (byMask.Count == 0)
             {
-                return byMask[0];
+                continue;
             }
-            if (byMask.Count > 1)
+
+            someNumberNamedAnAccount = true;
+            // Several accounts share this last-4. Only the statement's currency may separate them,
+            // and only if it leaves exactly one — otherwise this candidate decides nothing.
+            var pick = byMask.Count == 1 ? byMask[0] : NarrowByCurrency(byMask, hint.Currency);
+            if (pick is null)
             {
-                // Several accounts share a last-4. Only the statement's currency may separate
-                // them, and only if it leaves exactly one — otherwise never guess.
-                return NarrowByCurrency(byMask, hint.Currency);
+                continue;
             }
+
+            if (resolved is null)
+            {
+                resolved = pick;
+            }
+            else if (!ReferenceEquals(resolved, pick))
+            {
+                // The statement's own numbers disagree about where it belongs. Guessing here posts
+                // a month of money to the wrong ledger.
+                return null;
+            }
+        }
+
+        if (resolved is not null)
+        {
+            return resolved;
+        }
+
+        // The numbers found accounts but none decisively. A weaker signal must not now decide what
+        // a stronger, ambiguous one could not.
+        if (someNumberNamedAnAccount)
+        {
+            return null;
         }
 
         if (hint.Institution is { } institution)

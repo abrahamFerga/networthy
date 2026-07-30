@@ -96,6 +96,7 @@ public sealed class StatementParseJobHandler : IJobHandler
         batch.LinesFrom = lines.Min(l => l.Date);
         batch.LinesTo = lines.Max(l => l.Date);
         batch.DetectedInstitution = hint?.Institution;
+        batch.DetectedAccountLabel = hint?.AccountName;
         batch.DetectedAccountMask = hint?.MaskLast4 is { } last4 ? $"••••{last4}" : null;
         batch.DetectedCurrency = hint?.Currency;
 
