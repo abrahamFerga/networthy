@@ -62,6 +62,43 @@ public sealed class StatementImportTests(IntegrationFixture fixture)
         Assert.Contains("SHELL GASOLINE", search);
     }
 
+    /// <summary>
+    /// Reproduces the E2E-observed bug: AuthorizedAgentRunner resolves a module's tools ONCE per
+    /// chat turn (ToolRegistry.GetModuleTools against the turn's own DI scope), so import_statement
+    /// and review_import_batch/approve_import_batch called later in that SAME turn share this one
+    /// StatementImportTools instance and its FinanceDbContext — nothing in production ever calls
+    /// ChangeTracker.Clear() between them (contrast the test above, which simulates a fresh scope
+    /// per action instead of one turn). Without a fix, EF's identity resolution hands FindBatchAsync
+    /// back the batch object QueueImportAsync tracked as "queued", even though the background job
+    /// (a different DbContext) already committed "parsed" to Postgres.
+    /// </summary>
+    [Fact]
+    public async Task ReviewAndApprove_SameTurnAsImport_SeeTheParsedStatus_NotStaleQueued()
+    {
+        var (scope, _, _) = await fixture.AuthorizedScopeAsync();
+        using var _scope = scope;
+        var services = scope.ServiceProvider;
+
+        await services.GetRequiredService<AccountTools>().CreateAccount("Same Turn Checking", "checking", "USD", 100);
+
+        var csv = "Date,Description,Amount\n" +
+                  "2026-07-05,SAME TURN COFFEE,-4.25\n";
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(csv));
+        var stored = await services.GetRequiredService<IFileStore>()
+            .SaveAsync("same-turn.csv", "text/csv", stream, source: "test");
+
+        var imports = services.GetRequiredService<StatementImportTools>();
+        var outcome = await imports.ImportStatement(stored.Id.ToString(), "Same Turn Checking");
+        Assert.Contains("1 line(s)", outcome);
+
+        var review = await imports.ReviewImportBatch("same-turn.csv");
+        Assert.DoesNotContain("still being extracted", review);
+        Assert.Contains("SAME TURN COFFEE", review);
+
+        var approved = await imports.ApproveImportBatch("same-turn.csv");
+        Assert.Contains("Posted 1 transaction(s)", approved);
+    }
+
     [Fact]
     public async Task PdfStatement_ExtractsThroughPlatformDocumentReader_AndPosts()
     {
