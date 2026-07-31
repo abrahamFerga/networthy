@@ -9,8 +9,24 @@ allowBuilds:
 # publish.yml with npm provenance attestation, so the quarantine buys us nothing and would block
 # same-day platform bumps. Exempt the exact version only — a new pin is required per bump,
 # deliberately.
+#
+# The two browserslist DATA packages are exempted by NAME rather than by version, which is the
+# one place the exact-version rule cannot apply: they are bot-published every single day, so any
+# lockfile refreshed within 24h of a release carries one that is younger than the cutoff. That is
+# not an edge case — it is every frontend Dependabot PR, permanently, because each rebase pulls a
+# fresh copy. Three PRs sat red for weeks on this alone, none of them for a reason to do with the
+# dependency they were actually bumping.
+#
+# The residual risk is bounded and worth stating: both are pure browser-support tables consumed by
+# browserslist at BUILD time, they carry no runtime code into the bundle, and `allowBuilds` above
+# already denies every package but esbuild the right to run install scripts. What the quarantine
+# would still buy on these two is time-to-detect on a compromised publish of the browserslist org
+# itself; what it costs is a permanently red frontend pipeline. Revisit if either package ever
+# grows a runtime import.
 minimumReleaseAgeExclude:
   - '@plenipo/ui@0.1.0-alpha.28'
+  - 'baseline-browser-mapping'
+  - 'electron-to-chromium'
 
 # Keep transitive test-runner copies on patched builds too. Vitest accepts Vite 6 but pnpm can
 # otherwise retain an older compatible Vite 5 snapshot from the previous lockfile.
