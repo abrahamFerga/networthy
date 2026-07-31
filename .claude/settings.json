@@ -1,21 +1,20 @@
 {
   "extraKnownMarketplaces": {
-    "my-skills": { "source": { "source": "github", "repo": "abrahamFerga/my-skills" } },
-    "abrahamFerga/plenipo-agents": { "source": { "source": "github", "repo": "abrahamFerga/plenipo-agents" } },
-    "dotnet/skills": { "source": { "source": "github", "repo": "dotnet/skills" } },
-    "anthropics/skills": { "source": { "source": "github", "repo": "anthropics/skills" } }
+    "plenipo-agents": { "source": { "source": "github", "repo": "abrahamFerga/plenipo-agents" } },
+    "dotnet-agent-skills": { "source": { "source": "github", "repo": "dotnet/skills" } },
+    "anthropic-agent-skills": { "source": { "source": "github", "repo": "anthropics/skills" } }
   },
   "enabledPlugins": {
-    "workflow-core@my-skills": true,
-    "system-definition@my-skills": false,
-    "architecture@my-skills": false,
-    "development@my-skills": true,
-    "harness@abrahamFerga/plenipo-agents": true,
-    "deliver@abrahamFerga/plenipo-agents": true,
-    "dotnet@dotnet/skills": true,
-    "dotnet-aspnet@dotnet/skills": true,
-    "dotnet-data@dotnet/skills": true,
-    "dotnet-ai@dotnet/skills": true,
-    "pdf@anthropics/skills": true
+    "plenipo@plenipo-agents": true,
+    "harness@plenipo-agents": true,
+    "scout@plenipo-agents": true,
+    "define@plenipo-agents": true,
+    "shape@plenipo-agents": true,
+    "deliver@plenipo-agents": true,
+    "dotnet@dotnet-agent-skills": true,
+    "dotnet-aspnetcore@dotnet-agent-skills": true,
+    "dotnet-data@dotnet-agent-skills": true,
+    "dotnet-ai@dotnet-agent-skills": true,
+    "document-skills@anthropic-agent-skills": true
   }
 }
