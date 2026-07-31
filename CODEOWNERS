@@ -1,0 +1,27 @@
+# CODEOWNERS is the human-visibility half of the spine policy: it puts a named person on the review
+# of anything touching the five guarantees the platform exists to provide. The ENFORCING half is
+# `.github/scripts/pr-gates.mjs`, which fails as a required status check — CODEOWNERS only requests a
+# review, and only blocks if you also turn on "Require review from Code Owners" in branch protection.
+#
+# Keep both. The check is what stops an agent; the ownership is what tells you it happened.
+
+* @abrahamFerga
+
+# The spine — RBAC before the model, approval-first writes, tenant isolation, audit, secrets.
+# Networthy is a thin product host: `Authorization/` and `Approvals/` live in the Plenipo platform,
+# not here, so the product's spine is the three files that declare tools, gate them, and filter rows.
+/src/Networthy.Finance/Persistence/          @abrahamFerga
+/src/Networthy.Finance/FinanceModule.cs      @abrahamFerga
+/src/Networthy.Finance/FinanceToolSource.cs  @abrahamFerga
+/src/Networthy.Connectors.Plaid/             @abrahamFerga
+/src/Networthy.Host/Program.cs               @abrahamFerga
+
+# Kept from the template so they engage the moment either directory appears.
+/src/**/Authorization/     @abrahamFerga
+/src/**/Approvals/         @abrahamFerga
+
+# The harness itself. An agent that can edit its own gates has no gates.
+/.github/                  @abrahamFerga
+/CODEOWNERS                @abrahamFerga
+/nuget.config              @abrahamFerga
+/workflow.json             @abrahamFerga
