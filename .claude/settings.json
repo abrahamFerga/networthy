@@ -16,5 +16,29 @@
     "dotnet-data@dotnet-agent-skills": true,
     "dotnet-ai@dotnet-agent-skills": true,
     "document-skills@anthropic-agent-skills": true
+  },
+  "permissions": {
+    "//": "Allow what a build/sweep tick genuinely needs, so a timer never blocks on a prompt nobody is there to answer.",
+    "allow": [
+      "Bash(gh:*)",
+      "Bash(git:*)",
+      "Bash(dotnet:*)",
+      "Bash(docker:*)",
+      "Bash(aspire:*)",
+      "Bash(node:*)",
+      "Bash(npx:*)",
+      "Bash(npm:*)",
+      "Bash(curl:*)"
+    ],
+    "//deny": "Deny beats allow, and these are the difference between a loop that can only propose and one that can destroy. Note what deny can and cannot see: it matches the Bash string, so it stops an improvised `gh pr merge` but NOT the merge inside `node .github/scripts/merge-gate.mjs --merge`. The authoritative control on merging is autonomy.level in workflow.json, which that script reads and refuses to exceed. Treat this list as the belt, not the braces, and remove nothing from it.",
+    "deny": [
+      "Bash(gh pr merge:*)",
+      "Bash(gh pr review:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(gh repo delete:*)",
+      "Bash(gh api --method DELETE:*)",
+      "Bash(docker volume rm:*)"
+    ]
   }
 }
