@@ -28,6 +28,13 @@ jobs:
         with:
           node-version: '22'
 
+      # First, because it is the one step here that does not depend on the diff: the merger decides
+      # what lands on `main` unattended, so a change that quietly widens it must fail on the PR
+      # rather than at 3am on a schedule. Behind the spine guard it would be skipped on exactly the
+      # PRs that edit it. Fixture-driven: no network, no `gh`, no token.
+      - name: Test the merge gate
+        run: node --test .github/scripts/merge-gate.test.mjs
+
       # --unified=0 keeps context lines out of the removal scan, so an unchanged HasQueryFilter
       # sitting next to an edit does not read as an edit to it.
       - name: Compute the diff
@@ -42,8 +49,3 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
           PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
-
-      # The merger decides what lands on `main` unattended, so a change that quietly widens it must
-      # fail here rather than at 3am on a schedule. Fixture-driven: no network, no `gh`, no token.
-      - name: Test the merge gate
-        run: node --test .github/scripts/merge-gate.test.mjs
