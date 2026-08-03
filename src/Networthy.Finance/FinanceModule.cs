@@ -1047,6 +1047,8 @@ public sealed class FinanceModule : IModule
     {
         services.AddDbContext<FinanceDbContext>(options =>
             options.UseNpgsql(configuration.GetConnectionString(FinanceDbContext.ConnectionName)));
+        // Process-wide memo for the category backstop on the /api/finance group (issue #148).
+        services.AddSingleton<CategorySeedTracker>();
         services.AddScoped<AccountTools>();
         services.AddScoped<TransactionTools>();
         services.AddScoped<TransferTools>();
@@ -1090,6 +1092,12 @@ public sealed class FinanceModule : IModule
     public void MapEndpoints(IEndpointRouteBuilder endpoints)
     {
         var group = endpoints.MapGroup("/api/finance").WithTags("Finance").RequireAuthorization();
+
+        // A household created through the bare `POST /api/admin/tenants` runs no provisioning
+        // pipeline, so no seed hook fires and it starts with no categories — which makes budgets
+        // and categorised transactions both reject (issue #148). Guarding the group rather than
+        // each endpoint puts every category call site downstream of one check.
+        group.AddEndpointFilter(FinanceCategorySeed.EnsureSeededFilterAsync);
 
         // Manual bookkeeping from the tab editors (accounts/transactions/budgets/goals CRUD).
         group.MapManualCrudEndpoints();
@@ -1943,18 +1951,7 @@ public sealed class FinanceModule : IModule
         }
 
         var db = services.GetRequiredService<FinanceDbContext>();
-        if (await db.Categories.AnyAsync(cancellationToken))
-        {
-            return;
-        }
-
-        var tenantId = tenant.RequireTenantId();
-        foreach (var name in FinanceCatalog.StarterCategories)
-        {
-            db.Categories.Add(new Category { TenantId = tenantId, Name = name });
-        }
-
-        await db.SaveChangesAsync(cancellationToken);
+        await FinanceCategorySeed.EnsureAsync(db, tenant.RequireTenantId(), cancellationToken);
     }
 }
 
