@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   installIdentityInterceptor,
@@ -90,8 +92,10 @@ describe("the cookie contract with vite.config.ts", () => {
   // This is the one cross-FILE contract in the switcher: the dev-server proxy parses the cookie
   // and rewrites it into the X-Dev-* headers. Nothing else would catch the two sides drifting —
   // the app would simply keep running as whoever the bundle was built as. The regex and the split
-  // below are copied from vite.config.ts's rewriteDevIdentity on purpose, so a change to either
-  // side fails here.
+  // below are copied from vite.config.ts's rewriteDevIdentity.
+  //
+  // A copy pins only THIS side. The "proxy still parses what we write" test below pins the other,
+  // which is what #145 asks for: "either side can drift".
   const parseAsViteProxyDoes = () => {
     const match = /(?:^|;\s*)plenipo-dev-user=([^;]+)/.exec(document.cookie);
     if (!match) return null;
@@ -115,6 +119,18 @@ describe("the cookie contract with vite.config.ts", () => {
       roles: "household-admin,household-member",
       name: "Ana Ruiz",
     });
+  });
+
+  it("proxy still parses what we write — the other half of the contract", () => {
+    // `parseAsViteProxyDoes` is a COPY, so on its own it goes green even if vite.config.ts is
+    // rewritten to expect a different cookie name or delimiter. Assert the proxy still contains
+    // the exact literals the copy was made from, so drift on THAT side fails here too. Crude,
+    // but the coupling is real and nothing else in the repo connects these two files.
+    // Resolved from this file's directory, not `new URL(..., import.meta.url)`: beforeAll stubs
+    // the global `location`, and jsdom's URL resolution reaches for it and throws.
+    const viteConfig = readFileSync(join(import.meta.dirname, "..", "vite.config.ts"), "utf8");
+    expect(viteConfig).toContain(String.raw`/(?:^|;\s*)plenipo-dev-user=([^;]+)/`);
+    expect(viteConfig).toContain(`decodeURIComponent(match[1]).split("|")`);
   });
 
   it("clears storage and expires the cookie on sign out", () => {
