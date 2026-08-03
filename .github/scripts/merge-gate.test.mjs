@@ -19,13 +19,15 @@ import { fileURLToPath } from 'node:url';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const GATE = resolve(HERE, 'merge-gate.mjs');
 const CASES = resolve(HERE, 'fixtures', 'merge-gate-cases.json');
+const BASE_RED = resolve(HERE, 'fixtures', 'merge-gate-base-red.json');
+const BASE_UNCHECKED = resolve(HERE, 'fixtures', 'merge-gate-base-unchecked.json');
 
 // Run the gate at a given autonomy level and return { 900: { verdict, reasons }, ... }.
-function run(level) {
+function run(level, fixture = CASES) {
   const cwd = mkdtempSync(join(tmpdir(), 'merge-gate-'));
   writeFileSync(join(cwd, 'workflow.json'), JSON.stringify({ autonomy: { level, maxMergesPerTick: 2 } }));
 
-  const r = spawnSync(process.execPath, [GATE, '--fixture', CASES], { cwd, encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [GATE, '--fixture', fixture], { cwd, encoding: 'utf8' });
   assert.equal(r.status, 0, `merge-gate exited ${r.status}:\n${r.stderr}`);
 
   const verdicts = {};
@@ -104,4 +106,21 @@ test('a loop PR is unchanged by the dependabot lane', () => {
   const v = run(3);
   fail(v, 907, 'agent_approved'); // the PR #165 case: green everywhere, never reviewed
   ready(v, 908); // the same PR once a review labelled it
+});
+
+test('nothing merges onto a red base, even when a later workflow went green', () => {
+  // The defect this pins: sampling the most recent run of ANY workflow on the base branch reported
+  // green because a scheduled agentic workflow happened to finish last, while `Build & test` on the
+  // same commit had failed. Both PRs here are otherwise perfectly mergeable.
+  const v = run(3, BASE_RED);
+  fail(v, 950, 'main_is_green');
+  fail(v, 951, 'main_is_green');
+});
+
+test('an unverified base is not a green one', () => {
+  // The query ran and came back empty. Reading that as green is the same mistake as trusting a PR
+  // with no checks, which `checks_exist` already refuses.
+  const v = run(3, BASE_UNCHECKED);
+  fail(v, 950, 'main_is_green');
+  fail(v, 951, 'main_is_green');
 });
