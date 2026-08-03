@@ -87,9 +87,14 @@ const PR_FIELDS = [
 ].join(',');
 
 // ── Load the pull requests ───────────────────────────────────────────────────
+// A fixture is either a bare array of PRs, or `{ prs, baseChecks }` when the case under test also
+// needs to say what the base branch's checks look like.
 let prs;
+let fixtureBaseChecks = null;
 if (FIXTURE) {
-  prs = JSON.parse(readFileSync(FIXTURE, 'utf8'));
+  const raw = JSON.parse(readFileSync(FIXTURE, 'utf8'));
+  prs = Array.isArray(raw) ? raw : (raw.prs ?? []);
+  if (!Array.isArray(raw)) fixtureBaseChecks = raw.baseChecks ?? null;
 } else if (ONE_PR) {
   prs = [JSON.parse(gh(['pr', 'view', ONE_PR, '--json', PR_FIELDS]))];
 } else {
@@ -99,15 +104,45 @@ if (FIXTURE) {
 // ── The default branch must be green before anything lands on it ─────────────
 // Merging onto a red base multiplies one failure into N, and the next agent cannot tell which
 // change broke what.
+//
+// Read the checks ON THE BASE COMMIT, not the last workflow run on the branch. `gh run list --limit
+// 1` returns the most recent run of ANY workflow, so on a repo with scheduled agentic workflows it
+// answers "did a timer fire successfully?" rather than "is the branch green?" — observed reporting
+// green while `Build & test` on that same commit had failed. This gate fails OPEN when it is wrong,
+// which is the direction that lets a broken base spread.
+//
+// CANCELLED is not counted: superseding a run is routine on a busy default branch, and treating it
+// as red would stall the queue on ordinary concurrency rather than on a real failure.
+const BASE_BROKEN = new Set(['FAILURE', 'TIMED_OUT', 'ACTION_REQUIRED', 'STARTUP_FAILURE']);
+const baseFailures = (checks) =>
+  (checks ?? [])
+    .filter((c) => BASE_BROKEN.has(String(c.conclusion ?? '').toUpperCase()))
+    .map((c) => c.name ?? c.context ?? 'unnamed check');
+
 let mainGreen = true;
 let mainWhy = '';
-if (!FIXTURE) {
-  const base = prs[0]?.baseRefName ?? JSON.parse(gh(['repo', 'view', '--json', 'defaultBranchRef']))
-    .defaultBranchRef.name;
-  const runs = JSON.parse(gh(['run', 'list', '--branch', base, '--limit', '1', '--json', 'conclusion,name']));
-  if (runs.length && runs[0].conclusion && runs[0].conclusion !== 'success') {
-    mainGreen = false;
-    mainWhy = `the last run on ${base} concluded "${runs[0].conclusion}"`;
+{
+  const base = prs[0]?.baseRefName
+    ?? (FIXTURE ? 'main' : JSON.parse(gh(['repo', 'view', '--json', 'defaultBranchRef'])).defaultBranchRef.name);
+  // Filtered in JS rather than with `--jq`: `gh` is spawned through the shell on Windows, where a
+  // jq expression's spaces and pipes are taken as shell syntax and the call dies.
+  const checks = FIXTURE
+    ? fixtureBaseChecks
+    : JSON.parse(gh(['api', `repos/{owner}/{repo}/commits/${base}/check-runs?per_page=100`])).check_runs;
+
+  // A fixture that says nothing about the base is not asserting anything about it — but an empty
+  // ARRAY is: it means the query ran and found nothing, which is the same "green would mean nothing"
+  // that `checks_exist` refuses for a pull request. Fail closed; a stuck queue announces itself
+  // every tick, a base nobody verified does not.
+  if (checks) {
+    const broken = baseFailures(checks);
+    if (checks.length === 0) {
+      mainGreen = false;
+      mainWhy = `no checks have run on ${base} — green would mean nothing`;
+    } else if (broken.length) {
+      mainGreen = false;
+      mainWhy = `${base} is red: ${[...new Set(broken)].join(', ')}`;
+    }
   }
 }
 
