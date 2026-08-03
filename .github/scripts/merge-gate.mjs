@@ -6,6 +6,11 @@
 //   node .github/scripts/merge-gate.mjs --merge          merge what passes, up to the cap
 //   node .github/scripts/merge-gate.mjs --fixture f.json evaluate fixture data (used to test itself)
 //
+// Two lanes. A feature PR needs a loop branch, the plenipo-agent envelope and the `agent:approved`
+// label a review adds. A dependabot PR has none of those by construction, so it is judged on the
+// bump instead: patch and minor merge on green checks alone, major and anything unparseable fall
+// back to the review lane. `merge-gate.test.mjs` is the executable statement of both.
+//
 // This file is the ONE implementation of the merge gates. `/plenipo:ship` runs it rather than
 // re-deriving the list in prose, and `agent-merge.yml` runs it on a schedule so merging keeps
 // working when the machine that wrote the code is off. An agent can be argued out of a judgement;
@@ -49,6 +54,33 @@ const HOLD_LABELS = ['human-hold', 'needs-human', 'agent:blocked'];
 // Docs, tests and the runbook are the only class a level-1 product may land on its own.
 const LOW_RISK = [/\.md$/i, /^tests\//, /\.http$/i, /^\.http$/i];
 
+// ── The dependency lane ──────────────────────────────────────────────────────
+// Dependabot writes its own branch names and its own body, so the loop envelope cannot apply to it.
+// What stands in for that envelope is the bump itself: for a patch or minor release of a stable
+// package, a green `Build & test` IS the proof — there is no behaviour to exercise and no regression
+// test to have seen red. A major bump has no such promise, so it falls back to the review lane.
+//
+// Keyed on the AUTHOR, never on the branch name alone: `dependabot/**` is a string anyone with push
+// access can type, and if the prefix alone opened the lane it would be a way around both the
+// envelope gate and the review gate.
+const DEPENDABOT_BRANCH = /^dependabot\//;
+const DEPENDABOT_LOGINS = new Set(['app/dependabot', 'dependabot[bot]', 'dependabot']);
+const DEPENDABOT_MIN_LEVEL = 2;
+
+// 'patch' | 'minor' | 'major' | 'unknown', read from dependabot's own title format.
+// Anything this cannot parse — a multi-package bump ("Bump react, react-dom and @types/react"), or
+// an action pinned by major only ("from 5 to 7") — comes back 'unknown' and is treated as a major.
+// Guessing low on an unreadable title is the one error here that merges something unreviewed.
+function bumpClass(title) {
+  const m = /\bfrom v?(\d+)\.(\d+)\.[\w.+-]+ to v?(\d+)\.(\d+)\.[\w.+-]+/i.exec(title ?? '');
+  if (!m) return 'unknown';
+  const [fromMajor, fromMinor, toMajor, toMinor] = m.slice(1).map(Number);
+  if (fromMajor !== toMajor) return 'major';
+  // Below 1.0 semver promises nothing across a minor, so 0.83 -> 0.84 is a breaking change.
+  if (fromMajor === 0) return fromMinor === toMinor ? 'patch' : 'major';
+  return fromMinor === toMinor ? 'patch' : 'minor';
+}
+
 const PR_FIELDS = [
   'number', 'title', 'body', 'isDraft', 'headRefName', 'baseRefName', 'labels',
   'mergeable', 'mergeStateStatus', 'reviewDecision', 'statusCheckRollup', 'files', 'author',
@@ -91,10 +123,20 @@ function evaluate(pr) {
   const broken = checks.filter((c) => ['FAILURE', 'ERROR', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED'].includes(state(c)));
 
   const isLowRisk = files.length > 0 && files.every((f) => LOW_RISK.some((re) => re.test(f)));
-  const changeClass = isLowRisk ? 'low-risk' : 'feature';
 
-  if (!LOOP_BRANCH.test(pr.headRefName)) fail.push(`is_loop_pr: "${pr.headRefName}" is not a loop branch — not ours to merge`);
-  if (!/plenipo-agent/.test(pr.body ?? '')) fail.push('is_loop_pr: the body carries no plenipo-agent envelope');
+  const isDependabot =
+    DEPENDABOT_BRANCH.test(pr.headRefName) &&
+    DEPENDABOT_LOGINS.has((pr.author?.login ?? '').toLowerCase());
+  const bump = isDependabot ? bumpClass(pr.title) : null;
+  // The only class that merges without anything having reviewed it.
+  const selfMergeable = bump === 'patch' || bump === 'minor';
+
+  const changeClass = isDependabot ? `dependency:${bump}` : isLowRisk ? 'low-risk' : 'feature';
+
+  if (!isDependabot) {
+    if (!LOOP_BRANCH.test(pr.headRefName)) fail.push(`is_loop_pr: "${pr.headRefName}" is not a loop branch — not ours to merge`);
+    if (!/plenipo-agent/.test(pr.body ?? '')) fail.push('is_loop_pr: the body carries no plenipo-agent envelope');
+  }
   if (pr.isDraft) fail.push('not_draft: the PR is a draft');
   if (checks.length === 0) fail.push('checks_exist: no status checks ran — green would mean nothing');
   if (pending.length) fail.push(`checks_green: ${pending.length} check(s) still running`);
@@ -102,13 +144,25 @@ function evaluate(pr) {
   if (pr.mergeable && pr.mergeable !== 'MERGEABLE') fail.push(`mergeable: mergeable=${pr.mergeable}`);
   if (['DIRTY', 'BLOCKED', 'BEHIND'].includes(pr.mergeStateStatus)) fail.push(`mergeable: mergeStateStatus=${pr.mergeStateStatus}`);
   if (pr.reviewDecision === 'CHANGES_REQUESTED') fail.push('no_blocking_review: a review requested changes');
-  if (!labels.includes('agent:approved')) fail.push('agent_approved: no `agent:approved` label — nothing has reviewed this');
+  if (!selfMergeable && !labels.includes('agent:approved')) {
+    fail.push(
+      !isDependabot
+        ? 'agent_approved: no `agent:approved` label — nothing has reviewed this'
+        : bump === 'unknown'
+          ? 'agent_approved: no readable version pair in the title, so this counts as a major bump — no `agent:approved` label'
+          : `agent_approved: a ${bump} bump is not self-mergeable — no \`agent:approved\` label`
+    );
+  }
   if (labels.includes('agent:changes-requested')) fail.push('agent_approved: `agent:changes-requested` is still set');
   for (const h of HOLD_LABELS) if (labels.includes(h)) fail.push(`no_human_hold: \`${h}\` is set`);
   if (!mainGreen) fail.push(`main_is_green: ${mainWhy}`);
 
   if (LEVEL === 0) fail.push('level_permits: autonomy level 0 merges nothing — a human decides');
-  else if (LEVEL === 1 && changeClass !== 'low-risk') {
+  else if (isDependabot) {
+    if (LEVEL < DEPENDABOT_MIN_LEVEL) {
+      fail.push(`level_permits: a dependency bump needs autonomy level ${DEPENDABOT_MIN_LEVEL}; this repo is at ${LEVEL}`);
+    }
+  } else if (LEVEL === 1 && changeClass !== 'low-risk') {
     fail.push('level_permits: level 1 may merge docs, tests and the runbook only');
   }
 

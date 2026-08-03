@@ -3,9 +3,14 @@
 # Runs the same `merge-gate.mjs` that `/plenipo:ship` runs locally, so merging keeps working when the
 # machine that wrote the code is asleep, and so there is exactly ONE implementation of the gate list.
 #
-# It merges nothing until `autonomy.level` in workflow.json is >= 1, and it can never merge a PR that
-# lacks the `agent:approved` label — which only a review can add. Turn the whole thing off with the
-# repository variable AGENT_AUTOMERGE=off (Settings -> Variables), no commit required.
+# It merges nothing until `autonomy.level` in workflow.json is >= 1, and it can never merge a feature
+# PR that lacks the `agent:approved` label. That label is applied by `product-pr-intent-review`,
+# which reviews every PR here in CI — the loop is not allowed to depend on a developer running
+# `/plenipo:ship` from a laptop, because a merger that only works while someone is awake is not a
+# merger. Dependency bumps take their own lane: see the header of `merge-gate.mjs`.
+#
+# Turn the whole thing off with the repository variable AGENT_AUTOMERGE=off (Settings -> Variables),
+# no commit required.
 #
 # Deliberately NOT `pull_request`-triggered: a schedule re-reads the world instead of trusting an
 # event payload, so a check that turns red after the review still blocks the merge.

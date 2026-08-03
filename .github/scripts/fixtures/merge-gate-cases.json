@@ -1,0 +1,234 @@
+[
+  {
+    "number": 900,
+    "title": "Bump @tanstack/react-query from 5.101.2 to 5.101.4 in /frontend/networthy-ui",
+    "body": "Updated @tanstack/react-query from 5.101.2 to 5.101.4.",
+    "isDraft": false,
+    "headRefName": "dependabot/npm_and_yarn/frontend/networthy-ui/tanstack/react-query-5.101.4",
+    "baseRefName": "main",
+    "labels": [{ "name": "dependencies" }],
+    "mergeable": "MERGEABLE",
+    "mergeStateStatus": "CLEAN",
+    "reviewDecision": "",
+    "statusCheckRollup": [
+      { "name": "Build & test", "status": "COMPLETED", "conclusion": "SUCCESS" },
+      { "name": "PR gates", "status": "COMPLETED", "conclusion": "SUCCESS" },
+      { "name": "agent", "status": "COMPLETED", "conclusion": "SKIPPED" }
+    ],
+    "files": [{ "path": "frontend/networthy-ui/pnpm-lock.yaml" }],
+    "author": { "login": "app/dependabot", "is_bot": true }
+  },
+  {
+    "number": 901,
+    "title": "Bump Microsoft.NET.Test.Sdk from 18.7.0 to 18.8.1",
+    "body": "Updated Microsoft.NET.Test.Sdk from 18.7.0 to 18.8.1.",
+    "isDraft": false,
+    "headRefName": "dependabot/nuget/tests/Networthy.IntegrationTests/Microsoft.NET.Test.Sdk-18.8.1",
+    "baseRefName": "main",
+    "labels": [{ "name": "dependencies" }],
+    "mergeable": "MERGEABLE",
+    "mergeStateStatus": "CLEAN",
+    "reviewDecision": "",
+    "statusCheckRollup": [
+      { "name": "Build & test", "status": "COMPLETED", "conclusion": "SUCCESS" },
+      { "name": "PR gates", "status": "COMPLETED", "conclusion": "SUCCESS" }
+    ],
+    "files": [{ "path": "tests/Networthy.IntegrationTests/Networthy.IntegrationTests.csproj" }],
+    "author": { "login": "app/dependabot", "is_bot": true }
+  },
+  {
+    "number": 902,
+    "title": "Bump actions/setup-dotnet from 5.4.0 to 6.0.0",
+    "body": "Updated actions/setup-dotnet from 5.4.0 to 6.0.0.",
+    "isDraft": false,
+    "headRefName": "dependabot/github_actions/actions/setup-dotnet-6.0.0",
+    "baseRefName": "main",
+    "labels": [{ "name": "dependencies" }],
+    "mergeable": "MERGEABLE",
+    "mergeStateStatus": "CLEAN",
+    "reviewDecision": "",
+    "statusCheckRollup": [
+      { "name": "Build & test", "status": "COMPLETED", "conclusion": "SUCCESS" },
+      { "name": "PR gates", "status": "COMPLETED", "conclusion": "SUCCESS" }
+    ],
+    "files": [{ "path": ".github/workflows/ci.yml" }],
+    "author": { "login": "app/dependabot", "is_bot": true }
+  },
+  {
+    "number": 903,
+    "title": "Bump react, react-dom and @types/react in /frontend/networthy-ui",
+    "body": "Bumps react, react-dom and @types/react.",
+    "isDraft": false,
+    "headRefName": "dependabot/npm_and_yarn/frontend/networthy-ui/multi-67377640c8",
+    "baseRefName": "main",
+    "labels": [{ "name": "dependencies" }],
+    "mergeable": "MERGEABLE",
+    "mergeStateStatus": "CLEAN",
+    "reviewDecision": "",
+    "statusCheckRollup": [
+      { "name": "Build & test", "status": "COMPLETED", "conclusion": "SUCCESS" },
+      { "name": "PR gates", "status": "COMPLETED", "conclusion": "SUCCESS" }
+    ],
+    "files": [{ "path": "frontend/networthy-ui/package.json" }],
+    "author": { "login": "app/dependabot", "is_bot": true }
+  },
+  {
+    "number": 904,
+    "title": "Bump left-pad from 1.0.0 to 1.0.1",
+    "body": "Looks exactly like a dependency bump, but a human pushed this branch.",
+    "isDraft": false,
+    "headRefName": "dependabot/npm_and_yarn/left-pad-1.0.1",
+    "baseRefName": "main",
+    "labels": [],
+    "mergeable": "MERGEABLE",
+    "mergeStateStatus": "CLEAN",
+    "reviewDecision": "",
+    "statusCheckRollup": [
+      { "name": "Build & test", "status": "COMPLETED", "conclusion": "SUCCESS" },
+      { "name": "PR gates", "status": "COMPLETED", "conclusion": "SUCCESS" }
+    ],
+    "files": [{ "path": "frontend/networthy-ui/package.json" }],
+    "author": { "login": "not-dependabot", "is_bot": false }
+  },
+  {
+    "number": 905,
+    "title": "Bump postcss from 8.5.24 to 8.5.25 in /frontend/networthy-ui",
+    "body": "Updated postcss from 8.5.24 to 8.5.25.",
+    "isDraft": false,
+    "headRefName": "dependabot/npm_and_yarn/frontend/networthy-ui/postcss-8.5.25",
+    "baseRefName": "main",
+    "labels": [{ "name": "dependencies" }],
+    "mergeable": "MERGEABLE",
+    "mergeStateStatus": "CLEAN",
+    "reviewDecision": "",
+    "statusCheckRollup": [
+      { "name": "Build & test", "status": "COMPLETED", "conclusion": "FAILURE" },
+      { "name": "PR gates", "status": "COMPLETED", "conclusion": "SUCCESS" }
+    ],
+    "files": [{ "path": "frontend/networthy-ui/pnpm-lock.yaml" }],
+    "author": { "login": "app/dependabot", "is_bot": true }
+  },
+  {
+    "number": 906,
+    "title": "Bump vite from 7.1.0 to 7.1.1 in /frontend/networthy-ui",
+    "body": "Updated vite from 7.1.0 to 7.1.1.",
+    "isDraft": false,
+    "headRefName": "dependabot/npm_and_yarn/frontend/networthy-ui/vite-7.1.1",
+    "baseRefName": "main",
+    "labels": [{ "name": "dependencies" }, { "name": "human-hold" }],
+    "mergeable": "MERGEABLE",
+    "mergeStateStatus": "CLEAN",
+    "reviewDecision": "",
+    "statusCheckRollup": [
+      { "name": "Build & test", "status": "COMPLETED", "conclusion": "SUCCESS" },
+      { "name": "PR gates", "status": "COMPLETED", "conclusion": "SUCCESS" }
+    ],
+    "files": [{ "path": "frontend/networthy-ui/pnpm-lock.yaml" }],
+    "author": { "login": "app/dependabot", "is_bot": true }
+  },
+  {
+    "number": 907,
+    "title": "Seed the starter taxonomy for every household, not just the first",
+    "body": "Closes #148\n\n<!-- plenipo-agent -->\n\n## Runtime evidence\nExercised the seeding path against a second household and observed the categories.\n\n## Regression test\nSeen red before the fix and green after.",
+    "isDraft": false,
+    "headRefName": "fix/148-seed-categories-new-tenant",
+    "baseRefName": "main",
+    "labels": [],
+    "mergeable": "MERGEABLE",
+    "mergeStateStatus": "CLEAN",
+    "reviewDecision": "",
+    "statusCheckRollup": [
+      { "name": "Build & test", "status": "COMPLETED", "conclusion": "SUCCESS" },
+      { "name": "PR gates", "status": "COMPLETED", "conclusion": "SUCCESS" }
+    ],
+    "files": [{ "path": "src/Networthy.Finance/FinanceModule.cs" }],
+    "author": { "login": "abrahamFerga", "is_bot": false }
+  },
+  {
+    "number": 908,
+    "title": "Seed the starter taxonomy for every household, reviewed",
+    "body": "Closes #148\n\n<!-- plenipo-agent -->\n\n## Runtime evidence\nExercised the seeding path against a second household and observed the categories.\n\n## Regression test\nSeen red before the fix and green after.",
+    "isDraft": false,
+    "headRefName": "fix/148-seed-categories-reviewed",
+    "baseRefName": "main",
+    "labels": [{ "name": "agent:approved" }],
+    "mergeable": "MERGEABLE",
+    "mergeStateStatus": "CLEAN",
+    "reviewDecision": "",
+    "statusCheckRollup": [
+      { "name": "Build & test", "status": "COMPLETED", "conclusion": "SUCCESS" },
+      { "name": "PR gates", "status": "COMPLETED", "conclusion": "SUCCESS" }
+    ],
+    "files": [{ "path": "src/Networthy.Finance/FinanceModule.cs" }],
+    "author": { "login": "abrahamFerga", "is_bot": false }
+  },
+  {
+    "number": 909,
+    "title": "Bump actions/checkout from 5 to 7",
+    "body": "Updated actions/checkout from 5 to 7.",
+    "isDraft": false,
+    "headRefName": "dependabot/github_actions/actions/checkout-7",
+    "baseRefName": "main",
+    "labels": [{ "name": "dependencies" }, { "name": "agent:approved" }],
+    "mergeable": "MERGEABLE",
+    "mergeStateStatus": "CLEAN",
+    "reviewDecision": "",
+    "statusCheckRollup": [
+      { "name": "Build & test", "status": "COMPLETED", "conclusion": "SUCCESS" },
+      { "name": "PR gates", "status": "COMPLETED", "conclusion": "SUCCESS" }
+    ],
+    "files": [{ "path": ".github/workflows/ci.yml" }],
+    "author": { "login": "app/dependabot", "is_bot": true }
+  },
+  {
+    "number": 910,
+    "title": "Bump zod from 3.2.0 to 3.2.1",
+    "body": "Updated zod from 3.2.0 to 3.2.1.",
+    "isDraft": true,
+    "headRefName": "dependabot/npm_and_yarn/zod-3.2.1",
+    "baseRefName": "main",
+    "labels": [{ "name": "dependencies" }],
+    "mergeable": "MERGEABLE",
+    "mergeStateStatus": "CLEAN",
+    "reviewDecision": "",
+    "statusCheckRollup": [
+      { "name": "Build & test", "status": "COMPLETED", "conclusion": "SUCCESS" },
+      { "name": "PR gates", "status": "COMPLETED", "conclusion": "SUCCESS" }
+    ],
+    "files": [{ "path": "frontend/networthy-ui/pnpm-lock.yaml" }],
+    "author": { "login": "app/dependabot", "is_bot": true }
+  },
+  {
+    "number": 911,
+    "title": "Bump nanoid from 5.1.0 to 5.1.2",
+    "body": "Updated nanoid from 5.1.0 to 5.1.2.",
+    "isDraft": false,
+    "headRefName": "dependabot/npm_and_yarn/nanoid-5.1.2",
+    "baseRefName": "main",
+    "labels": [{ "name": "dependencies" }],
+    "mergeable": "MERGEABLE",
+    "mergeStateStatus": "CLEAN",
+    "reviewDecision": "",
+    "statusCheckRollup": [],
+    "files": [{ "path": "frontend/networthy-ui/pnpm-lock.yaml" }],
+    "author": { "login": "app/dependabot", "is_bot": true }
+  },
+  {
+    "number": 912,
+    "title": "Bump github/gh-aw-actions/setup from 0.83.4 to 0.84.1",
+    "body": "Updated github/gh-aw-actions/setup from 0.83.4 to 0.84.1.",
+    "isDraft": false,
+    "headRefName": "dependabot/github_actions/github/gh-aw-actions/setup-0.84.1",
+    "baseRefName": "main",
+    "labels": [{ "name": "dependencies" }],
+    "mergeable": "MERGEABLE",
+    "mergeStateStatus": "CLEAN",
+    "reviewDecision": "",
+    "statusCheckRollup": [
+      { "name": "Build & test", "status": "COMPLETED", "conclusion": "SUCCESS" },
+      { "name": "PR gates", "status": "COMPLETED", "conclusion": "SUCCESS" }
+    ],
+    "files": [{ "path": ".github/workflows/product-pr-intent-review.lock.yml" }],
+    "author": { "login": "app/dependabot", "is_bot": true }
+  }
+]
