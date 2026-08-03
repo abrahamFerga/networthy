@@ -115,6 +115,14 @@ This repo's own docs are wrong in one place, so the trust ranking is
   identify it by `Plenipo.slnx`, never by folder name.
 - The module id is `finance`. Networthy's roles are `household-admin` and `household-member`; a
   household is a tenant.
+<!-- harness-gap: plenipo-agents#16 — remove when /plenipo:setup ships a CI reviewer that labels -->
+- **`agent:approved` is applied in CI here, not by `/plenipo:ship`.** The merge surface installed by
+  `/plenipo:setup` gates on that label but ships nothing able to apply it, so a repo running the
+  stock assets merges only while someone is awake at a laptop. Networthy diverges: the
+  `product-pr-intent-review` workflow records the verdict as a label, and `agent-approval-reset.yml`
+  expires it on `synchronize` because `add-labels` can only add. Dependabot also has its own lane in
+  `merge-gate.mjs`, keyed on the PR author rather than the branch prefix. Do not "restore" any of
+  this to match the skill — it is `plenipo-agents#16`, and the divergence goes away when that closes.
 
 ## Where to look next
 
