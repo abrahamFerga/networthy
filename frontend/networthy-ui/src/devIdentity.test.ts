@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+// `?raw` (typed by vite/client, already in tsconfig's `types`) rather than node:fs — it needs no
+// @types/node, and no path resolution, which matters because beforeAll stubs the global
+// `location` and jsdom's URL resolution reaches for it and throws.
+import viteConfigSource from "../vite.config.ts?raw";
 import {
   installIdentityInterceptor,
   isDevAuthActive,
@@ -18,7 +20,9 @@ const STORAGE_KEY = "networthy.devIdentity";
 // The interceptor captures window.fetch / window.WebSocket at install time and guards itself
 // against double-patching, so the stubs have to exist BEFORE the single install, and every test
 // then inspects the same spies rather than reinstalling.
-const baseFetch = vi.fn(async () => new Response("{}", { status: 200 }));
+// Typed to accept the forwarded arguments so a test can inspect them: the Request-object branch
+// puts the headers on the Request itself rather than in an init bag, so it must read calls[0][0].
+const baseFetch = vi.fn(async (..._args: unknown[]) => new Response("{}", { status: 200 }));
 const socketUrls: string[] = [];
 
 class FakeSocket {
@@ -133,11 +137,8 @@ describe("the cookie contract with vite.config.ts", () => {
     // rewritten to expect a different cookie name or delimiter. Assert the proxy still contains
     // the exact literals the copy was made from, so drift on THAT side fails here too. Crude,
     // but the coupling is real and nothing else in the repo connects these two files.
-    // Resolved from this file's directory, not `new URL(..., import.meta.url)`: beforeAll stubs
-    // the global `location`, and jsdom's URL resolution reaches for it and throws.
-    const viteConfig = readFileSync(join(import.meta.dirname, "..", "vite.config.ts"), "utf8");
-    expect(viteConfig).toContain(String.raw`/(?:^|;\s*)plenipo-dev-user=([^;]+)/`);
-    expect(viteConfig).toContain(`decodeURIComponent(match[1]).split("|")`);
+    expect(viteConfigSource).toContain(String.raw`/(?:^|;\s*)plenipo-dev-user=([^;]+)/`);
+    expect(viteConfigSource).toContain(`decodeURIComponent(match[1]).split("|")`);
   });
 
   it("clears storage and expires the cookie on sign out", () => {
@@ -190,6 +191,21 @@ describe("the fetch interceptor", () => {
 
     expect(headersOf(baseFetch.mock.calls[0]).get("X-Dev-Subject")).toBeNull();
   });
+
+  it("stamps a Request object, not only a URL string", async () => {
+    // Every other test here passes a string, so this branch — which rebuilds the Request rather
+    // than mutating it — was uncovered. @microsoft/signalr and the shell can both call
+    // fetch(new Request(...)), and an unstamped one goes out as whoever the bundle was built as
+    // while every string-URL call correctly becomes someone else: the same silent half-working
+    // state #145 exists to prevent.
+    signIn(makeIdentity({ subject: "sam", roles: "household-member", name: "Sam" }));
+    await fetch(new Request(`${window.location.origin}/api/finance/accounts`));
+
+    const forwarded = baseFetch.mock.calls[0][0] as unknown as Request;
+    expect(forwarded.headers.get("X-Dev-Subject")).toBe("sam");
+    expect(forwarded.headers.get("X-Dev-Roles")).toBe("household-member");
+    expect(forwarded.headers.get("X-Dev-Tenant")).toBe("dev");
+  });
 });
 
 describe("the hub URL", () => {
@@ -213,6 +229,19 @@ describe("the hub URL", () => {
 
     const url = new URL(urlOf(baseFetch.mock.calls[0]), window.location.origin);
     expect(url.searchParams.has("X-Dev-Subject")).toBe(false);
+  });
+
+  it("rewrites the query on a Request object too, surviving the rebuild", () => {
+    // The Request branch stamps the query BEFORE constructing the replacement Request, so this
+    // pins that the rewritten URL is the one actually forwarded rather than the original.
+    signIn(makeIdentity({ subject: "sam", roles: "household-member" }));
+    return fetch(
+      new Request(`${window.location.origin}/hubs/agent?X-Dev-Subject=dev-user&negotiateVersion=1`),
+    ).then(() => {
+      const url = new URL((baseFetch.mock.calls[0][0] as unknown as Request).url);
+      expect(url.searchParams.get("X-Dev-Subject")).toBe("sam");
+      expect(url.searchParams.get("negotiateVersion")).toBe("1");
+    });
   });
 
   it("stamps the WebSocket handshake URL too", () => {
