@@ -113,11 +113,18 @@ describe("the cookie contract with vite.config.ts", () => {
     });
   });
 
-  it("survives a display name containing a comma or spaces", () => {
-    signIn(makeIdentity({ subject: "ana", roles: "household-admin,household-member", name: "Ana Ruiz" }));
-    expect(parseAsViteProxyDoes()).toMatchObject({
+  it("survives a display name containing the cookie delimiter", () => {
+    // This is what makes encodeURIComponent in writeCookie load-bearing. Unencoded, the browser
+    // ends the cookie value at the ';' — the name is truncated AND the email disappears entirely,
+    // so the proxy would stamp a wrong X-Dev-Name and invent an X-Dev-Email. The comma in roles
+    // pins the same for ',', which is what this case used to claim and never actually exercised
+    // (the old fixture put the comma in roles and the name was plain "Ana Ruiz").
+    signIn(makeIdentity({ subject: "ana", roles: "household-admin,household-member", name: "Ana; Ruiz" }));
+    expect(parseAsViteProxyDoes()).toEqual({
+      subject: "ana",
       roles: "household-admin,household-member",
-      name: "Ana Ruiz",
+      name: "Ana; Ruiz",
+      email: "ana@dev.local",
     });
   });
 
