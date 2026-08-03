@@ -42,3 +42,8 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
           PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+
+      # The merger decides what lands on `main` unattended, so a change that quietly widens it must
+      # fail here rather than at 3am on a schedule. Fixture-driven: no network, no `gh`, no token.
+      - name: Test the merge gate
+        run: node --test .github/scripts/merge-gate.test.mjs
