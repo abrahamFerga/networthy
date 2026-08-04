@@ -11,24 +11,41 @@ namespace Networthy.Finance;
 /// <summary>
 /// The safe-to-spend figure, computed in ONE place: the dashboard's hero number and (epic 11)
 /// the chat assistant's explanation must be the same number, so the formula lives here and
-/// nowhere else. Deliberately conservative and deterministic: the sum of what's LEFT in this
-/// month's budgets — an over-budget category contributes zero, never a negative that would
-/// hide headroom elsewhere. No budgets at all means there is no honest number to show, so the
-/// answer is null rather than a fabrication (the UI renders guidance instead).
+/// nowhere else. Deliberately conservative, deterministic, and — the property issue #149 was
+/// filed about — REPRODUCIBLE from the totals shipped beside it: a reader holding only the
+/// payload can always recompute the number as max(0, totalTarget − totalSpent). No budgets at
+/// all means there is no honest number to show, so the answer is null rather than a fabrication
+/// (the UI renders guidance instead).
 /// </summary>
 public static class SafeToSpendMath
 {
     public sealed record SafeToSpend(decimal Amount, decimal TotalTarget, decimal TotalSpent, int BudgetCount);
 
-    /// <summary>Σ max(0, target − spent) over the month's budgets; null when there are none.</summary>
-    public static SafeToSpend? Compute(IReadOnlyList<(decimal Target, decimal Spent)> budgets) =>
-        budgets.Count == 0
-            ? null
-            : new SafeToSpend(
-                budgets.Sum(b => Math.Max(0m, b.Target - b.Spent)),
-                budgets.Sum(b => b.Target),
-                budgets.Sum(b => b.Spent),
-                budgets.Count);
+    /// <summary>
+    /// max(0, Σtarget − Σspent) over the month's budgets; null when there are none.
+    /// <para>
+    /// This clamps once, on the aggregate. It previously clamped per category — Σ max(0, target −
+    /// spent) — which discarded real overspend and so overstated headroom: two budgets at 400/100
+    /// and 100/300 read 300 while shipping totalTarget 500 and totalSpent 400 (issue #149). That
+    /// was not conservative, it was optimistic, and it contradicted the very totals beside it.
+    /// Overspend is money already gone, so it reduces the figure; the aggregate clamp still keeps
+    /// the result from ever going negative, which was the only property the per-category clamp
+    /// was actually needed for.
+    /// </para>
+    /// </summary>
+    public static SafeToSpend? Compute(IReadOnlyList<(decimal Target, decimal Spent)> budgets)
+    {
+        if (budgets.Count == 0) return null;
+
+        var totalTarget = budgets.Sum(b => b.Target);
+        var totalSpent = budgets.Sum(b => b.Spent);
+
+        return new SafeToSpend(
+            Math.Max(0m, totalTarget - totalSpent),
+            totalTarget,
+            totalSpent,
+            budgets.Count);
+    }
 }
 
 /// <summary>
