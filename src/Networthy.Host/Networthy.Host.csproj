@@ -12,7 +12,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Plenipo.AspNetCore" Version="0.1.0-alpha.28" />
+    <PackageReference Include="Plenipo.AspNetCore" Version="$(PlenipoVersion)" />
   </ItemGroup>
 
   <ItemGroup>

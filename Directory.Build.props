@@ -1,0 +1,8 @@
+<Project>
+  <!-- The platform version, defined once. consumer-conformance.yml on the platform repo swaps the
+       whole platform for a release candidate with -p:PlenipoVersion=<rc>, which only works when
+       every Plenipo.* reference resolves through this single property. -->
+  <PropertyGroup>
+    <PlenipoVersion>0.1.0-alpha.28</PlenipoVersion>
+  </PropertyGroup>
+</Project>
