@@ -97,11 +97,20 @@ internal static class OverviewEndpoint
                     budgetRows.Where(b => b.currencyCode.Equals(currencyCode, StringComparison.OrdinalIgnoreCase))
                         .Select(b => (b.target, b.spent)).ToList());
 
-                // ── Net worth: live total from visible accounts. Tenant-wide snapshots are
-                // admin-only because their aggregates can include another member's private account. ──
-                var netWorthTotal = accounts
-                    .Where(a => a.CurrencyCode.Equals(currencyCode, StringComparison.OrdinalIgnoreCase))
-                    .Sum(a => a.CachedBalance);
+                // ── Net worth: live total from visible accounts, combined across currencies with
+                // the SAME NetWorthMath.Combine the get_net_worth tool calls — one implementation,
+                // so the dashboard and the assistant cannot answer this question differently.
+                // Issue #173: this used to sum only the accounts already denominated in the
+                // household default and silently discard the rest, so a household holding 1,000 USD
+                // and 2,000 EUR at a saved 1.1 read "1,000" here while the assistant said 3,200.
+                // A currency with no saved rate is still excluded — the household's own rates or
+                // nothing, never a guessed one — but it now ships in `excluded` so the screen can
+                // say what was left out. Tenant-wide snapshots stay admin-only because their
+                // aggregates can include another member's private account. ──
+                var fxRates = (await db.ExchangeRates.ToListAsync(cancellationToken))
+                    .ToDictionary(r => r.CurrencyCode, r => r.RateToDefault, StringComparer.OrdinalIgnoreCase);
+                var (netWorthTotal, netWorthConverted, netWorthExcluded) = NetWorthMath.Combine(
+                    NetWorthMath.SumByCurrency(accounts), currencyCode, fxRates);
                 IReadOnlyList<decimal> trend = [];
 
                 // ── Upcoming bills (same detection the recurring tab runs), soonest first ──
@@ -162,7 +171,27 @@ internal static class OverviewEndpoint
                             totalTarget = safeToSpend.TotalTarget,
                             totalSpent = safeToSpend.TotalSpent,
                         },
-                    netWorth = new { total = netWorthTotal, currencyCode, trend },
+                    netWorth = new
+                    {
+                        total = netWorthTotal,
+                        currencyCode,
+                        trend,
+                        // Both lists make the total auditable from the payload alone — the same
+                        // property SafeToSpendMath was fixed to honour in #149: a reader holding
+                        // only this response can reconstruct where every figure came from.
+                        converted = netWorthConverted.Select(c => new
+                        {
+                            currencyCode = c.Currency,
+                            amount = c.Original,
+                            convertedAmount = c.Converted,
+                            rateToDefault = fxRates[c.Currency],
+                        }),
+                        excluded = netWorthExcluded.Select(e => new
+                        {
+                            currencyCode = e.Currency,
+                            amount = e.Total,
+                        }),
+                    },
                     budgets = budgetRows.Take(6),
                     upcomingBills = upcoming,
                     recentTransactions = recent,
