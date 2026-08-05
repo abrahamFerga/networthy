@@ -32,17 +32,18 @@ public sealed class GoalTools(
         var trimmed = name.Trim();
         if (trimmed.Length == 0)
         {
-            return "A goal needs a name.";
+            throw new ToolRefusalException("A goal needs a name.");
         }
 
         if (targetAmount <= 0)
         {
-            return "targetAmount must be positive.";
+            throw new ToolRefusalException("targetAmount must be positive.");
         }
 
         if (expectedAnnualReturnPct is < 0 or > 50)
         {
-            return $"{expectedAnnualReturnPct} is not a return assumption I can accept — use an annual percent like 7.";
+            throw new ToolRefusalException(
+                $"{expectedAnnualReturnPct} is not a return assumption I can accept — use an annual percent like 7.");
         }
 
         DateOnly? deadline = null;
@@ -50,7 +51,8 @@ public sealed class GoalTools(
         {
             if (!DateOnly.TryParse(targetDate, CultureInfo.InvariantCulture, out var parsed))
             {
-                return $"'{targetDate}' is not a date I can parse — use an ISO date like 2027-06-01.";
+                throw new ToolRefusalException(
+                    $"'{targetDate}' is not a date I can parse — use an ISO date like 2027-06-01.");
             }
 
             deadline = parsed;
@@ -63,7 +65,8 @@ public sealed class GoalTools(
                 a => EF.Functions.ILike(a.Name, accountName.Trim()), cancellationToken);
             if (account is null || !account.IsVisibleTo(currentUser.UserId))
             {
-                return $"No account named '{accountName}' exists (or it is private to another member). Use list_accounts.";
+                throw new ToolRefusalException(
+                    $"No account named '{accountName}' exists (or it is private to another member). Use list_accounts.");
             }
 
             accountId = account.Id;
@@ -114,18 +117,20 @@ public sealed class GoalTools(
             g => EF.Functions.ILike(g.Name, name.Trim()), cancellationToken);
         if (goal is null)
         {
-            return $"No goal named '{name}' exists. Use list_goals, or create it with set_goal.";
+            throw new ToolRefusalException(
+                $"No goal named '{name}' exists. Use list_goals, or create it with set_goal.");
         }
 
         if (goal.AccountId is not null)
         {
-            return $"'{goal.Name}' is tracked by a linked account — its balance IS the progress. " +
-                   "Move money into that account instead of recording a contribution.";
+            throw new ToolRefusalException(
+                $"'{goal.Name}' is tracked by a linked account — its balance IS the progress. " +
+                "Move money into that account instead of recording a contribution.");
         }
 
         if (amount == 0)
         {
-            return "amount must be non-zero.";
+            throw new ToolRefusalException("amount must be non-zero.");
         }
 
         goal.SavedAmount += (decimal)amount;

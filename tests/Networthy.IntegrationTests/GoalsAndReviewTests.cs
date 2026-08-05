@@ -51,7 +51,10 @@ public sealed class GoalsAndReviewTests(IntegrationFixture fixture)
 
         Assert.Contains("tracked by 'Vacation Savings'", await goals.SetGoal("Van fund", 2000, accountName: "Vacation Savings"));
         Assert.Contains("800.00 / 2,000.00", await goals.ListGoals());
-        Assert.Contains("balance IS the progress", await goals.ContributeToGoal("Van fund", 100));
+        Assert.Contains(
+            "balance IS the progress",
+            (await Assert.ThrowsAsync<ToolRefusalException>(
+                () => goals.ContributeToGoal("Van fund", 100))).Message);
     }
 
     [Fact]

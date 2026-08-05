@@ -29,19 +29,21 @@ public sealed class BudgetTools(
     {
         if (amount <= 0)
         {
-            return "amount must be positive.";
+            throw new ToolRefusalException("amount must be positive.");
         }
 
         var categoryRow = await db.Categories.FirstOrDefaultAsync(
             c => EF.Functions.ILike(c.Name, category.Trim()), cancellationToken);
         if (categoryRow is null)
         {
-            return $"No category named '{category}' exists. Check the Categories tab first.";
+            throw new ToolRefusalException(
+                $"No category named '{category}' exists. Check the Categories tab first.");
         }
 
         if (!BudgetMath.TryParseMonth(month, await household.TodayAsync(cancellationToken), out var period))
         {
-            return $"'{month}' is not a month I can parse — use yyyy-MM, e.g. 2026-07.";
+            throw new ToolRefusalException(
+                $"'{month}' is not a month I can parse — use yyyy-MM, e.g. 2026-07.");
         }
 
         var currencyCode = await household.ResolveCurrencyAsync(currency, cancellationToken);

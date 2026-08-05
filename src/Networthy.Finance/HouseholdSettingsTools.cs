@@ -50,9 +50,10 @@ public sealed class HouseholdSettingsTools(
             emergencyFundFloorMonths is null && highAprThresholdPercent is null &&
             statementReminders is null && statementReminderCadence is null)
         {
-            return "Nothing to change — pass defaultCurrency, timeZone, billReminderLeadDays, " +
-                   "emergencyFundFloorMonths, highAprThresholdPercent, statementReminders, " +
-                   "and/or statementReminderCadence.";
+            throw new ToolRefusalException(
+                "Nothing to change — pass defaultCurrency, timeZone, billReminderLeadDays, " +
+                "emergencyFundFloorMonths, highAprThresholdPercent, statementReminders, " +
+                "and/or statementReminderCadence.");
         }
 
         string? normalizedStatementCadence = null;
@@ -61,18 +62,19 @@ public sealed class HouseholdSettingsTools(
             normalizedStatementCadence = HouseholdSettings.NormalizeStatementCadence(statementReminderCadence);
             if (normalizedStatementCadence is null)
             {
-                return $"'{statementReminderCadence}' is not a statement-reminder cadence — use 'monthly' or 'weekly'.";
+                throw new ToolRefusalException(
+                    $"'{statementReminderCadence}' is not a statement-reminder cadence — use 'monthly' or 'weekly'.");
             }
         }
 
         if (emergencyFundFloorMonths is < 0 or > 24)
         {
-            return "emergencyFundFloorMonths must be between 0 and 24.";
+            throw new ToolRefusalException("emergencyFundFloorMonths must be between 0 and 24.");
         }
 
         if (highAprThresholdPercent is < 0 or > 100)
         {
-            return "highAprThresholdPercent must be between 0 and 100.";
+            throw new ToolRefusalException("highAprThresholdPercent must be between 0 and 100.");
         }
 
         // Membership in the real ISO set, not just "3 letters" — a typo'd code stored here would
@@ -81,7 +83,8 @@ public sealed class HouseholdSettingsTools(
         if (defaultCurrency is not null &&
             !FinanceModule.CurrencyCodes.Contains(defaultCurrency.Trim().ToUpperInvariant()))
         {
-            return $"'{defaultCurrency}' is not an ISO currency code (e.g. USD, MXN, EUR).";
+            throw new ToolRefusalException(
+                $"'{defaultCurrency}' is not an ISO currency code (e.g. USD, MXN, EUR).");
         }
 
         string? normalizedZone = null;
@@ -89,7 +92,8 @@ public sealed class HouseholdSettingsTools(
         {
             if (!TimeZoneInfo.TryFindSystemTimeZoneById(timeZone.Trim(), out var zone))
             {
-                return $"'{timeZone}' is not a time zone I know — use an IANA id like 'America/Mexico_City'.";
+                throw new ToolRefusalException(
+                    $"'{timeZone}' is not a time zone I know — use an IANA id like 'America/Mexico_City'.");
             }
 
             normalizedZone = zone.Id;
@@ -97,7 +101,7 @@ public sealed class HouseholdSettingsTools(
 
         if (billReminderLeadDays is < 0 or > 14)
         {
-            return "billReminderLeadDays must be between 0 and 14.";
+            throw new ToolRefusalException("billReminderLeadDays must be between 0 and 14.");
         }
 
         var settings = await db.HouseholdSettings.FirstOrDefaultAsync(cancellationToken);
@@ -160,19 +164,20 @@ public sealed class HouseholdSettingsTools(
         var code = currency?.Trim().ToUpperInvariant();
         if (code is not { Length: 3 })
         {
-            return $"'{currency}' is not an ISO currency code (e.g. USD, EUR).";
+            throw new ToolRefusalException($"'{currency}' is not an ISO currency code (e.g. USD, EUR).");
         }
 
         if (rateToDefault <= 0)
         {
-            return "rateToDefault must be positive.";
+            throw new ToolRefusalException("rateToDefault must be positive.");
         }
 
         var settings = await db.HouseholdSettings.FirstOrDefaultAsync(cancellationToken);
         var defaultCurrency = settings?.DefaultCurrencyCode ?? "USD";
         if (string.Equals(code, defaultCurrency, StringComparison.Ordinal))
         {
-            return $"{code} IS the household's default currency — its rate is 1 by definition.";
+            throw new ToolRefusalException(
+                $"{code} IS the household's default currency — its rate is 1 by definition.");
         }
 
         var rate = await db.ExchangeRates.FirstOrDefaultAsync(r => r.CurrencyCode == code, cancellationToken);

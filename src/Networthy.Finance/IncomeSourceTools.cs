@@ -30,13 +30,15 @@ public sealed class IncomeSourceTools(
         var trimmed = name.Trim();
         if (trimmed.Length == 0 || amount <= 0)
         {
-            return "An income source needs a name and a positive per-paycheck amount.";
+            throw new ToolRefusalException(
+                "An income source needs a name and a positive per-paycheck amount.");
         }
 
         var normalizedCadence = IncomeSource.NormalizeCadence(cadence);
         if (normalizedCadence is null)
         {
-            return $"'{cadence}' is not a cadence I know. Use weekly, biweekly, semimonthly, or monthly.";
+            throw new ToolRefusalException(
+                $"'{cadence}' is not a cadence I know. Use weekly, biweekly, semimonthly, or monthly.");
         }
 
         Guid? accountId = null;
@@ -46,7 +48,8 @@ public sealed class IncomeSourceTools(
                 a => EF.Functions.ILike(a.Name, accountName.Trim()), cancellationToken);
             if (account is null || !account.IsVisibleTo(currentUser.UserId))
             {
-                return $"No account named '{accountName}' exists (or it is private to another member). Use list_accounts.";
+                throw new ToolRefusalException(
+                    $"No account named '{accountName}' exists (or it is private to another member). Use list_accounts.");
             }
 
             accountId = account.Id;

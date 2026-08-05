@@ -60,14 +60,25 @@ public sealed class ChatAndApprovalTests(IntegrationFixture fixture)
         Assert.Contains("Gate Approve", pending.GetProperty("argumentsJson").GetString()!, StringComparison.Ordinal);
 
         using var approve = await client.PostAsync($"/api/chat/approvals/{id}/approve", content: null);
-        approve.EnsureSuccessStatusCode();
         var outcome = await approve.Content.ReadFromJsonAsync<JsonElement>();
 
-        // The executor ran the recorded call: 'result' is the tool's OWN return value, which only
+        // The executor ran the recorded call: the response carries the tool's OWN words, which only
         // the tool body can produce. (The re-execution is recorded on the approval record, not as a
         // second tool-call audit entry — ApprovalExecutor does not write to the audit log.)
-        Assert.Equal("Executed", outcome.GetProperty("status").GetString());
-        Assert.False(string.IsNullOrWhiteSpace(outcome.GetProperty("result").GetString()));
+        //
+        // Those words are a REFUSAL here, and that is the honest outcome rather than a wrinkle: as
+        // the class doc explains, the Mock fills the required `type` it cannot infer with
+        // "example", which create_account correctly rejects — so this approved write genuinely does
+        // not happen. Until issue #182 this same round trip answered 200 with status "Executed",
+        // telling the approver a household account had been created when none had. Asserting the
+        // 422 here is what keeps that from silently coming back.
+        //
+        // The approved-AND-succeeds path is proven in ApprovalOutcomeHonestyTests, which parks
+        // valid arguments instead of relying on the Mock to invent them.
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, approve.StatusCode);
+        Assert.Equal(
+            "'example' is not an account type. Use checking, savings, credit, or cash.",
+            outcome.GetProperty("detail").GetString());
         Assert.DoesNotContain(await PendingAsync(client), p => IdOf(p) == id);
     }
 
@@ -152,15 +163,18 @@ public sealed class ChatAndApprovalTests(IntegrationFixture fixture)
         Assert.Equal(HttpStatusCode.OK, (await householdAdmin.GetAsync("/api/chat/approvals")).StatusCode);
 
         using var approve = await householdAdmin.PostAsync($"/api/chat/approvals/{id}/approve", content: null);
-        approve.EnsureSuccessStatusCode();
         var outcome = await approve.Content.ReadFromJsonAsync<JsonElement>();
 
-        // Same proof ApprovalGatedWrite_IsNotExecuted_UntilApproved uses: the executor ran the
-        // recorded call (a real result only the tool body could produce) and the item left the
-        // queue. Re-execution is NOT a second audit-log entry (ApprovalExecutor does not write to
-        // the audit log — see the class doc), so an executed-count assertion here would be wrong.
-        Assert.Equal("Executed", outcome.GetProperty("status").GetString());
-        Assert.False(string.IsNullOrWhiteSpace(outcome.GetProperty("result").GetString()));
+        // Same proof ApprovalGatedWrite_IsNotExecuted_UntilApproved uses, and the same reason the
+        // outcome is a refusal rather than a success (the Mock's "example" account type): what is
+        // under test here is that household-admin's resolution REACHED the executor at all — the
+        // tool's own words coming back prove it did. A 403 would have produced neither.
+        // Re-execution is NOT a second audit-log entry (ApprovalExecutor does not write to the
+        // audit log — see the class doc), so an executed-count assertion here would be wrong.
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, approve.StatusCode);
+        Assert.Equal(
+            "'example' is not an account type. Use checking, savings, credit, or cash.",
+            outcome.GetProperty("detail").GetString());
         Assert.DoesNotContain(await PendingAsync(admin), p => IdOf(p) == id);
     }
 

@@ -103,7 +103,8 @@ public sealed class TransactionTools(
             c => EF.Functions.ILike(c.Name, category.Trim()), cancellationToken);
         if (categoryRow is null)
         {
-            return $"No category named '{category}' exists. Check the Categories tab first.";
+            throw new ToolRefusalException(
+                $"No category named '{category}' exists. Check the Categories tab first.");
         }
 
         var pattern = $"%{descriptionMatch.Trim()}%";
@@ -116,7 +117,8 @@ public sealed class TransactionTools(
         var matches = await query.OrderByDescending(t => t.OccurredOn).Take(5).ToListAsync(cancellationToken);
         if (matches.Count == 0)
         {
-            return $"No transaction matches '{descriptionMatch}'. Use search_transactions to find the right one.";
+            throw new ToolRefusalException(
+                $"No transaction matches '{descriptionMatch}'. Use search_transactions to find the right one.");
         }
 
         if (matches.Count > 1)
@@ -127,7 +129,7 @@ public sealed class TransactionTools(
                 sb.AppendLine($"- {m.OccurredOn:yyyy-MM-dd} · {m.Amount:N2} {m.CurrencyCode} · {m.Description}");
             }
 
-            return sb.ToString();
+            throw new ToolRefusalException(sb.ToString());
         }
 
         var transaction = matches[0];
@@ -153,19 +155,36 @@ public sealed class TransactionTools(
             .ToListAsync(cancellationToken);
         if (matches.Count != 1)
         {
-            return matches.Count == 0
+            throw new ToolRefusalException(matches.Count == 0
                 ? $"No transaction matches '{descriptionMatch}'. Use search_transactions to find it."
-                : $"{matches.Count} transactions match '{descriptionMatch}' — be more specific.";
+                : $"{matches.Count} transactions match '{descriptionMatch}' — be more specific.");
+        }
+
+        // Every argument is validated BEFORE the first mutation. A refusal has to leave the change
+        // tracker clean: the date used to be parsed after the amount had already been written to the
+        // entity and the account's cached balance, so refusing left a half-applied edit that the next
+        // SaveChangesAsync on this scoped DbContext would have flushed — "nothing was written" only
+        // until something else wrote.
+        if (newAmount is <= 0)
+        {
+            throw new ToolRefusalException("newAmount must be positive.");
+        }
+
+        DateOnly? parsedDate = null;
+        if (!string.IsNullOrWhiteSpace(newDate))
+        {
+            if (!DateOnly.TryParse(newDate, CultureInfo.InvariantCulture, out var day))
+            {
+                throw new ToolRefusalException(
+                    $"'{newDate}' is not a date I can parse — use an ISO date like 2026-07-09.");
+            }
+
+            parsedDate = day;
         }
 
         var transaction = matches[0];
         if (newAmount is { } amount)
         {
-            if (amount <= 0)
-            {
-                return "newAmount must be positive.";
-            }
-
             var account = await db.Accounts.FirstAsync(a => a.Id == transaction.AccountId, cancellationToken);
             account.CachedBalance -= transaction.BalanceDelta;      // back out the old delta
             transaction.Amount = (decimal)amount;
@@ -177,14 +196,9 @@ public sealed class TransactionTools(
             transaction.Description = newDescription.Trim();
         }
 
-        if (!string.IsNullOrWhiteSpace(newDate))
+        if (parsedDate is { } occurredOn)
         {
-            if (!DateOnly.TryParse(newDate, CultureInfo.InvariantCulture, out var day))
-            {
-                return $"'{newDate}' is not a date I can parse — use an ISO date like 2026-07-09.";
-            }
-
-            transaction.OccurredOn = day;
+            transaction.OccurredOn = occurredOn;
         }
 
         await db.SaveChangesAsync(cancellationToken);

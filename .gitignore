@@ -91,6 +91,10 @@ coverage/
 !.packages/*0.1.0-alpha.28*
 !.packages/aspire.apphost.sdk.*
 src/Networthy.Host/data/
+# Same artifact one level up: RUNBOOK Mode B runs the host DLL with the PROJECT dir as ContentRoot
+# (wwwroot is not copied to bin), and a repo-root ContentRoot drops the data-protection keyring at
+# ./data/. It is key material — it must never be committed.
+/data/
 
 # networthy-ui build state
 frontend/networthy-ui/tsconfig.tsbuildinfo
