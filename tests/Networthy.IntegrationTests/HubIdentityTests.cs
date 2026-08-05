@@ -142,6 +142,54 @@ public sealed class HubIdentityTests(IntegrationFixture fixture)
         Assert.NotEqual(AdminOnlyTool, GatedTool(hub));
     }
 
+    /// <summary>
+    /// The escalation the fix could have introduced on its way to closing one. A query string is
+    /// attacker-reachable in ways a header is not — it rides along in a link, a redirect, an
+    /// <c>&lt;img src&gt;</c> — so promoting it must never let it OVERRIDE an identity the caller
+    /// already sent in headers. Widened here to the whole role: the query claims
+    /// <c>household-admin</c> while the header says <c>household-member</c>, and the header has to
+    /// win.
+    ///
+    /// Red without the <c>Headers.ContainsKey</c> guard in <c>PromoteQueryIdentity</c>: the turn
+    /// gates <c>set_goal</c>, a tool the header identity does not hold.
+    /// </summary>
+    [Fact]
+    public async Task AQueryStringCannotOverrideAnIdentityAlreadySentInHeaders()
+    {
+        await EnsureTenantAsync();
+
+        var events = await StreamOverHubAsync(
+            identityInQuery: Identity(Member, "household-admin"),
+            identityInHeaders: Identity(Member, "household-member"),
+            message: "set goal 4242");
+
+        Assert.NotEqual(AdminOnlyTool, GatedTool(events));
+    }
+
+    /// <summary>
+    /// The escalation the fix could have re-introduced on its way to closing one. To the platform
+    /// handler an ABSENT roles header means <c>system_admin</c> and a PRESENT-but-empty one means
+    /// "explicitly role-less" — and <see cref="IHeaderDictionary"/> deletes a header assigned an
+    /// empty value. So the naive promotion turns <c>?X-Dev-Roles=</c> back into <c>["*"]</c>: the
+    /// same escalation, through the door that was just closed.
+    ///
+    /// Asserted through the hub rather than on the helper, because the helper is not what enforces
+    /// it. Red without <c>DevHubIdentityShim.NoRoles</c>: the turn gates <c>set_goal</c>.
+    /// </summary>
+    [Fact]
+    public async Task AnEmptyRolesQueryParameter_IsRoleLess_NotSystemAdmin()
+    {
+        await EnsureTenantAsync();
+
+        var identity = Identity(Member, "household-member");
+        identity["X-Dev-Roles"] = string.Empty;
+
+        var events = await StreamOverHubAsync(
+            identityInQuery: identity, identityInHeaders: null, message: "set goal 4242");
+
+        Assert.NotEqual(AdminOnlyTool, GatedTool(events));
+    }
+
     // ── the transports ────────────────────────────────────────────────────────
 
     /// <summary>

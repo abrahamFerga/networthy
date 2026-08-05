@@ -35,11 +35,12 @@ public static class DevHubIdentityShim
     private const string RolesHeader = "X-Dev-Roles";
 
     /// <summary>
-    /// A present-but-EMPTY roles value means "an explicitly role-less principal" to the platform
-    /// handler, while an ABSENT one means <c>system_admin</c>. <see cref="IHeaderDictionary"/>
-    /// deletes a header assigned an empty value, which would silently turn the former into the
-    /// latter — an escalation to <c>["*"]</c>, the very bug this shim exists to fix. A lone
-    /// separator is the shortest non-empty value the handler's split reduces back to no roles.
+    /// To the platform handler a PRESENT-but-empty roles value is "an explicitly role-less
+    /// principal", while an ABSENT one means <c>system_admin</c>. <see cref="IHeaderDictionary"/>
+    /// DELETES a header assigned an empty value, so promoting <c>?X-Dev-Roles=</c> naively turns
+    /// the former into the latter — an escalation to <c>["*"]</c>, which is the very bug this shim
+    /// exists to close. A lone separator is the shortest non-empty value the handler's
+    /// <c>Split(',', RemoveEmptyEntries)</c> reduces back to no roles.
     /// </summary>
     private const string NoRoles = ",";
 
