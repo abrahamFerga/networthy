@@ -25,7 +25,10 @@ public sealed class FullJourneyTests(IntegrationFixture fixture)
         // 1. Accounts (the create tool is approval-gated in chat; here it runs as-if-approved).
         var accounts = services.GetRequiredService<AccountTools>();
         Assert.Contains("Created checking account 'Chase Checking'", await accounts.CreateAccount("Chase Checking", "checking", "usd", 2500));
-        Assert.Contains("already exists", await accounts.CreateAccount("chase checking", "checking", "USD"));
+        Assert.Contains(
+            "already exists",
+            (await Assert.ThrowsAsync<ToolRefusalException>(
+                () => accounts.CreateAccount("chase checking", "checking", "USD"))).Message);
         Assert.Contains("Visa", await accounts.CreateAccount("Visa", "credit", "USD", -400));
 
         // 2. Transactions — the ADR-0005 quick-capture write plus reads.

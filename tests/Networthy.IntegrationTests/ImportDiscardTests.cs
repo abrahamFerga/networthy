@@ -53,8 +53,9 @@ public sealed class ImportDiscardTests(IntegrationFixture fixture)
         // The approve ran in the ENDPOINT's scope — drop this scope's stale tracked copy so the
         // tool sees the approved status (same convention as MultiBatchReviewTests).
         services.GetRequiredService<FinanceDbContext>().ChangeTracker.Clear();
-        var refusedByTool = await imports.DiscardImportBatch("discard-approved.csv");
-        Assert.Contains("cannot be discarded", refusedByTool);
+        var refusedByTool = await Assert.ThrowsAsync<ToolRefusalException>(
+            () => imports.DiscardImportBatch("discard-approved.csv"));
+        Assert.Contains("cannot be discarded", refusedByTool.Message);
         var refusedByEndpoint = await client.PostAsync($"/api/finance/imports/{approvedBatchId}/discard", null);
         Assert.Equal(HttpStatusCode.BadRequest, refusedByEndpoint.StatusCode);
 

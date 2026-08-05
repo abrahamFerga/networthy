@@ -357,18 +357,27 @@ internal static class ManualCrudEndpoints
                 SettingsUpsert body, HouseholdSettingsTools tools, CancellationToken ct) =>
             {
                 bool? remindersOn = bool.TryParse(body.StatementRemindersEnabled, out var on) ? on : null;
-                var message = await tools.UpdateHouseholdSettings(
-                    body.DefaultCurrencyCode,
-                    body.TimeZoneId ?? "UTC",
-                    body.BillReminderLeadDays,
-                    body.EmergencyFundFloorMonths,
-                    body.HighAprThresholdPercent,
-                    remindersOn,
-                    body.StatementReminderCadence,
-                    ct);
-                return message.StartsWith("Preferences saved", StringComparison.Ordinal)
-                    ? Results.Ok(new { message })
-                    : Results.BadRequest(new { error = message });
+                try
+                {
+                    var message = await tools.UpdateHouseholdSettings(
+                        body.DefaultCurrencyCode,
+                        body.TimeZoneId ?? "UTC",
+                        body.BillReminderLeadDays,
+                        body.EmergencyFundFloorMonths,
+                        body.HighAprThresholdPercent,
+                        remindersOn,
+                        body.StatementReminderCadence,
+                        ct);
+                    return Results.Ok(new { message });
+                }
+                catch (ToolRefusalException refusal)
+                {
+                    // A refusal is now typed, so this reads the tool's own signal instead of
+                    // sniffing its prose for a "Preferences saved" prefix — the same guidance, the
+                    // same 400, but no longer one reworded sentence away from returning 200 on a
+                    // rejected write (#182).
+                    return Results.BadRequest(new { error = refusal.Message });
+                }
             })
             .RequireAuthorization(manage)
             .WithName("Finance_UpdateSettings");
@@ -397,10 +406,15 @@ internal static class ManualCrudEndpoints
             {
                 // Same validation as the chat tool (ISO shape, positive rate, refuses the default
                 // currency); the form is the human directly, so RBAC is the gate — no approval.
-                var message = await tools.SetExchangeRate(body.CurrencyCode, body.RateToDefault, ct);
-                return message.StartsWith("Saved:", StringComparison.Ordinal)
-                    ? Results.Ok(new { message })
-                    : Results.BadRequest(new { error = message });
+                try
+                {
+                    var message = await tools.SetExchangeRate(body.CurrencyCode, body.RateToDefault, ct);
+                    return Results.Ok(new { message });
+                }
+                catch (ToolRefusalException refusal)
+                {
+                    return Results.BadRequest(new { error = refusal.Message });
+                }
             })
             .RequireAuthorization(manage)
             .WithName("Finance_UpsertExchangeRate");
@@ -470,13 +484,18 @@ internal static class ManualCrudEndpoints
                 // Same validation/upsert logic as the chat tool; the form is the human directly.
                 // Pass the currency through untouched: the tool documents null as "the household
                 // default", so coercing blank to USD here defeated that resolution entirely.
-                var message = await tools.SetIncomeSource(
-                    body.Name, (double)body.Amount, body.Cadence,
-                    string.IsNullOrWhiteSpace(body.CurrencyCode) ? null : body.CurrencyCode,
-                    body.AccountName, ct);
-                return message.StartsWith("Income ", StringComparison.Ordinal)
-                    ? Results.Ok(new { message })
-                    : Results.BadRequest(new { error = message });
+                try
+                {
+                    var message = await tools.SetIncomeSource(
+                        body.Name, (double)body.Amount, body.Cadence,
+                        string.IsNullOrWhiteSpace(body.CurrencyCode) ? null : body.CurrencyCode,
+                        body.AccountName, ct);
+                    return Results.Ok(new { message });
+                }
+                catch (ToolRefusalException refusal)
+                {
+                    return Results.BadRequest(new { error = refusal.Message });
+                }
             })
             .RequireAuthorization(manage)
             .WithName("Finance_UpsertIncomeSource");

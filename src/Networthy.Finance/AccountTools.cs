@@ -33,31 +33,35 @@ public sealed class AccountTools(
         var trimmed = name.Trim();
         if (trimmed.Length == 0)
         {
-            return "An account needs a name.";
+            throw new ToolRefusalException("An account needs a name.");
         }
 
         var normalizedType = Account.NormalizeType(type);
         if (normalizedType is null)
         {
-            return $"'{type}' is not an account type. Use checking, savings, credit, or cash.";
+            throw new ToolRefusalException(
+                $"'{type}' is not an account type. Use checking, savings, credit, or cash.");
         }
 
         var currencyCode = await household.ResolveCurrencyAsync(currency, cancellationToken);
         if (currencyCode.Length != 3)
         {
-            return $"'{currency}' is not an ISO currency code (e.g. USD, MXN, EUR).";
+            throw new ToolRefusalException(
+                $"'{currency}' is not an ISO currency code (e.g. USD, MXN, EUR).");
         }
 
         var existing = await db.Accounts.FirstOrDefaultAsync(
             a => EF.Functions.ILike(a.Name, trimmed), cancellationToken);
         if (existing is not null)
         {
-            return $"An account named '{existing.Name}' already exists. Use it, or pick a different name.";
+            throw new ToolRefusalException(
+                $"An account named '{existing.Name}' already exists. Use it, or pick a different name.");
         }
 
         if (interestRateApr is < 0 or > 100)
         {
-            return $"{interestRateApr} is not an APR I can accept — use the annual percentage, e.g. 6.25.";
+            throw new ToolRefusalException(
+                $"{interestRateApr} is not an APR I can accept — use the annual percentage, e.g. 6.25.");
         }
 
         // A loan entered as a positive figure ("I owe 250,000") is money owed — store it negative
@@ -101,17 +105,20 @@ public sealed class AccountTools(
             a => EF.Functions.ILike(a.Name, accountName.Trim()), cancellationToken);
         if (account is null || !account.IsVisibleTo(currentUser.UserId))
         {
-            return $"No account named '{accountName}' exists (or it is private to another member). Use list_accounts.";
+            throw new ToolRefusalException(
+                $"No account named '{accountName}' exists (or it is private to another member). Use list_accounts.");
         }
 
         if (interestRateApr is null && minimumMonthlyPayment is null)
         {
-            return "Nothing to change — pass interestRateApr and/or minimumMonthlyPayment.";
+            throw new ToolRefusalException(
+                "Nothing to change — pass interestRateApr and/or minimumMonthlyPayment.");
         }
 
         if (interestRateApr is < 0 or > 100)
         {
-            return $"{interestRateApr} is not an APR I can accept — use the annual percentage, e.g. 21.99.";
+            throw new ToolRefusalException(
+                $"{interestRateApr} is not an APR I can accept — use the annual percentage, e.g. 21.99.");
         }
 
         if (interestRateApr is { } newApr)

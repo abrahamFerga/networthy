@@ -199,16 +199,22 @@ public sealed class StatementImportTools(
         var trimmed = accountName.Trim();
         if (trimmed.Length == 0)
         {
-            return "Give the account a name — an existing account's, or the name the new one should have.";
+            throw new ToolRefusalException(
+                "Give the account a name — an existing account's, or the name the new one should have.");
         }
 
         var batch = await FindBatchAsync(fileName, cancellationToken, status: "needs-account");
         if (batch is null)
         {
-            return "No import batch is waiting for an account. Check the Statement review tab for what's pending.";
+            throw new ToolRefusalException(
+                "No import batch is waiting for an account. Check the Statement review tab for what's pending.");
         }
 
-        return (await AssignAccountAsync(batch, trimmed, createIfMissing, accountType, cancellationToken)).Message;
+        // The core already says whether it refused; this wrapper used to drop Ok and hand the
+        // message back as if it had succeeded, which is exactly the #182 defect — the REST callers
+        // read Ok and rendered a 400, while the approval path recorded Executed with no error.
+        var assigned = await AssignAccountAsync(batch, trimmed, createIfMissing, accountType, cancellationToken);
+        return assigned.Ok ? assigned.Message : throw new ToolRefusalException(assigned.Message);
     }
 
     /// <summary>
@@ -390,14 +396,16 @@ public sealed class StatementImportTools(
         var batch = await FindBatchAsync(fileName, cancellationToken);
         if (batch is null)
         {
-            return "No import batches to discard. Check the Statement review tab for what exists.";
+            throw new ToolRefusalException(
+                "No import batches to discard. Check the Statement review tab for what exists.");
         }
         if (batch.Status == "approved")
         {
             // Approved batches are history: their period feeds the duplicate-period warning, and
             // their lines already posted. Removing the record would silently disarm both.
-            return $"'{batch.FileName}' was approved and its lines are posted — an approved batch " +
-                   "cannot be discarded. Correct individual transactions instead of the whole batch.";
+            throw new ToolRefusalException(
+                $"'{batch.FileName}' was approved and its lines are posted — an approved batch " +
+                "cannot be discarded. Correct individual transactions instead of the whole batch.");
         }
 
         var status = batch.Status;
@@ -420,13 +428,16 @@ public sealed class StatementImportTools(
             : await FindBatchAsync(fileName, cancellationToken);
         if (batch is null)
         {
-            return string.IsNullOrWhiteSpace(fileName)
+            throw new ToolRefusalException(string.IsNullOrWhiteSpace(fileName)
                 ? "No parsed batch is awaiting approval. Check the Statement review tab for every batch and its status."
                 : "No statements have been imported yet. Tell the user to attach a bank statement to a " +
-                  "message, and import it for them when they do.";
+                  "message, and import it for them when they do.");
         }
 
-        return (await ApproveBatchAsync(batch, cancellationToken)).Message;
+        // Same as AssignImportAccount: Ok=false is the core's refusal signal, and dropping it here
+        // is what let a batch that never posted be announced as "'approve_import_batch' ran" (#182).
+        var approved = await ApproveBatchAsync(batch, cancellationToken);
+        return approved.Ok ? approved.Message : throw new ToolRefusalException(approved.Message);
     }
 
     /// <summary>The approval core, shared by the chat tool (which resolves by file name) and the
