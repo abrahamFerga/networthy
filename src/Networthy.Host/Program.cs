@@ -125,6 +125,12 @@ app.Use(async (context, next) =>
 // model catalog, and deployment-only provider reporting) — see PlenipoAiShims.
 app.UsePlenipoAiShims();
 
+// #150: scope GET /api/chat/approvals to the conversation the caller asked for. The platform's
+// list endpoint has no conversationId parameter to bind, so it answers with the household's whole
+// queue and a caller reading one thread is handed another thread's parked write. Narrows only —
+// see ApprovalScopeShim. MUST stay ahead of RunPlenipoPlatformAsync(), which maps that endpoint.
+app.UseApprovalScopeShim();
+
 await app.RunPlenipoPlatformAsync();
 
 /// <summary>Exposed so integration tests can host this app via WebApplicationFactory&lt;Program&gt;.</summary>
