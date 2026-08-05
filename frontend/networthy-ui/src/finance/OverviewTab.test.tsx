@@ -23,7 +23,13 @@ const payload = {
     totalTarget: 900,
     totalSpent: 559.5,
   },
-  netWorth: { total: 12400, currencyCode: "USD", trend: [11000, 11800, 12400] },
+  netWorth: {
+    total: 12400,
+    currencyCode: "USD",
+    trend: [11000, 11800, 12400],
+    converted: [],
+    excluded: [],
+  },
   budgets: [
     { categoryName: "Groceries", spent: 150, target: 400, currencyCode: "USD" },
     { categoryName: "Dining", spent: 260, target: 200, currencyCode: "USD" },
@@ -81,6 +87,26 @@ describe("OverviewTab (household command center)", () => {
     expect(await screen.findByText("Safe to spend")).toBeTruthy();
     expect(screen.getByText(/Set a budget and this becomes a real number/)).toBeTruthy();
     expect(screen.getByText(/No budgets for this month yet/)).toBeTruthy();
+  });
+
+  // Issue #173: the total silently omitted every currency the household had not priced. The
+  // endpoint now leaves those balances out on purpose — so the tile must admit it, or the number
+  // still reads as complete and the household never learns to save a rate.
+  it("says which balances net worth left out when a currency has no saved rate", async () => {
+    renderOverview({
+      ...payload,
+      netWorth: {
+        total: 12400,
+        currencyCode: "USD",
+        trend: [],
+        converted: [{ currencyCode: "EUR", amount: 2000, convertedAmount: 2200, rateToDefault: 1.1 }],
+        excluded: [{ currencyCode: "GBP", amount: 500 }],
+      },
+    });
+
+    expect(await screen.findByText("Net worth")).toBeTruthy();
+    expect(screen.getByText(/no saved exchange rate/)).toBeTruthy();
+    expect(screen.getByText(/£500\.00/)).toBeTruthy();
   });
 
   it("keeps a fully-funded goal reading as success, never as the over-budget alarm", async () => {
