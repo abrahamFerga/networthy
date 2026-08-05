@@ -121,6 +121,11 @@ app.Use(async (context, next) =>
     await next();
 });
 
+// #172: give the SignalR chat transport the caller's real identity in dev. MUST stay ahead of
+// RunPlenipoPlatformAsync(), which is where the platform's UseAuthentication() lives — see
+// DevHubIdentityShim.
+app.UseDevHubIdentityShim();
+
 // Straighten out AI seams in the frozen platform package (default-model saves, the unfiltered
 // model catalog, and deployment-only provider reporting) — see PlenipoAiShims.
 app.UsePlenipoAiShims();
