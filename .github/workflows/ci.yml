@@ -66,3 +66,21 @@ jobs:
       - name: Build frontend
         working-directory: frontend/networthy-ui
         run: pnpm build
+
+      # The bundle under src/Networthy.Host/wwwroot/app is COMMITTED (scripts/build-ui.ps1), so a
+      # clone runs without pnpm. Nothing used to connect it to the source it was built from: the
+      # path stays clean in `git status` however far the frontend moves, so the shipped artifact
+      # silently rots. It reached EIGHT commits stale (#174) — the dev identity picker and three
+      # merged user-facing fixes were in `main` and in no user's browser.
+      #
+      # The step above already produced the authoritative build; this just refuses to let it differ
+      # from what ships. The app's only build-time input is VITE_BRAND_NAME, which vite.config.ts
+      # defaults to "Networthy", so a bare `pnpm build` here reproduces what build-ui.ps1 embeds.
+      - name: Check embedded bundle matches the frontend source
+        run: |
+          if ! diff -r frontend/networthy-ui/dist src/Networthy.Host/wwwroot/app; then
+            echo "::error::The committed bundle in src/Networthy.Host/wwwroot/app is stale."
+            echo "Rebuild and commit it:  ./scripts/build-ui.ps1"
+            exit 1
+          fi
+          echo "Embedded bundle is current."

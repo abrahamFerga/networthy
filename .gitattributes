@@ -1,1 +1,9 @@
 .github/workflows/*.lock.yml linguist-generated=true merge=ours
+
+# The embedded UI bundle is a committed build artifact (scripts/build-ui.ps1), and CI proves it
+# matches the frontend source by diffing it against a fresh `pnpm build`. Vite emits LF; this repo
+# is developed on Windows with core.autocrlf=true, so without these rules a Windows checkout hands
+# the comparison CRLF on one side and LF on the other. Mark them binary: never converted, never
+# diffed as text, and a Windows commit can never normalize the bundle into a CI failure.
+src/Networthy.Host/wwwroot/app/** -text linguist-generated=true
+src/Networthy.Host/wwwroot/admin/** -text linguist-generated=true
