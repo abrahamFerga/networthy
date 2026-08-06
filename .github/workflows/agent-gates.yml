@@ -32,8 +32,10 @@ jobs:
       # what lands on `main` unattended, so a change that quietly widens it must fail on the PR
       # rather than at 3am on a schedule. Behind the spine guard it would be skipped on exactly the
       # PRs that edit it. Fixture-driven: no network, no `gh`, no token.
+      # The DIRECTORY, not one file: naming `merge-gate.test.mjs` explicitly meant a new test file
+      # beside it ran nowhere, so the merge machinery could grow an untested part without CI noticing.
       - name: Test the merge gate
-        run: node --test .github/scripts/merge-gate.test.mjs
+        run: node --test ".github/scripts/*.test.mjs"
 
       # --unified=0 keeps context lines out of the removal scan, so an unchanged HasQueryFilter
       # sitting next to an edit does not read as an edit to it.
