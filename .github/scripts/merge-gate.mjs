@@ -5,11 +5,7 @@
 //   node .github/scripts/merge-gate.mjs --pr 131         evaluate one
 //   node .github/scripts/merge-gate.mjs --merge          merge what passes, up to the cap
 //   node .github/scripts/merge-gate.mjs --fixture f.json evaluate fixture data (used to test itself)
-//
-// Two lanes. A feature PR needs a loop branch, the plenipo-agent envelope and the `agent:approved`
-// label a review adds. A dependabot PR has none of those by construction, so it is judged on the
-// bump instead: patch and minor merge on green checks alone, major and anything unparseable fall
-// back to the review lane. `merge-gate.test.mjs` is the executable statement of both.
+//   node .github/scripts/merge-gate.mjs --runs-fixture r.json   feed main_is_green a run list
 //
 // This file is the ONE implementation of the merge gates. `/plenipo:ship` runs it rather than
 // re-deriving the list in prose, and `agent-merge.yml` runs it on a schedule so merging keeps
@@ -34,6 +30,7 @@ const value = (name) => {
 const DO_MERGE = flag('--merge');
 const ONE_PR = value('--pr');
 const FIXTURE = value('--fixture');
+const RUNS_FIXTURE = value('--runs-fixture');
 
 const gh = (args) => {
   const r = spawnSync('gh', args, { encoding: 'utf8', shell: process.platform === 'win32' });
@@ -54,32 +51,14 @@ const HOLD_LABELS = ['human-hold', 'needs-human', 'agent:blocked'];
 // Docs, tests and the runbook are the only class a level-1 product may land on its own.
 const LOW_RISK = [/\.md$/i, /^tests\//, /\.http$/i, /^\.http$/i];
 
-// ── The dependency lane ──────────────────────────────────────────────────────
-// Dependabot writes its own branch names and its own body, so the loop envelope cannot apply to it.
-// What stands in for that envelope is the bump itself: for a patch or minor release of a stable
-// package, a green `Build & test` IS the proof — there is no behaviour to exercise and no regression
-// test to have seen red. A major bump has no such promise, so it falls back to the review lane.
-//
-// Keyed on the AUTHOR, never on the branch name alone: `dependabot/**` is a string anyone with push
-// access can type, and if the prefix alone opened the lane it would be a way around both the
-// envelope gate and the review gate.
-const DEPENDABOT_BRANCH = /^dependabot\//;
-const DEPENDABOT_LOGINS = new Set(['app/dependabot', 'dependabot[bot]', 'dependabot']);
-const DEPENDABOT_MIN_LEVEL = 2;
-
-// 'patch' | 'minor' | 'major' | 'unknown', read from dependabot's own title format.
-// Anything this cannot parse — a multi-package bump ("Bump react, react-dom and @types/react"), or
-// an action pinned by major only ("from 5 to 7") — comes back 'unknown' and is treated as a major.
-// Guessing low on an unreadable title is the one error here that merges something unreviewed.
-function bumpClass(title) {
-  const m = /\bfrom v?(\d+)\.(\d+)\.[\w.+-]+ to v?(\d+)\.(\d+)\.[\w.+-]+/i.exec(title ?? '');
-  if (!m) return 'unknown';
-  const [fromMajor, fromMinor, toMajor, toMinor] = m.slice(1).map(Number);
-  if (fromMajor !== toMajor) return 'major';
-  // Below 1.0 semver promises nothing across a minor, so 0.83 -> 0.84 is a breaking change.
-  if (fromMajor === 0) return fromMinor === toMinor ? 'patch' : 'major';
-  return fromMinor === toMinor ? 'patch' : 'minor';
-}
+// ── Platform repos are gated differently, not more leniently ─────────────────
+// A product merge risks one product; a platform merge risks every product built on it, and that
+// asymmetry GROWS with each consumer rather than shrinking with a good track record. So the platform
+// has no autonomy level to earn — it has a stronger verifier: consumer-conformance.yml packs the
+// platform as a release candidate and rebuilds every registered consumer against it.
+const IS_PLATFORM = String(cfg.stage ?? cfg.kind ?? 'product').toLowerCase() === 'platform';
+const CONFORMANCE_CHECK = /consumer.?conformance|conformance verdict/i;
+const SURFACE_RE = /^\s*(?:public[- ])?surface:\s*(additive|breaking|none)\b/im;
 
 const PR_FIELDS = [
   'number', 'title', 'body', 'isDraft', 'headRefName', 'baseRefName', 'labels',
@@ -87,14 +66,9 @@ const PR_FIELDS = [
 ].join(',');
 
 // ── Load the pull requests ───────────────────────────────────────────────────
-// A fixture is either a bare array of PRs, or `{ prs, baseChecks }` when the case under test also
-// needs to say what the base branch's checks look like.
 let prs;
-let fixtureBaseChecks = null;
 if (FIXTURE) {
-  const raw = JSON.parse(readFileSync(FIXTURE, 'utf8'));
-  prs = Array.isArray(raw) ? raw : (raw.prs ?? []);
-  if (!Array.isArray(raw)) fixtureBaseChecks = raw.baseChecks ?? null;
+  prs = JSON.parse(readFileSync(FIXTURE, 'utf8'));
 } else if (ONE_PR) {
   prs = [JSON.parse(gh(['pr', 'view', ONE_PR, '--json', PR_FIELDS]))];
 } else {
@@ -105,44 +79,39 @@ if (FIXTURE) {
 // Merging onto a red base multiplies one failure into N, and the next agent cannot tell which
 // change broke what.
 //
-// Read the checks ON THE BASE COMMIT, not the last workflow run on the branch. `gh run list --limit
-// 1` returns the most recent run of ANY workflow, so on a repo with scheduled agentic workflows it
-// answers "did a timer fire successfully?" rather than "is the branch green?" — observed reporting
-// green while `Build & test` on that same commit had failed. This gate fails OPEN when it is wrong,
-// which is the direction that lets a broken base spread.
+// Only a run triggered BY the branch's code can speak to whether that code is healthy — an
+// issue-triggered triage agent or a nightly maintenance job cannot. Reading a single run across
+// every workflow let whichever job finished most recently decide the entire queue, in BOTH
+// directions: a cancelled triage run blocked every merge, and a successful one would have waved a
+// merge onto genuinely red CI. So this reads `push` events only, and takes the latest verdict per
+// WORKFLOW rather than one run overall.
 //
-// CANCELLED is not counted: superseding a run is routine on a busy default branch, and treating it
-// as red would stall the queue on ordinary concurrency rather than on a real failure.
-const BASE_BROKEN = new Set(['FAILURE', 'TIMED_OUT', 'ACTION_REQUIRED', 'STARTUP_FAILURE']);
-const baseFailures = (checks) =>
-  (checks ?? [])
-    .filter((c) => BASE_BROKEN.has(String(c.conclusion ?? '').toUpperCase()))
-    .map((c) => c.name ?? c.context ?? 'unnamed check');
+// `cancelled` and `skipped` are not evidence of breakage — concurrency groups cancel superseded
+// runs constantly — so only a real failure blocks. A gate that blocks on the ABSENCE of evidence
+// stops the queue permanently the first time a workflow is skipped.
+const BROKEN = ['failure', 'timed_out', 'startup_failure'];
+
+// `gh run list` returns newest first, so the first entry per workflow name is that workflow's
+// current verdict. Kept out of the gh call so `--runs-fixture` can prove it red before green.
+function brokenWorkflows(runs) {
+  const latest = new Map();
+  for (const r of runs) if (!latest.has(r.name)) latest.set(r.name, r);
+  return [...latest.values()].filter((r) => BROKEN.includes(String(r.conclusion ?? '').toLowerCase()));
+}
 
 let mainGreen = true;
 let mainWhy = '';
-{
-  const base = prs[0]?.baseRefName
-    ?? (FIXTURE ? 'main' : JSON.parse(gh(['repo', 'view', '--json', 'defaultBranchRef'])).defaultBranchRef.name);
-  // Filtered in JS rather than with `--jq`: `gh` is spawned through the shell on Windows, where a
-  // jq expression's spaces and pipes are taken as shell syntax and the call dies.
-  const checks = FIXTURE
-    ? fixtureBaseChecks
-    : JSON.parse(gh(['api', `repos/{owner}/{repo}/commits/${base}/check-runs?per_page=100`])).check_runs;
-
-  // A fixture that says nothing about the base is not asserting anything about it — but an empty
-  // ARRAY is: it means the query ran and found nothing, which is the same "green would mean nothing"
-  // that `checks_exist` refuses for a pull request. Fail closed; a stuck queue announces itself
-  // every tick, a base nobody verified does not.
-  if (checks) {
-    const broken = baseFailures(checks);
-    if (checks.length === 0) {
-      mainGreen = false;
-      mainWhy = `no checks have run on ${base} — green would mean nothing`;
-    } else if (broken.length) {
-      mainGreen = false;
-      mainWhy = `${base} is red: ${[...new Set(broken)].join(', ')}`;
-    }
+if (!FIXTURE || RUNS_FIXTURE) {
+  const base = prs[0]?.baseRefName ?? JSON.parse(gh(['repo', 'view', '--json', 'defaultBranchRef']))
+    .defaultBranchRef.name;
+  const runs = RUNS_FIXTURE
+    ? JSON.parse(readFileSync(RUNS_FIXTURE, 'utf8'))
+    : JSON.parse(gh(['run', 'list', '--branch', base, '--event', 'push', '--status', 'completed',
+      '--limit', '30', '--json', 'conclusion,name']));
+  const broken = brokenWorkflows(runs);
+  if (broken.length) {
+    mainGreen = false;
+    mainWhy = `on ${base}: ${broken.map((r) => `${r.name} concluded "${r.conclusion}"`).join(', ')}`;
   }
 }
 
@@ -150,7 +119,55 @@ let mainWhy = '';
 function evaluate(pr) {
   const fail = [];
   const labels = (pr.labels ?? []).map((l) => (typeof l === 'string' ? l : l.name).toLowerCase());
-  const checks = pr.statusCheckRollup ?? [];
+  // GitHub's rollup keeps EVERY check run for the head commit, including superseded ones — a check
+  // that failed and was then re-run green appears TWICE. Filtering the raw list makes a stale
+  // FAILURE permanent: a pull request that ever went red could never merge again however green it
+  // became, and the queue stops with a reason that reads like a real failure.
+  //
+  // Observed, not theorised: after a PR body edit re-triggered `Agent gates`, the rollup held
+  //   PR gates | FAILURE | 01:29:48
+  //   PR gates | SUCCESS | 01:31:56
+  // and `gh pr checks` reported pass while this gate reported "PR gates not passing".
+  //
+  // EVERY rule below biases toward blocking, because the two failure directions are not
+  // symmetrical: refusing a mergeable PR wastes a tick, while merging on a superseded green is
+  // unrecoverable. An earlier version of this collapsed to "latest by startedAt", which merged a PR
+  // whose re-run was still QUEUED — the queued entry has no timestamp, lost the comparison, and was
+  // dropped. That sequence is routine here by design: `agent-gates.yml` re-triggers on `labeled`,
+  // ship adds `agent:approved`, and the merge cron fires minutes later.
+  //
+  // NOTE: this is deliberately NOT the same rule as `brokenWorkflows` below, despite operating on
+  // the same idea. That one keys on the WORKFLOW name, takes the first entry trusting `gh run list`
+  // to be newest-first, and excludes `cancelled`. This keys on workflow+job (two workflows may both
+  // define `build`), cannot trust rollup ordering (observed: the earliest-started entry appearing
+  // last), and treats `cancelled` as broken.
+  const groups = new Map();
+  for (const c of pr.statusCheckRollup ?? []) {
+    // Job name alone collides across workflows; qualify it.
+    const key = `${c.workflowName ?? ''}/${c.name || c.context || ''}`;
+    (groups.get(key) ?? groups.set(key, []).get(key)).push(c);
+  }
+
+  const terminal = (c) => (c.conclusion || c.state || c.status || '').toUpperCase();
+  const isPending = (c) => ['PENDING', 'IN_PROGRESS', 'QUEUED', 'WAITING', ''].includes(terminal(c));
+  // StatusContext entries carry no startedAt at all; legacy commit statuses only have createdAt.
+  const when = (c) => c.completedAt ?? c.startedAt ?? c.createdAt ?? '';
+
+  const checks = [...groups.values()].map((runs) => {
+    // A re-run in flight means the verdict is not settled, whatever an older run concluded. Report
+    // the pending one so `checks_green` says "still running" rather than merging on stale green.
+    const inFlight = runs.find(isPending);
+    if (inFlight) return inFlight;
+
+    // Latest terminal run wins; on a tie — same-second timestamps are common, one event triggering
+    // several runs — prefer the non-SUCCESS, so an ambiguous pair never resolves to "mergeable".
+    return runs.reduce((best, c) => {
+      if (when(c) > when(best)) return c;
+      if (when(c) < when(best)) return best;
+      return terminal(best) === 'SUCCESS' ? c : best;
+    });
+  });
+
   const files = (pr.files ?? []).map((f) => f.path ?? f.filename ?? '');
 
   const state = (c) => (c.conclusion || c.state || c.status || '').toUpperCase();
@@ -158,20 +175,10 @@ function evaluate(pr) {
   const broken = checks.filter((c) => ['FAILURE', 'ERROR', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED'].includes(state(c)));
 
   const isLowRisk = files.length > 0 && files.every((f) => LOW_RISK.some((re) => re.test(f)));
+  const changeClass = isLowRisk ? 'low-risk' : 'feature';
 
-  const isDependabot =
-    DEPENDABOT_BRANCH.test(pr.headRefName) &&
-    DEPENDABOT_LOGINS.has((pr.author?.login ?? '').toLowerCase());
-  const bump = isDependabot ? bumpClass(pr.title) : null;
-  // The only class that merges without anything having reviewed it.
-  const selfMergeable = bump === 'patch' || bump === 'minor';
-
-  const changeClass = isDependabot ? `dependency:${bump}` : isLowRisk ? 'low-risk' : 'feature';
-
-  if (!isDependabot) {
-    if (!LOOP_BRANCH.test(pr.headRefName)) fail.push(`is_loop_pr: "${pr.headRefName}" is not a loop branch — not ours to merge`);
-    if (!/plenipo-agent/.test(pr.body ?? '')) fail.push('is_loop_pr: the body carries no plenipo-agent envelope');
-  }
+  if (!LOOP_BRANCH.test(pr.headRefName)) fail.push(`is_loop_pr: "${pr.headRefName}" is not a loop branch — not ours to merge`);
+  if (!/plenipo-agent/.test(pr.body ?? '')) fail.push('is_loop_pr: the body carries no plenipo-agent envelope');
   if (pr.isDraft) fail.push('not_draft: the PR is a draft');
   if (checks.length === 0) fail.push('checks_exist: no status checks ran — green would mean nothing');
   if (pending.length) fail.push(`checks_green: ${pending.length} check(s) still running`);
@@ -179,26 +186,51 @@ function evaluate(pr) {
   if (pr.mergeable && pr.mergeable !== 'MERGEABLE') fail.push(`mergeable: mergeable=${pr.mergeable}`);
   if (['DIRTY', 'BLOCKED', 'BEHIND'].includes(pr.mergeStateStatus)) fail.push(`mergeable: mergeStateStatus=${pr.mergeStateStatus}`);
   if (pr.reviewDecision === 'CHANGES_REQUESTED') fail.push('no_blocking_review: a review requested changes');
-  if (!selfMergeable && !labels.includes('agent:approved')) {
-    fail.push(
-      !isDependabot
-        ? 'agent_approved: no `agent:approved` label — nothing has reviewed this'
-        : bump === 'unknown'
-          ? 'agent_approved: no readable version pair in the title, so this counts as a major bump — no `agent:approved` label'
-          : `agent_approved: a ${bump} bump is not self-mergeable — no \`agent:approved\` label`
-    );
-  }
+  if (!labels.includes('agent:approved')) fail.push('agent_approved: no `agent:approved` label — nothing has reviewed this');
   if (labels.includes('agent:changes-requested')) fail.push('agent_approved: `agent:changes-requested` is still set');
   for (const h of HOLD_LABELS) if (labels.includes(h)) fail.push(`no_human_hold: \`${h}\` is set`);
   if (!mainGreen) fail.push(`main_is_green: ${mainWhy}`);
 
   if (LEVEL === 0) fail.push('level_permits: autonomy level 0 merges nothing — a human decides');
-  else if (isDependabot) {
-    if (LEVEL < DEPENDABOT_MIN_LEVEL) {
-      fail.push(`level_permits: a dependency bump needs autonomy level ${DEPENDABOT_MIN_LEVEL}; this repo is at ${LEVEL}`);
-    }
-  } else if (LEVEL === 1 && changeClass !== 'low-risk') {
+  else if (LEVEL === 1 && changeClass !== 'low-risk') {
     fail.push('level_permits: level 1 may merge docs, tests and the runbook only');
+  }
+
+  // ── Platform-only gates ────────────────────────────────────────────────────
+  // `checks_green` CANNOT stand in for consumers_green, and this is the whole reason it is a named
+  // gate rather than a comment: consumer-conformance.yml carries a `paths:` filter, so a pull
+  // request that misses `src/**` never triggers it, the rollup never contains it, and green means
+  // "it did not run". That is the `checks_exist` failure mode one level up — a check nobody ran
+  // reads exactly like a check that passed.
+  if (IS_PLATFORM) {
+    const conformance = checks.filter((c) => CONFORMANCE_CHECK.test(c.name || c.context || ''));
+    const notGreen = conformance.filter((c) => state(c) !== 'SUCCESS');
+
+    if (conformance.length === 0) {
+      fail.push(
+        'consumers_green: no consumer-conformance check ran on this PR — a skipped conformance ' +
+          'run is a red gate, not a missing one'
+      );
+    } else if (notGreen.length) {
+      fail.push(
+        `consumers_green: ${notGreen.map((c) => `${c.name || c.context} (${state(c) || 'no conclusion'})`).join(', ')} ` +
+          '— a registered consumer does not build or does not pass against this change'
+      );
+    }
+
+    const surface = SURFACE_RE.exec(pr.body ?? '');
+    if (!surface) {
+      fail.push(
+        'surface_declared: the body has no "Surface: additive|breaking|none" line — an ' +
+          'unclassified break gets announced without migration steps, which starts N agents down ' +
+          'an unverified path'
+      );
+    } else if (surface[1].toLowerCase() === 'breaking' && !labels.includes('human-approved')) {
+      fail.push(
+        'surface_declared: "Surface: breaking" needs the `human-approved` label — a human writes ' +
+          'the migration before every consumer is told to follow it'
+      );
+    }
   }
 
   return { pr, fail, changeClass };
