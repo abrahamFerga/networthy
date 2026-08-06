@@ -21,9 +21,14 @@ on:
     - cron: '*/15 * * * *'
   workflow_dispatch:
 
+# `actions: write` is what lets the last step dispatch `ci.yml`. It is the whole reason a bot merge
+# can leave a VERIFIED `main` behind: a merge made with GITHUB_TOKEN raises no `push` event that
+# starts a workflow (GitHub's anti-recursion rule), and `workflow_dispatch` is one of the two
+# documented exceptions to it. See `ensure-base-checked.mjs` — networthy#181.
 permissions:
   contents: write
   pull-requests: write
+  actions: write
 
 concurrency:
   group: agent-merge
@@ -50,5 +55,16 @@ jobs:
 
       - name: Merge
         run: node .github/scripts/merge-gate.mjs --merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # A merge made here leaves `main` with NO checks, and `main_is_green` fails closed on that —
+      # so without this step the merger locks itself out after exactly one merge. `always()` because
+      # the merge step can fail after a commit has already landed, which is precisely when the base
+      # is left unverified. The script decides on the commit's check count, not on whether this run
+      # merged anything, so it also repairs a `main` an earlier tick already stranded.
+      - name: Leave a verified base behind
+        if: always()
+        run: node .github/scripts/ensure-base-checked.mjs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
