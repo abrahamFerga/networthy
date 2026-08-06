@@ -7,6 +7,9 @@ import "./index.css";
 // TODO(plenipo#112): drop with src/table-scroll-shim.css — see the file header for why the shell's
 // own table wrapper makes columns unreachable (issue #152).
 import "./table-scroll-shim.css";
+// TODO(plenipo#unfiled): drop with src/nav-scroll-shim.css — the shell's module sidebar declares
+// no overflow, so its last tabs spill off-screen on a short viewport.
+import "./nav-scroll-shim.css";
 
 initTheme();
 
