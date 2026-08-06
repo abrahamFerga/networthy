@@ -96,6 +96,19 @@ Verifies the **shipping artifact**: the GHCR image with the branded UI embedded 
 change that works under Mode A but not Mode C is usually a UI-embedding or migration-on-startup
 problem, not a domain bug.
 
+> **Editing `frontend/networthy-ui` does not change what ships.** The bundle under
+> `src/Networthy.Host/wwwroot/app` is a **committed build artifact** (so a clone runs without pnpm).
+> Rebuild and commit it in the same change:
+>
+> ```bash
+> ./scripts/build-ui.ps1
+> ```
+>
+> Forgetting this used to be invisible — the path stays clean in `git status` however far the source
+> moves, and the bundle reached eight commits stale before anyone noticed (#174). CI now rebuilds the
+> frontend and diffs it against the committed bundle, so the drift fails the build instead.
+
+
 ### Ready signals
 
 | Signal | Meaning |
