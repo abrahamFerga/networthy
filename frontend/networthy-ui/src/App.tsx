@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { PlenipoApp, defineModule } from "@plenipo/ui";
-import { IdentityBadge, SignInScreen } from "./DevIdentityUi";
+import { IdentityBar, SignInScreen } from "./DevIdentityUi";
 import { isDevAuthActive, readIdentity } from "./devIdentity";
 import { BudgetsTab } from "./finance/BudgetsTab";
 import { OverviewTab } from "./finance/OverviewTab";
@@ -60,10 +60,27 @@ export default function App() {
   if (devAuth === null) return null;
   if (devAuth && !identity) return <SignInScreen brandName={brandName} />;
 
+  const shell = <PlenipoApp moduleUi={[finance]} branding={{ name: brandName }} />;
+  if (!devAuth || !identity) return shell;
+
+  // The identity bar gets its OWN track rather than floating over the shell. It used
+  // to be `fixed bottom-3 right-3`, which parked it on the chat composer's Send button — 61% of
+  // Send covered, and the topmost element at Send's centre was the badge. Re-cornering it only
+  // moves the collision: the shell fills every corner with something (sidebar nav, onboarding
+  // banner, top-bar controls) and which one depends on the route.
+  //
+  // ABOVE the shell, not below it, and that is the whole trick. The shell's mobile BottomNav is
+  // `fixed inset-x-0 bottom-0`, so it anchors to the VIEWPORT and not to this column — a bar in
+  // the last track sits under it and is unreachable below 768px. The first track is the one piece
+  // of the layout no shell chrome can reach into.
+  //
+  // The shell's root is `h-full` (not `h-screen`), so it takes the height left over and its own
+  // content area shrinks to match; `min-h-0` is load-bearing, since without it the flex item
+  // refuses to shrink below its content and pushes the shell off-screen.
   return (
-    <>
-      <PlenipoApp moduleUi={[finance]} branding={{ name: brandName }} />
-      {devAuth && identity && <IdentityBadge identity={identity} />}
-    </>
+    <div className="flex h-full flex-col">
+      <IdentityBar identity={identity} />
+      <div className="min-h-0 flex-1">{shell}</div>
+    </div>
   );
 }

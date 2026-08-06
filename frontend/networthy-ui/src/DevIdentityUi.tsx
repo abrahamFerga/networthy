@@ -128,12 +128,26 @@ export function SignInScreen({ brandName }: { brandName: string }) {
   );
 }
 
-/** Who you are, and the way back out. Fixed, small, and obviously a dev affordance. */
-export function IdentityBadge({ identity }: { identity: DevIdentity }) {
+/**
+ * Who you are, and the way back out — a **row in the layout**, never an overlay.
+ *
+ * It used to be `fixed bottom-3 right-3`, which parked it on top of the chat composer's Send
+ * button: 61% of Send was covered, and `elementFromPoint` at Send's centre returned this pill, so
+ * the primary action of the product's primary screen was mostly unclickable. Moving it to another
+ * corner only moves the collision — every corner of the shell is occupied by something (sidebar
+ * nav, onboarding banner, top-bar controls), and which one depends on the route.
+ *
+ * So it does not float at all. `App.tsx` gives the shell a flex column and this bar the FIRST
+ * track in it; the shell sizes itself with `h-full`, so it takes the remaining height and nothing
+ * can ever be underneath this. First rather than last because the shell's mobile BottomNav is
+ * `fixed`, which anchors it to the viewport and over a bottom track. Read the layout note in
+ * App.tsx before making this `fixed` again, or moving it.
+ */
+export function IdentityBar({ identity }: { identity: DevIdentity }) {
   return (
-    <div className="fixed bottom-3 right-3 z-50 flex items-center gap-2 rounded-full border border-slate-300 bg-white/95 px-3 py-1.5 text-xs shadow-lg backdrop-blur dark:border-slate-600 dark:bg-slate-900/95">
-      <span className="text-slate-700 dark:text-slate-200">
-        <span className="font-medium">{identity.name}</span>
+    <div className="flex shrink-0 items-center gap-3 border-b border-slate-200 bg-slate-100 px-4 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-800">
+      <span className="min-w-0 truncate text-slate-600 dark:text-slate-300">
+        Signed in as <span className="font-medium text-slate-900 dark:text-slate-100">{identity.name}</span>
         <span className="text-slate-500 dark:text-slate-400">
           {" · "}
           {identity.roles || "no roles"}
@@ -142,7 +156,7 @@ export function IdentityBadge({ identity }: { identity: DevIdentity }) {
       <button
         type="button"
         onClick={signOut}
-        className="focus-ring rounded-full bg-slate-800 px-2 py-0.5 font-medium text-white hover:bg-slate-700 dark:bg-slate-200 dark:text-slate-900 dark:hover:bg-white"
+        className="focus-ring ml-auto shrink-0 rounded-full bg-slate-800 px-2.5 py-0.5 font-medium text-white hover:bg-slate-700 dark:bg-slate-200 dark:text-slate-900 dark:hover:bg-white"
       >
         Sign out
       </button>
