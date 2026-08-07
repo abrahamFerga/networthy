@@ -1,1 +1,16 @@
 .github/workflows/*.lock.yml linguist-generated=true merge=ours
+
+# The embedded UI bundle is a committed build artifact (scripts/build-ui.ps1), and CI proves it
+# matches the frontend source by diffing it against a fresh `pnpm build`. That comparison is only
+# meaningful if the build is reproducible across platforms, which takes both rules below.
+#
+# Vite's HTML entry is COPIED through to dist with its line endings intact, so on Windows
+# (core.autocrlf=true) it checks out CRLF and the build emits CRLF, while Linux CI emits LF — the
+# same source producing two different artifacts. Pin it to LF so every platform builds the same
+# bytes. The JS and CSS need no rule: rollup and postcss generate them and always emit LF.
+frontend/networthy-ui/index.html text eol=lf
+
+# The embedded output is then binary: never converted on checkout, never diffed as text, and a
+# Windows commit can never normalize it into a spurious CI failure.
+src/Networthy.Host/wwwroot/app/** -text linguist-generated=true
+src/Networthy.Host/wwwroot/admin/** -text linguist-generated=true

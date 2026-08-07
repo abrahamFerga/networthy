@@ -31,6 +31,7 @@
 @categoryId = 00000000-0000-0000-0000-000000000000
 @batchId = 00000000-0000-0000-0000-000000000000
 @approvalId = 00000000-0000-0000-0000-000000000000
+@conversationId = 00000000-0000-0000-0000-000000000000
 @fileId = 00000000-0000-0000-0000-000000000000
 
 # ── Health (anonymous) ───────────────────────────────────────────────────────
@@ -102,6 +103,14 @@ X-Dev-Roles: {{roles}}
 
 ### Pending approvals (side-effecting tool calls parked awaiting a human)
 GET {{baseUrl}}/api/chat/approvals
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Pending approvals for ONE conversation (#150) — the card belongs to the thread that raised it.
+### Unscoped (above) is the household-wide review queue; scoped returns only that thread's, and a
+### conversation with nothing parked returns []. conversationId comes off any row in the list above.
+GET {{baseUrl}}/api/chat/approvals?conversationId={{conversationId}}
 X-Dev-Subject: {{subject}}
 X-Dev-Tenant: {{tenant}}
 X-Dev-Roles: {{roles}}
@@ -376,6 +385,10 @@ X-Dev-Roles: {{roles}}
 # ── Finance: reads that drive the dashboard tabs ─────────────────────────────
 
 ### The Overview tab's one composed read
+### netWorth combines every currency through the household's saved rates (same
+### NetWorthMath.Combine get_net_worth uses, so the two never disagree): `converted`
+### shows each rate applied, `excluded` names any currency with no saved rate — left
+### out of `total` on purpose, never guessed, and never silently.
 GET {{baseUrl}}/api/finance/overview
 X-Dev-Subject: {{subject}}
 X-Dev-Tenant: {{tenant}}

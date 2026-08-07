@@ -11,24 +11,41 @@ namespace Networthy.Finance;
 /// <summary>
 /// The safe-to-spend figure, computed in ONE place: the dashboard's hero number and (epic 11)
 /// the chat assistant's explanation must be the same number, so the formula lives here and
-/// nowhere else. Deliberately conservative and deterministic: the sum of what's LEFT in this
-/// month's budgets — an over-budget category contributes zero, never a negative that would
-/// hide headroom elsewhere. No budgets at all means there is no honest number to show, so the
-/// answer is null rather than a fabrication (the UI renders guidance instead).
+/// nowhere else. Deliberately conservative, deterministic, and — the property issue #149 was
+/// filed about — REPRODUCIBLE from the totals shipped beside it: a reader holding only the
+/// payload can always recompute the number as max(0, totalTarget − totalSpent). No budgets at
+/// all means there is no honest number to show, so the answer is null rather than a fabrication
+/// (the UI renders guidance instead).
 /// </summary>
 public static class SafeToSpendMath
 {
     public sealed record SafeToSpend(decimal Amount, decimal TotalTarget, decimal TotalSpent, int BudgetCount);
 
-    /// <summary>Σ max(0, target − spent) over the month's budgets; null when there are none.</summary>
-    public static SafeToSpend? Compute(IReadOnlyList<(decimal Target, decimal Spent)> budgets) =>
-        budgets.Count == 0
-            ? null
-            : new SafeToSpend(
-                budgets.Sum(b => Math.Max(0m, b.Target - b.Spent)),
-                budgets.Sum(b => b.Target),
-                budgets.Sum(b => b.Spent),
-                budgets.Count);
+    /// <summary>
+    /// max(0, Σtarget − Σspent) over the month's budgets; null when there are none.
+    /// <para>
+    /// This clamps once, on the aggregate. It previously clamped per category — Σ max(0, target −
+    /// spent) — which discarded real overspend and so overstated headroom: two budgets at 400/100
+    /// and 100/300 read 300 while shipping totalTarget 500 and totalSpent 400 (issue #149). That
+    /// was not conservative, it was optimistic, and it contradicted the very totals beside it.
+    /// Overspend is money already gone, so it reduces the figure; the aggregate clamp still keeps
+    /// the result from ever going negative, which was the only property the per-category clamp
+    /// was actually needed for.
+    /// </para>
+    /// </summary>
+    public static SafeToSpend? Compute(IReadOnlyList<(decimal Target, decimal Spent)> budgets)
+    {
+        if (budgets.Count == 0) return null;
+
+        var totalTarget = budgets.Sum(b => b.Target);
+        var totalSpent = budgets.Sum(b => b.Spent);
+
+        return new SafeToSpend(
+            Math.Max(0m, totalTarget - totalSpent),
+            totalTarget,
+            totalSpent,
+            budgets.Count);
+    }
 }
 
 /// <summary>
@@ -80,11 +97,20 @@ internal static class OverviewEndpoint
                     budgetRows.Where(b => b.currencyCode.Equals(currencyCode, StringComparison.OrdinalIgnoreCase))
                         .Select(b => (b.target, b.spent)).ToList());
 
-                // ── Net worth: live total from visible accounts. Tenant-wide snapshots are
-                // admin-only because their aggregates can include another member's private account. ──
-                var netWorthTotal = accounts
-                    .Where(a => a.CurrencyCode.Equals(currencyCode, StringComparison.OrdinalIgnoreCase))
-                    .Sum(a => a.CachedBalance);
+                // ── Net worth: live total from visible accounts, combined across currencies with
+                // the SAME NetWorthMath.Combine the get_net_worth tool calls — one implementation,
+                // so the dashboard and the assistant cannot answer this question differently.
+                // Issue #173: this used to sum only the accounts already denominated in the
+                // household default and silently discard the rest, so a household holding 1,000 USD
+                // and 2,000 EUR at a saved 1.1 read "1,000" here while the assistant said 3,200.
+                // A currency with no saved rate is still excluded — the household's own rates or
+                // nothing, never a guessed one — but it now ships in `excluded` so the screen can
+                // say what was left out. Tenant-wide snapshots stay admin-only because their
+                // aggregates can include another member's private account. ──
+                var fxRates = (await db.ExchangeRates.ToListAsync(cancellationToken))
+                    .ToDictionary(r => r.CurrencyCode, r => r.RateToDefault, StringComparer.OrdinalIgnoreCase);
+                var (netWorthTotal, netWorthConverted, netWorthExcluded) = NetWorthMath.Combine(
+                    NetWorthMath.SumByCurrency(accounts), currencyCode, fxRates);
                 IReadOnlyList<decimal> trend = [];
 
                 // ── Upcoming bills (same detection the recurring tab runs), soonest first ──
@@ -145,7 +171,27 @@ internal static class OverviewEndpoint
                             totalTarget = safeToSpend.TotalTarget,
                             totalSpent = safeToSpend.TotalSpent,
                         },
-                    netWorth = new { total = netWorthTotal, currencyCode, trend },
+                    netWorth = new
+                    {
+                        total = netWorthTotal,
+                        currencyCode,
+                        trend,
+                        // Both lists make the total auditable from the payload alone — the same
+                        // property SafeToSpendMath was fixed to honour in #149: a reader holding
+                        // only this response can reconstruct where every figure came from.
+                        converted = netWorthConverted.Select(c => new
+                        {
+                            currencyCode = c.Currency,
+                            amount = c.Original,
+                            convertedAmount = c.Converted,
+                            rateToDefault = fxRates[c.Currency],
+                        }),
+                        excluded = netWorthExcluded.Select(e => new
+                        {
+                            currencyCode = e.Currency,
+                            amount = e.Total,
+                        }),
+                    },
                     budgets = budgetRows.Take(6),
                     upcomingBills = upcoming,
                     recentTransactions = recent,

@@ -66,8 +66,9 @@ public sealed class TransferTools(
         var hasIn = !string.IsNullOrWhiteSpace(incomingDescription);
         if (hasOut != hasIn)
         {
-            return "Name BOTH legs (outgoingDescription and incomingDescription) to link one specific pair, " +
-                   "or neither to link every high-confidence candidate.";
+            throw new ToolRefusalException(
+                "Name BOTH legs (outgoingDescription and incomingDescription) to link one specific pair, " +
+                "or neither to link every high-confidence candidate.");
         }
 
         return hasOut
@@ -91,8 +92,9 @@ public sealed class TransferTools(
             .ToList();
         if (matches.Count == 0)
         {
-            return $"No LINKED transfer leg matches '{descriptionMatch}'. search_transactions shows which rows " +
-                   "are marked as transfers.";
+            throw new ToolRefusalException(
+                $"No LINKED transfer leg matches '{descriptionMatch}'. search_transactions shows which rows " +
+                "are marked as transfers.");
         }
 
         // Two hits that are each other's counterpart ARE one unambiguous transfer.
@@ -105,7 +107,7 @@ public sealed class TransferTools(
                 sb.AppendLine($"- {m.OccurredOn:yyyy-MM-dd} · {Signed(m)} · {m.Description} — {visible[m.AccountId].Name}");
             }
 
-            return sb.ToString();
+            throw new ToolRefusalException(sb.ToString());
         }
 
         var legs = await db.Transactions
@@ -185,6 +187,11 @@ public sealed class TransferTools(
         var high = candidates.Where(c => c.HighConfidence).ToList();
         if (high.Count == 0)
         {
+            // Deliberately NOT a ToolRefusalException (issue #182): a bulk sweep that scanned the
+            // window and found nothing to link is an empty-but-valid outcome, like a search with no
+            // hits — not a failed precondition. Reporting it as a failure would relabel working
+            // behaviour as broken, which is the mirror image of the defect #182 fixed. The same
+            // reasoning keeps POST /transfers/link-detected a 200 for this case.
             return "No high-confidence transfer pairs to link right now. suggest_transfer_links shows the " +
                    "near-misses and what evidence each is missing.";
         }
@@ -215,21 +222,22 @@ public sealed class TransferTools(
         var outgoing = await ResolveLegAsync(outgoingDescription, "expense", visible, cancellationToken);
         if (outgoing.Error is { } outError)
         {
-            return outError;
+            throw new ToolRefusalException(outError);
         }
 
         var incoming = await ResolveLegAsync(incomingDescription, "income", visible, cancellationToken);
         if (incoming.Error is { } inError)
         {
-            return inError;
+            throw new ToolRefusalException(inError);
         }
 
         var outLeg = outgoing.Leg!;
         var inLeg = incoming.Leg!;
         if (outLeg.AccountId == inLeg.AccountId)
         {
-            return "Both legs sit on the SAME account — a transfer needs money leaving one account and " +
-                   "arriving in another. Pick legs from two different accounts.";
+            throw new ToolRefusalException(
+                "Both legs sit on the SAME account — a transfer needs money leaving one account and " +
+                "arriving in another. Pick legs from two different accounts.");
         }
 
         var cleared = Link(outLeg, inLeg);

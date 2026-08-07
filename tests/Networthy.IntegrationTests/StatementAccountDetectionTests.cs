@@ -89,7 +89,8 @@ public sealed class StatementAccountDetectionTests(IntegrationFixture fixture)
 
         // Approving too early is refused with directions, not a crash — and not an internal tool
         // name (StatementImportTools no longer names itself in user-facing refusals).
-        var early = await services.GetRequiredService<StatementImportTools>().ApproveImportBatch("unknown-account.csv");
+        var early = (await Assert.ThrowsAsync<ToolRefusalException>(
+            () => services.GetRequiredService<StatementImportTools>().ApproveImportBatch("unknown-account.csv"))).Message;
         Assert.Contains("has no account yet", early);
         Assert.Contains("Assign action", early);
         Assert.DoesNotContain("assign_import_account", early);
@@ -153,7 +154,8 @@ public sealed class StatementAccountDetectionTests(IntegrationFixture fixture)
 
         // Without createIfMissing the tool asks rather than creating — and asks in plain language,
         // not by naming its own parameter.
-        var asked = await tools.AssignImportAccount("Fresh daily", fileName: "fresh-bank.ofx");
+        var asked = (await Assert.ThrowsAsync<ToolRefusalException>(
+            () => tools.AssignImportAccount("Fresh daily", fileName: "fresh-bank.ofx"))).Message;
         Assert.Contains("No account named", asked);
         Assert.Contains("Ask the user", asked);
         Assert.DoesNotContain("createIfMissing", asked);

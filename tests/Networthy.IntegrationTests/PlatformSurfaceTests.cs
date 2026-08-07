@@ -167,6 +167,101 @@ public sealed class PlatformSurfaceTests(IntegrationFixture fixture)
         Assert.Contains("Pets", categories.EnumerateArray().Select(c => c.GetProperty("name").GetString()));
     }
 
+    /// <summary>
+    /// The household admin runs the household, and both docs and the sign-in screen say so —
+    /// yet the role held no <c>platform.*</c> grant at all, so every screen in the admin console
+    /// answered 403. The one that mattered is AI Settings: it is the ONLY place a provider key can
+    /// be entered (never deployment config, per ADR/AGENTS), so a household that self-hosts had no
+    /// reachable path off the Mock provider. Integrations is the same defect one screen over — the
+    /// role already grants <c>tools.connectors.plaid.*</c>, so it could call Plaid's tools while
+    /// being unable to enable or configure the connector those tools need.
+    /// </summary>
+    [Fact]
+    public async Task HouseholdAdmin_CanConfigureTheHouseholdsAiProviderAndIntegrations()
+    {
+        using var admin = ClientFor("household-admin");
+        try
+        {
+            // The screen loads at all — a 403 here is what the SPA renders as
+            // "Could not load AI settings", with no way forward.
+            var settings = await admin.GetAsync("/api/admin/ai-settings");
+            Assert.Equal(HttpStatusCode.OK, settings.StatusCode);
+
+            // And the key actually saves. Write-only: the read-back proves storage, never the value.
+            var save = await admin.PutAsJsonAsync("/api/admin/ai-settings", new
+            {
+                systemPrompt = (string?)null,
+                maxConversationTokens = (int?)null,
+                maxMonthlyTokens = (long?)null,
+                provider = "OpenAI",
+                model = "gpt-4.1-mini",
+                endpoint = (string?)null,
+                apiKey = "sk-networthy-household-admin-test",
+            });
+            Assert.Equal(HttpStatusCode.NoContent, save.StatusCode);
+
+            var stored = await admin.GetFromJsonAsync<JsonElement>("/api/admin/ai-settings");
+            Assert.Equal("OpenAI", stored.GetProperty("providerOverride").GetString());
+            Assert.True(stored.GetProperty("hasApiKey").GetBoolean());
+
+            // Integrations — where Plaid and the OCR engines are enabled (ADR-0007).
+            var connectors = await admin.GetAsync("/api/admin/connectors");
+            Assert.Equal(HttpStatusCode.OK, connectors.StatusCode);
+        }
+        finally
+        {
+            // Back to the deployment default (Mock): the rest of the suite chats through the
+            // keyless posture and must never dial a real provider.
+            using var cleanup = fixture.AdminClient();
+            var reset = await cleanup.PutAsJsonAsync("/api/admin/ai-settings", new
+            {
+                systemPrompt = (string?)null,
+                maxConversationTokens = (int?)null,
+                maxMonthlyTokens = (long?)null,
+                provider = (string?)null,
+                model = (string?)null,
+                endpoint = (string?)null,
+                apiKey = "", // empty string = clear the vaulted key
+            });
+            reset.EnsureSuccessStatusCode();
+        }
+    }
+
+    /// <summary>
+    /// The other half of it: widening household-admin must not widen the household. A member
+    /// configuring the provider key would be spending the household's budget and redirecting every
+    /// conversation through an endpoint of their choosing — and tenant administration was never
+    /// theirs at all.
+    /// </summary>
+    [Fact]
+    public async Task HouseholdMember_StillCannotReachTheAdminConsole()
+    {
+        using var member = ClientFor("household-member");
+
+        foreach (var endpoint in new[] { "/api/admin/ai-settings", "/api/admin/connectors" })
+        {
+            var response = await member.GetAsync(endpoint);
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+    }
+
+    /// <summary>
+    /// Deployment-level administration stays with <c>system_admin</c>. A household admin runs one
+    /// household; these reach across every household in the deployment (or edit the grants
+    /// themselves, which would make the boundary above decorative).
+    /// </summary>
+    [Fact]
+    public async Task HouseholdAdmin_CannotReachDeploymentAdministration()
+    {
+        using var admin = ClientFor("household-admin");
+
+        foreach (var endpoint in new[] { "/api/admin/tenants", "/api/admin/modules" })
+        {
+            var response = await admin.GetAsync(endpoint);
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+    }
+
     [Fact]
     public async Task AgUiChatTurn_StreamsAFullRun_AgainstTheRealPipeline()
     {

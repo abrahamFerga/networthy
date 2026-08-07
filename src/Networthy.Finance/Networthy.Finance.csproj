@@ -20,15 +20,15 @@
     <!-- Same version the platform pins — the household OCR engine builds its own client so the
          household's scanned statements go to the household's OWN Azure resource. -->
     <PackageReference Include="Azure.AI.DocumentIntelligence" Version="1.0.0" />
-    <PackageReference Include="Microsoft.Extensions.AI" Version="10.7.0" />
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.8.3" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.10" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.10" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.10" PrivateAssets="all" />
-    <PackageReference Include="Plenipo.Core" Version="0.1.0-alpha.28" />
-    <PackageReference Include="Plenipo.Application" Version="0.1.0-alpha.28" />
-    <PackageReference Include="Plenipo.Modules.Sdk" Version="0.1.0-alpha.28" />
-    <PackageReference Include="Plenipo.Connectors.Sdk" Version="0.1.0-alpha.28" />
+    <PackageReference Include="Plenipo.Core" Version="$(PlenipoVersion)" />
+    <PackageReference Include="Plenipo.Application" Version="$(PlenipoVersion)" />
+    <PackageReference Include="Plenipo.Modules.Sdk" Version="$(PlenipoVersion)" />
+    <PackageReference Include="Plenipo.Connectors.Sdk" Version="$(PlenipoVersion)" />
   </ItemGroup>
 
 </Project>

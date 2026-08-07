@@ -1,0 +1,26 @@
+/*
+ * TODO(plenipo#unfiled): delete this file (and its import in main.tsx) once @plenipo/ui's module
+ * sidebar scrolls its own overflow. Deliberately not given a number — the platform issue has not
+ * been filed yet, and inventing one points the next reader at somebody else's ticket.
+ *
+ * The shell's sidebar is `<nav class="hidden w-56 shrink-0 border-r … p-3 md:block">` inside a
+ * `flex min-h-0 flex-1` row, and it declares no overflow behaviour at all. Once the module's tab
+ * list is taller than the row — finance ships fourteen tabs, so that is any viewport under roughly
+ * 800px — the list simply spills past the bottom of the shell. There is no scrollbar on the nav;
+ * the only way to reach the last tabs is to scroll the whole DOCUMENT, which is a behaviour the
+ * rest of the shell (a 100%-height, internally-scrolling app) never otherwise has.
+ *
+ * Measured on the chat route at 1280x720 BEFORE the identity bar existed: "Categories", the last
+ * tab, sat at y 690-726 against a 720px viewport, and document.scrollHeight was already past the
+ * viewport. So this predates the identity bar — but that bar has a real height, and anything that
+ * legitimately consumes vertical space pushes one more tab out of reach. Making the nav scroll
+ * itself is what stops the tab list's reachability from depending on what else is on screen.
+ *
+ * Scoped by the nav's own structural signature rather than a bare element selector: `w-56` +
+ * `shrink-0` inside the shell's content row is the module sidebar and nothing else. Widening this
+ * to a plain `nav` would catch the top bar's breadcrumb nav too.
+ */
+div.flex.min-h-0.flex-1 > nav.w-56.shrink-0 {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}

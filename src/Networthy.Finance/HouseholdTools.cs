@@ -26,21 +26,24 @@ public sealed class HouseholdTools(
         var normalized = visibility.Trim().ToLowerInvariant();
         if (normalized is not ("private" or "household"))
         {
-            return $"'{visibility}' is not a visibility. Use private or household.";
+            throw new ToolRefusalException(
+                $"'{visibility}' is not a visibility. Use private or household.");
         }
 
         var account = await db.Accounts.FirstOrDefaultAsync(
             a => EF.Functions.ILike(a.Name, accountName.Trim()), cancellationToken);
         if (account is null || !account.IsVisibleTo(currentUser.UserId))
         {
-            return $"No account named '{accountName}' exists (or it is private to another member). Use list_accounts.";
+            throw new ToolRefusalException(
+                $"No account named '{accountName}' exists (or it is private to another member). Use list_accounts.");
         }
 
         if (normalized == "private")
         {
             if (currentUser.UserId is null)
             {
-                return "I can't determine who you are, so I can't make this account private to you.";
+                throw new ToolRefusalException(
+                    "I can't determine who you are, so I can't make this account private to you.");
             }
 
             account.RestrictedToUserId = currentUser.UserId;

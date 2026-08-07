@@ -1,0 +1,24 @@
+/*
+ * TODO(plenipo#112): delete this file (and its import in main.tsx) once @plenipo/ui's GenericTab
+ * stops clipping its own table.
+ *
+ * The shell wraps every server-driven table in
+ * `<div class="overflow-hidden rounded-lg border …"><table class="w-full …">` — GenericTab does it
+ * for the data table and again for each row-detail section. `overflow-hidden` clips BOTH axes, so
+ * once the table's min-content width exceeds the wrapper, the columns past its right edge are
+ * simply unreachable: no scrollbar, no affordance, and no page-level scroll to fall back on
+ * (issue #152 measured ~126px of a transactions ledger gone at 456px, and ~500px on a wider set).
+ *
+ * The card layout is not a sufficient answer, because it only covers viewports below 768px. The
+ * wrapper can also narrow on its own — the chat panel or the nav drawer opening — with the
+ * viewport never crossing a breakpoint at all, and a viewport-width media query cannot see that.
+ * Letting the wrapper scroll makes the data reachable at every width, whatever the layout does.
+ *
+ * `:has(> table)` picks out exactly those wrappers; `overflow-hidden` is shared with boxes that
+ * are meant to clip, so this must never widen to a bare `.overflow-hidden`. Specificity (0,1,2)
+ * beats Tailwind's `.overflow-hidden` (0,1,0), so source order does not matter. `overflow-y` is
+ * deliberately left `hidden` — that is what keeps the rounded corners clipping the table's own.
+ */
+div.overflow-hidden:has(> table) {
+  overflow-x: auto;
+}

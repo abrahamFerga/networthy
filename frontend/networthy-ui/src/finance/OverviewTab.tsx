@@ -21,7 +21,20 @@ interface Overview {
     totalTarget: number;
     totalSpent: number;
   } | null;
-  netWorth: { total: number; currencyCode: string; trend: number[] };
+  netWorth: {
+    total: number;
+    currencyCode: string;
+    trend: number[];
+    /** Foreign balances folded into the total through the household's own saved rates. */
+    converted?: {
+      currencyCode: string;
+      amount: number;
+      convertedAmount: number;
+      rateToDefault: number;
+    }[];
+    /** Balances left OUT of the total because the household saved no rate for that currency. */
+    excluded?: { currencyCode: string; amount: number }[];
+  };
   budgets: { categoryName: string; spent: number; target: number; currencyCode: string }[];
   upcomingBills: { name: string; expectedOn: string; amount: number }[];
   recentTransactions: {
@@ -63,6 +76,17 @@ export function OverviewTab({ tab }: ModuleTabProps) {
   const o = data!;
   const monthSpent = o.safeToSpend?.totalSpent;
 
+  // Issue #173: a balance in a currency the household never priced is left OUT of net worth
+  // rather than guessed at — so the tile has to SAY so. An understated total that looks complete
+  // is worse than a smaller one that admits what it is missing.
+  const excluded = o.netWorth.excluded ?? [];
+  const netWorthCaption =
+    excluded.length > 0
+      ? `as of ${o.asOf} — excludes ${excluded
+          .map((e) => money(e.amount, e.currencyCode))
+          .join(", ")}: no saved exchange rate`
+      : `as of ${o.asOf}`;
+
   return (
     <div className="space-y-4">
       {/* Summary row: the hero number first, context beside it. */}
@@ -83,7 +107,7 @@ export function OverviewTab({ tab }: ModuleTabProps) {
         <StatTile
           label="Net worth"
           value={money(o.netWorth.total, o.netWorth.currencyCode)}
-          caption={`as of ${o.asOf}`}
+          caption={netWorthCaption}
           trend={o.netWorth.trend}
         />
         <StatTile

@@ -223,7 +223,10 @@ public sealed class HouseholdSettingsTests(IntegrationFixture fixture)
         Assert.Contains("Combined:", after);
 
         // The default currency itself is refused — its rate is 1 by definition.
-        Assert.Contains("default currency", await settingsTools.SetExchangeRate("MXN", 20m));
+        Assert.Contains(
+            "default currency",
+            (await Assert.ThrowsAsync<ToolRefusalException>(
+                () => settingsTools.SetExchangeRate("MXN", 20m))).Message);
 
         await settingsTools.UpdateHouseholdSettings(defaultCurrency: "USD"); // restore for the collection
     }

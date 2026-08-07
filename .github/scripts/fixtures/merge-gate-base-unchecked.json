@@ -1,0 +1,80 @@
+{
+  "//": "Same PRs, but the base has no checks at all — the query ran and found nothing.",
+  "baseChecks": [],
+  "prs": [
+    {
+      "number": 950,
+      "title": "Bump @tanstack/react-query from 5.101.2 to 5.101.4 in /frontend/networthy-ui",
+      "body": "Updated @tanstack/react-query from 5.101.2 to 5.101.4.",
+      "isDraft": false,
+      "headRefName": "dependabot/npm_and_yarn/frontend/networthy-ui/tanstack/react-query-5.101.4",
+      "baseRefName": "main",
+      "labels": [
+        {
+          "name": "dependencies"
+        }
+      ],
+      "mergeable": "MERGEABLE",
+      "mergeStateStatus": "CLEAN",
+      "reviewDecision": "",
+      "statusCheckRollup": [
+        {
+          "name": "Build & test",
+          "status": "COMPLETED",
+          "conclusion": "SUCCESS"
+        },
+        {
+          "name": "PR gates",
+          "status": "COMPLETED",
+          "conclusion": "SUCCESS"
+        }
+      ],
+      "files": [
+        {
+          "path": "frontend/networthy-ui/pnpm-lock.yaml"
+        }
+      ],
+      "author": {
+        "login": "app/dependabot",
+        "is_bot": true
+      }
+    },
+    {
+      "number": 951,
+      "title": "Seed the starter taxonomy, reviewed and green",
+      "body": "Closes #148\n\n<!-- plenipo-agent -->\n\n## Runtime evidence\nExercised the seeding path against a second household.\n\n## Regression test\nSeen red before the fix and green after.",
+      "isDraft": false,
+      "headRefName": "fix/148-seed-categories",
+      "baseRefName": "main",
+      "labels": [
+        {
+          "name": "agent:approved"
+        }
+      ],
+      "mergeable": "MERGEABLE",
+      "mergeStateStatus": "CLEAN",
+      "reviewDecision": "",
+      "statusCheckRollup": [
+        {
+          "name": "Build & test",
+          "status": "COMPLETED",
+          "conclusion": "SUCCESS"
+        },
+        {
+          "name": "PR gates",
+          "status": "COMPLETED",
+          "conclusion": "SUCCESS"
+        }
+      ],
+      "files": [
+        {
+          "path": "src/Networthy.Finance/FinanceModule.cs"
+        }
+      ],
+      "author": {
+        "login": "abrahamFerga",
+        "is_bot": false
+      }
+    }
+  ]
+}

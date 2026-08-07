@@ -60,6 +60,23 @@ builder.Services.AddPlenipoRole("household-admin",
     // real household role. household-member stays excluded on purpose (below): a member can be
     // gated but may not clear another member's gate.
     Permissions.ManageApprovals,
+    // The two tenant-scoped admin screens a household admin has to reach. Without them the
+    // whole admin console answered 403 for the role that SPEC.md says "manages accounts,
+    // connectors (Plaid), budgets, and categories" — the sign-in screen promises as much.
+    //
+    // AI Settings (platform.ai.manage) is the load-bearing one: a provider key is ONLY ever
+    // entered there, never in deployment config, so a self-hosting household had no reachable
+    // path off the keyless Mock provider. Both are scoped to the caller's own tenant — the
+    // household's own key and its own integrations, nothing across the deployment.
+    Permissions.ManageAiSettings,
+    // Integrations (platform.connectors.manage): enabling and configuring Plaid and the OCR
+    // engines (ADR-0007). The role already grants tools.connectors.plaid.* below, so without this
+    // it could call Plaid's tools while being unable to turn Plaid on.
+    Permissions.ManageConnectors,
+    // Deliberately NOT granted — these reach past the one household, or edit the grants that
+    // define these boundaries, which would make every line above decorative:
+    //   platform.tenants.manage · platform.users.manage · platform.roles.manage
+    //   platform.modules.manage · platform.audit.view   · platform.notifications.manage
 ]);
 builder.Services.AddPlenipoRole("household-member",
 [
@@ -121,9 +138,20 @@ app.Use(async (context, next) =>
     await next();
 });
 
+// #172: give the SignalR chat transport the caller's real identity in dev. MUST stay ahead of
+// RunPlenipoPlatformAsync(), which is where the platform's UseAuthentication() lives — see
+// DevHubIdentityShim.
+app.UseDevHubIdentityShim();
+
 // Straighten out AI seams in the frozen platform package (default-model saves, the unfiltered
 // model catalog, and deployment-only provider reporting) — see PlenipoAiShims.
 app.UsePlenipoAiShims();
+
+// #150: scope GET /api/chat/approvals to the conversation the caller asked for. The platform's
+// list endpoint has no conversationId parameter to bind, so it answers with the household's whole
+// queue and a caller reading one thread is handed another thread's parked write. Narrows only —
+// see ApprovalScopeShim. MUST stay ahead of RunPlenipoPlatformAsync(), which maps that endpoint.
+app.UseApprovalScopeShim();
 
 await app.RunPlenipoPlatformAsync();
 
