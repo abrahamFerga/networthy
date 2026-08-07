@@ -205,11 +205,17 @@ X-Dev-Subject: {{subject}}
 X-Dev-Tenant: {{tenant}}
 X-Dev-Roles: {{roles}}
 
-### Models the selected provider offers
-GET {{baseUrl}}/api/admin/ai-models
+### Models a provider offers. POST, not GET: the probe takes the candidate connection in the
+### body — provider/endpoint/apiKey — so a household can list a provider's catalog BEFORE
+### saving the key. apiKey null reuses the stored one. Mock has no catalog and answers
+### {"models":[],"supportsDiscovery":false,"message":…}.
+POST {{baseUrl}}/api/admin/ai-models
+Content-Type: application/json
 X-Dev-Subject: {{subject}}
 X-Dev-Tenant: {{tenant}}
 X-Dev-Roles: {{roles}}
+
+{ "provider": "Mock", "endpoint": null, "apiKey": null }
 
 ### Switch provider at runtime (apiKey: null=keep stored, ""=clear, value=replace)
 PUT {{baseUrl}}/api/admin/ai-settings
