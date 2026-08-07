@@ -141,21 +141,13 @@ describe("the cookie contract with vite.config.ts", () => {
     expect(viteConfigSource).toContain(`decodeURIComponent(match[1]).split("|")`);
   });
 
-  it("proxy still rewrites what it parsed into the X-Dev-* headers", () => {
-    // Parsing the cookie is only half of #145's first criterion; the other half is "rewrites it
-    // into the X-Dev-* headers", and nothing pinned that. Rename X-Dev-Subject to X-Dev-User in
-    // rewriteDevIdentity and every test here stayed green — while under `pnpm dev` the proxy then
-    // never overwrites the shell's own header, so the app silently keeps running as the bundle's
-    // hard-coded dev-user / system_admin holding `*`. Exactly the silent break #145 exists to catch.
-    //
-    // Asserted on the header NAME and the setHeader call, not the whole expression: a rename or a
-    // deleted call is the failure mode, and pinning `roles ?? ""` too would red on a harmless
-    // refactor. A behavioural test is not available — rewriteDevIdentity is closure-private inside
-    // defineConfig and is not callable from here.
-    for (const header of ["X-Dev-Subject", "X-Dev-Roles", "X-Dev-Name", "X-Dev-Email"]) {
-      expect(viteConfigSource).toContain(`proxyReq.setHeader("${header}",`);
-    }
-  });
+  // The OTHER half of #145's first criterion — "and rewrites it into the X-Dev-* headers" — is
+  // pinned by ../test/viteDevProxy.test.ts, which calls the real rewrite listener and asserts the
+  // header VALUES. It used to be pinned here by `toContain('proxyReq.setHeader("X-Dev-…",')`,
+  // justified by a claim that turned out to be false: rewriteDevIdentity IS reachable, because
+  // defineConfig is the identity function for its callback overload and `configure` hands you the
+  // listener. That source-text assertion is gone rather than kept alongside — it saw only the four
+  // header NAMES, so `setHeader("X-Dev-Email", name)` stayed green under it.
 
   it("clears storage and expires the cookie on sign out", () => {
     signIn(makeIdentity({ subject: "ana", roles: "household-admin" }));
