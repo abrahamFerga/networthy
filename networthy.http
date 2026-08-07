@@ -458,6 +458,18 @@ X-Dev-Roles: {{roles}}
 
 { "fileId": "{{fileId}}", "accountName": "Chase Checking" }
 
+### 2b. An import that queues NOTHING answers 400, not 200 — the body carries the
+###     reason in the same words chat's import_statement uses. Three refusal branches:
+###     an unusable file id, a file the store does not hold, an account that does not
+###     exist. Expect `400 {"message":"'not-a-file-id' is not a file id…"}`.
+POST {{baseUrl}}/api/finance/imports
+Content-Type: application/json
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+{ "fileId": "not-a-file-id" }
+
 ### 3. Every batch not yet approved (file name, status, line count)
 GET {{baseUrl}}/api/finance/imports/batches
 X-Dev-Subject: {{subject}}

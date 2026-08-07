@@ -257,8 +257,14 @@ internal static class ManualCrudEndpoints
         group.MapPost("/imports", async (
                 ImportRequest body, StatementImportTools imports, CancellationToken ct) =>
             {
-                var message = await imports.QueueStatementImport(body.FileId, body.AccountName, ct);
-                return Results.Ok(new { message });
+                var result = await imports.QueueStatementImport(body.FileId, body.AccountName, ct);
+                // A queue that queued nothing is a failed write, and it must not answer 200 (#188):
+                // the shell's upload step marks a file "done" on any resolved request, so an
+                // unusable file id was being reported to the household as an import. The body is
+                // unchanged either way — the client reads `message` off both status lines.
+                return result.Queued
+                    ? Results.Ok(new { message = result.Message })
+                    : Results.BadRequest(new { message = result.Message });
             })
             .RequireAuthorization(manage)
             .WithName("Finance_QueueImport");
