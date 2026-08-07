@@ -30,4 +30,10 @@
     <Content Include="Evals\cases\*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- The committed request catalog is asserted against the real routing table (issue #178),
+       so the file under test is the one at the repo root, not a copy that can drift from it. -->
+  <ItemGroup>
+    <Content Include="..\..\networthy.http" Link="networthy.http" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
