@@ -201,6 +201,21 @@ describe("the fetch interceptor", () => {
     expect(headersOf(baseFetch.mock.calls[0]).get("X-Dev-Subject")).toBeNull();
   });
 
+  it("never leaks the identity to another origin on a Request object either", async () => {
+    // The test above passes a STRING, so it only ever exercised the string branch. Delete
+    // `!isPlatformCall(url)` from the Request branch and every other test stayed green — while
+    // fetch(new Request("https://third-party.example/api/x")) then leaves with X-Dev-Subject and
+    // X-Dev-Roles naming the user and their roles to a third party. This is the branch the PR
+    // itself argued was the dangerous one (signalr and the shell can both call fetch that way),
+    // and the consequence is a leak rather than a half-working state.
+    signIn(makeIdentity({ subject: "sam", roles: "household-member" }));
+    await fetch(new Request("https://example.invalid/api/anything"));
+
+    const forwarded = baseFetch.mock.calls[0][0] as unknown as Request;
+    expect(forwarded.headers.get("X-Dev-Subject")).toBeNull();
+    expect(forwarded.headers.get("X-Dev-Roles")).toBeNull();
+  });
+
   it("leaves same-origin paths outside /api and /hubs alone", async () => {
     signIn(makeIdentity({ subject: "sam" }));
     await fetch("/assets/index.js");
