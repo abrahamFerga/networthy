@@ -70,6 +70,36 @@ public sealed class FinanceCatalogTests
     }
 
     [Fact]
+    public void Manifest_TabRoutes_AreRoutesTheShellActuallyServes()
+    {
+        var tabs = new FinanceModule().Manifest.Tabs;
+
+        // Issue #179. A tab's `route` is the published contract every client builds navigation
+        // from, and the shell answers it in exactly two ways — verified against the shipped
+        // shell in frontend/networthy-ui/node_modules/@plenipo/ui, not against documentation:
+        //
+        //   * `id: "chat"` is RESERVED. AppShell drops the module's own descriptor
+        //     (`tabs.filter(t => t.id !== "chat")`) and substitutes its built-in
+        //     `{ id: "chat", label: "Chat", route: "/chat" }`, registering the chat page at
+        //     "/chat" and nowhere else. Whatever route the manifest publishes for that tab is
+        //     never routed.
+        //   * every other tab is registered verbatim at `path: tab.route`.
+        //
+        // So a chat route other than "/chat" matches nothing, and the shell's `*` fallback
+        // redirects to the Home tab — Overview here — with no 404 and no notice. That silent
+        // wrong page is worse than an error, and only this assertion can see it: the shipped UI
+        // navigates by its own built-in descriptor, so it looks fine while every other client
+        // is misdirected.
+        var chat = tabs.Single(t => t.Id == "chat");
+        Assert.Equal("/chat", chat.Route);
+
+        // A route is an absolute path, and two tabs claiming the same one would make the second
+        // unreachable in the same silent way.
+        Assert.All(tabs, t => Assert.StartsWith("/", t.Route));
+        Assert.Equal(tabs.Count, tabs.Select(t => t.Route).Distinct(StringComparer.Ordinal).Count());
+    }
+
+    [Fact]
     public void StarterPrompts_ReachRegisteredTools_AcrossTheAssistantsRange()
     {
         var manifest = new FinanceModule().Manifest;
