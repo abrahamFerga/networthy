@@ -70,14 +70,20 @@ export function readIdentity(): DevIdentity | null {
   }
 }
 
-/** The cookie shape vite.config.ts's proxy parses: "subject|roles|name|email". */
+/**
+ * The cookie shape vite.config.ts's proxy parses: "subject|roles|name|email|tenant".
+ *
+ * `tenant` is last because it was added after the other four (#204) and a cookie already sitting
+ * in someone's browser has to keep parsing — `split("|")` yields undefined for a missing trailing
+ * field, and the proxy falls back to the same "dev" default makeIdentity uses.
+ */
 function writeCookie(identity: DevIdentity | null) {
   if (!identity) {
     document.cookie = `${COOKIE_NAME}=; Max-Age=0; path=/`;
     return;
   }
   const value = encodeURIComponent(
-    [identity.subject, identity.roles, identity.name, identity.email].join("|"),
+    [identity.subject, identity.roles, identity.name, identity.email, identity.tenant].join("|"),
   );
   document.cookie = `${COOKIE_NAME}=${value}; path=/; SameSite=Lax`;
 }

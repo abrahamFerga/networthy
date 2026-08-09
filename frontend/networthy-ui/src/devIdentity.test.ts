@@ -103,8 +103,8 @@ describe("the cookie contract with vite.config.ts", () => {
   const parseAsViteProxyDoes = () => {
     const match = /(?:^|;\s*)plenipo-dev-user=([^;]+)/.exec(document.cookie);
     if (!match) return null;
-    const [subject, roles, name, email] = decodeURIComponent(match[1]).split("|");
-    return { subject, roles, name, email };
+    const [subject, roles, name, email, tenant] = decodeURIComponent(match[1]).split("|");
+    return { subject, roles, name, email, tenant };
   };
 
   it("writes the pipe-delimited shape the proxy expects", () => {
@@ -114,7 +114,17 @@ describe("the cookie contract with vite.config.ts", () => {
       roles: "household-admin",
       name: "Ana",
       email: "ana@dev.local",
+      tenant: "dev",
     });
+  });
+
+  it("carries a non-default tenant across to the proxy's side of the contract", () => {
+    // #204. `tenant` is the fifth field and the whole point of the change: without it in the
+    // cookie, the proxy has nothing to stamp X-Dev-Tenant from, and the two delivery paths this
+    // file's header comment claims "cannot disagree" disagreed — fetch sent the chosen tenant,
+    // the proxy did not. Written LAST so a cookie from before this change still parses.
+    signIn(makeIdentity({ subject: "ana", tenant: "acme", roles: "household-admin", name: "Ana" }));
+    expect(parseAsViteProxyDoes()?.tenant).toBe("acme");
   });
 
   it("survives a display name containing the cookie delimiter", () => {
@@ -129,6 +139,7 @@ describe("the cookie contract with vite.config.ts", () => {
       roles: "household-admin,household-member",
       name: "Ana; Ruiz",
       email: "ana@dev.local",
+      tenant: "dev",
     });
   });
 
