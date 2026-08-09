@@ -150,6 +150,20 @@ function stampQuery(url: URL, identity: DevIdentity): URL {
  * renders — the shell fires its first requests during mount.
  */
 export function installIdentityInterceptor() {
+  // Bring the cookie up to date with the stored identity first. A cookie written before `tenant`
+  // existed (#204) still parses, but the proxy reads `tenant === undefined`, falls back to "dev",
+  // and OVERWRITES the correct X-Dev-Tenant this interceptor is about to set — the identity bar
+  // says `acme` while every request lands in `dev`. Only signIn/signOut used to write the cookie,
+  // so nothing else would ever repair it short of signing out and back in.
+  //
+  // Conditional on purpose: the cookie-only workflow vite.config.ts documents has no localStorage
+  // behind it, and writing a null identity here would expire that cookie on every reload.
+  //
+  // Deliberately OUTSIDE the guard below — that guard exists to stop fetch/WebSocket being patched
+  // twice, not to make this refresh a one-shot, and keeping it out is what lets a test call boot.
+  const stored = readIdentity();
+  if (stored) writeCookie(stored);
+
   const win = window as unknown as Record<PropertyKey, unknown>;
   if (win[PATCHED]) return;
   win[PATCHED] = true;

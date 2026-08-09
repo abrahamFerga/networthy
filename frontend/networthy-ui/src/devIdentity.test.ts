@@ -127,6 +127,39 @@ describe("the cookie contract with vite.config.ts", () => {
     expect(parseAsViteProxyDoes()?.tenant).toBe("acme");
   });
 
+  it("rewrites a legacy four-field cookie at boot, so the proxy cannot overwrite a chosen tenant", () => {
+    // #221 review. `tenant` being the LAST field makes an old cookie *parse*, which is not the same
+    // as it being *right*: writeCookie ran only from signIn/signOut, so anyone signed into `acme`
+    // before the fifth field existed kept a four-field cookie. vite.config.ts:53 then reads
+    // `tenant === undefined`, stamps `X-Dev-Tenant: "dev"` and OVERWRITES the interceptor's correct
+    // `acme` — the identity bar still says acme while every request lands in dev. Before #204 the
+    // proxy left that header alone, so this PR would have INTRODUCED the silent tenant mismatch it
+    // exists to eliminate, in the one tool you reach for to reproduce a cross-tenant bug.
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify(makeIdentity({ subject: "ana", tenant: "acme", roles: "household-admin", name: "Ana" })),
+    );
+    document.cookie =
+      `plenipo-dev-user=${encodeURIComponent("ana|household-admin|Ana|ana@dev.local")}; path=/`;
+    // The legacy shape, exactly as it sits in a browser that signed in before this change.
+    expect(parseAsViteProxyDoes()?.tenant).toBeUndefined();
+
+    installIdentityInterceptor();
+
+    expect(parseAsViteProxyDoes()?.tenant).toBe("acme");
+  });
+
+  it("leaves a cookie-only identity alone at boot when nothing is stored", () => {
+    // The cookie-only workflow vite.config.ts documents (set the cookie by hand, reload) has no
+    // localStorage behind it. Refreshing from a null identity would EXPIRE that cookie and sign the
+    // developer out on every reload — so the refresh must be conditional, not unconditional.
+    document.cookie = `plenipo-dev-user=${encodeURIComponent("maria|household-member|Maria")}; path=/`;
+
+    installIdentityInterceptor();
+
+    expect(parseAsViteProxyDoes()?.subject).toBe("maria");
+  });
+
   it("survives a display name containing the cookie delimiter", () => {
     // This is what makes encodeURIComponent in writeCookie load-bearing. Unencoded, the browser
     // ends the cookie value at the ';' — the name is truncated AND the email disappears entirely,
