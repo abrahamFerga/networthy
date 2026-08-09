@@ -604,7 +604,13 @@ public sealed class FinanceModule : IModule
         [
             new TabDescriptor
             {
-                Id = "chat", Label = "Chat", Route = "/finance/chat", Icon = "message-circle", Order = 0,
+                // "/chat", NOT "/finance/chat" — this one tab breaks the module's route prefix on
+                // purpose (#179). The shell reserves the tab id "chat": it drops the module's own
+                // descriptor and substitutes its built-in `{ id: "chat", route: "/chat" }`, and it
+                // registers the chat page at "/chat" alone. Publishing "/finance/chat" matched no
+                // route, so the shell's `*` fallback silently redirected to the Home tab — a client
+                // trusting the manifest landed on Overview with no 404 and no notice.
+                Id = "chat", Label = "Chat", Route = "/chat", Icon = "message-circle", Order = 0,
                 Placeholder = "Nothing here yet - pick one of the starters, or just ask in your own words. " +
                               "Reading and summarising happen straight away; anything that changes your books " +
                               "waits for your approval.",
