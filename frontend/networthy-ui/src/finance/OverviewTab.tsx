@@ -13,13 +13,31 @@ import { apiGet, ProgressBar, StatTile, type ModuleTabProps } from "@plenipo/ui"
 interface Overview {
   asOf: string;
   currencyCode: string;
+  /**
+   * Null ONLY when the household has no budgets this month — the one state in which the empty
+   * copy below is a true sentence. When budgets exist but none could be expressed in the
+   * household currency, this is an object whose `amount` is null and whose `excluded` names them
+   * (issue #214).
+   */
   safeToSpend: {
-    amount: number;
+    amount: number | null;
     currencyCode: string;
     month: string;
     budgetCount: number;
     totalTarget: number;
     totalSpent: number;
+    /** Foreign budgets folded into the figure through the household's own saved rates. */
+    converted?: {
+      currencyCode: string;
+      target: number;
+      spent: number;
+      convertedTarget: number;
+      convertedSpent: number;
+      rateToDefault: number;
+      budgetCount: number;
+    }[];
+    /** Budgets left OUT of the figure because the household saved no rate for that currency. */
+    excluded?: { currencyCode: string; target: number; spent: number; budgetCount: number }[];
   } | null;
   netWorth: {
     total: number;
@@ -74,7 +92,22 @@ export function OverviewTab({ tab }: ModuleTabProps) {
   if (isError) return <p className="text-sm text-red-600">{(error as Error).message}</p>;
 
   const o = data!;
-  const monthSpent = o.safeToSpend?.totalSpent;
+
+  // Issue #214: a budget in a currency the household never priced cannot be folded into the
+  // month's figures — but the tiles used to render that as "No budgets yet this month" while the
+  // Budgets card listed the budget a few pixels away. `amount === null` with a populated `excluded`
+  // is the server saying "there ARE budgets and no honest combined number", which is a different
+  // sentence from "there are no budgets", and has to read differently on screen.
+  const sts = o.safeToSpend;
+  const budgetsCombined = sts != null && sts.amount != null;
+  const budgetsExcluded = sts?.excluded ?? [];
+  const exclusionNote =
+    budgetsExcluded.length > 0
+      ? `excludes ${budgetsExcluded
+          .map((e) => `${money(e.target, e.currencyCode)} in ${e.currencyCode}`)
+          .join(", ")}: no saved exchange rate`
+      : null;
+  const cannotCombineCaption = `Can't combine currencies — ${exclusionNote}. Save a rate in Settings and this becomes a real number.`;
 
   // Issue #173: a balance in a currency the household never priced is left OUT of net worth
   // rather than guessed at — so the tile has to SAY so. An understated total that looks complete
@@ -91,12 +124,17 @@ export function OverviewTab({ tab }: ModuleTabProps) {
     <div className="space-y-4">
       {/* Summary row: the hero number first, context beside it. */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {o.safeToSpend ? (
+        {budgetsCombined ? (
           <StatTile
             label="Safe to spend"
-            value={money(o.safeToSpend.amount, o.safeToSpend.currencyCode)}
-            caption={`left across ${o.safeToSpend.budgetCount} budget${o.safeToSpend.budgetCount === 1 ? "" : "s"} this month`}
+            value={money(sts!.amount!, sts!.currencyCode)}
+            caption={
+              `left across ${sts!.budgetCount} budget${sts!.budgetCount === 1 ? "" : "s"} this month` +
+              (exclusionNote ? ` — ${exclusionNote}` : "")
+            }
           />
+        ) : sts != null ? (
+          <StatTile label="Safe to spend" value="—" caption={cannotCombineCaption} />
         ) : (
           <StatTile
             label="Safe to spend"
@@ -112,8 +150,17 @@ export function OverviewTab({ tab }: ModuleTabProps) {
         />
         <StatTile
           label="Spent this month"
-          value={monthSpent != null ? money(monthSpent, o.currencyCode) : "—"}
-          caption={monthSpent != null ? `of ${money(o.safeToSpend!.totalTarget, o.currencyCode)} budgeted` : "No budgets yet this month."}
+          value={budgetsCombined ? money(sts!.totalSpent, o.currencyCode) : "—"}
+          caption={
+            budgetsCombined
+              ? `of ${money(sts!.totalTarget, o.currencyCode)} budgeted` +
+                (exclusionNote ? ` — ${exclusionNote}` : "")
+              : sts != null
+                ? cannotCombineCaption
+                : // Only reachable now when it is TRUE: the server sends null here solely for a
+                  // household with no budgets at all (#214).
+                  "No budgets yet this month."
+          }
         />
       </div>
 
