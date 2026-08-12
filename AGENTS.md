@@ -116,13 +116,17 @@ This repo's own docs are wrong in one place, so the trust ranking is
 - The module id is `finance`. Networthy's roles are `household-admin` and `household-member`; a
   household is a tenant.
 <!-- harness-gap: plenipo-agents#16 — remove when /plenipo:setup ships a CI reviewer that labels -->
-- **`agent:approved` is applied in CI here, not by `/plenipo:ship`.** The merge surface installed by
-  `/plenipo:setup` gates on that label but ships nothing able to apply it, so a repo running the
-  stock assets merges only while someone is awake at a laptop. Networthy diverges: the
-  `product-pr-intent-review` workflow records the verdict as a label, and `agent-approval-reset.yml`
-  expires it on `synchronize` because `add-labels` can only add. Dependabot also has its own lane in
-  `merge-gate.mjs`, keyed on the PR author rather than the branch prefix. Do not "restore" any of
-  this to match the skill — it is `plenipo-agents#16`, and the divergence goes away when that closes.
+- **There is no approval label any more.** `plenipo-agents#16` — the gap that made this repo diverge,
+  because `/plenipo:setup` shipped a merger gating on `agent:approved` and nothing able to apply it —
+  closed on 2026-08-10, and the reconciled assets are its resolution. Merge authority is now the
+  author's identity in `workflow.json` → `autonomy.trustedAuthors`, checked by `merge-gate.mjs`, not a
+  mutable label anyone with write access could add. An empty list means nothing merges, which is the
+  intended fail-closed default. `agent-approval-reset.yml` is left in place but is now **vestigial**:
+  nothing reads the label it expires, so it can be deleted in a follow-up.
+- **Two claims that used to live here were wrong and are gone.** There is no Dependabot lane in
+  `merge-gate.mjs` keyed on PR author — `grep -ri dependabot .github/` returns nothing outside test
+  fixtures, and it is not clear the lane ever existed. A stale fact in this file is worse than a
+  missing one, because agents trust it without checking.
 
 ## Where to look next
 
