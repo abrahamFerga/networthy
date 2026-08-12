@@ -131,6 +131,13 @@ X-Dev-Roles:   system_admin
 (a household is a tenant). To test RBAC, send the narrower role and assert the 403 — that is the
 point of the header being per-request.
 
+> **`X-Dev-Roles` is not optional here (#227).** The platform's dev-auth reads an absent roles
+> header as `system_admin`; Networthy overrides that to *no roles*, so a request that omits it gets
+> `permissions: []` and **403**, not `*`. Omit it and you will be debugging a 403 that is working as
+> intended. Note also that `curl -H "X-Dev-Roles: "` **drops** the header rather than sending it
+> empty, so curl cannot tell the empty case from the absent one — use a raw HTTP client to
+> distinguish them.
+
 ## 4. Exercise it
 
 ### The committed request catalog

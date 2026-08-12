@@ -80,7 +80,12 @@ public static class DevHubIdentityShim
     /// that configures Auth:Authority/Audience authenticates with JwtBearer, which already reads
     /// <c>?access_token</c> for hub paths — this shim must not touch it.
     /// </summary>
-    private static async Task<bool> IsDevAuthActiveAsync(HttpContext context)
+    /// <remarks>
+    /// Internal rather than private because <see cref="DevRolesDefaultShim"/> needs the identical
+    /// guard: two copies of "is the Dev scheme what will authenticate this request" would be two
+    /// chances to answer it differently, and both shims rewrite auth headers on that answer.
+    /// </remarks>
+    internal static async Task<bool> IsDevAuthActiveAsync(HttpContext context)
     {
         var schemes = context.RequestServices.GetRequiredService<IAuthenticationSchemeProvider>();
         var scheme = await schemes.GetDefaultAuthenticateSchemeAsync();

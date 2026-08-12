@@ -143,6 +143,12 @@ app.Use(async (context, next) =>
 // DevHubIdentityShim.
 app.UseDevHubIdentityShim();
 
+// #227: a request that OMITS X-Dev-Roles asserts no roles, and must be granted nothing — the
+// sibling of the present-but-empty case #217 closed. MUST stay AFTER UseDevHubIdentityShim (which
+// promotes the hub-path query identity into headers) and ahead of RunPlenipoPlatformAsync() —
+// see DevRolesDefaultShim.
+app.UseDevRolesDefaultShim();
+
 // Straighten out AI seams in the frozen platform package (default-model saves, the unfiltered
 // model catalog, and deployment-only provider reporting) — see PlenipoAiShims.
 app.UsePlenipoAiShims();

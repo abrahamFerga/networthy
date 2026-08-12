@@ -22,9 +22,10 @@ public sealed class RoleLessPrincipalTests(IntegrationFixture fixture)
 {
     /// <summary>
     /// A client whose <c>X-Dev-Roles</c> is PRESENT but asserts no role — how a real IdP presents
-    /// an unscoped principal. Omitting the header entirely is a DIFFERENT case: dev-auth reads
-    /// absence as the system_admin convenience default (<c>["*"]</c>), which would prove nothing
-    /// about RBAC.
+    /// an unscoped principal. Omitting the header entirely reaches the same place by a different
+    /// road (see <see cref="AbsentRolesClient"/>): dev-auth reads absence as its system_admin
+    /// convenience default, and <c>DevRolesDefaultShim</c> is what closes that. Both cases are
+    /// tested here because only one of them is governed by <c>Auth:DefaultRole</c>.
     ///
     /// The value is a single space, not <c>""</c>, and that is load-bearing: HttpClient drops a
     /// header whose value is empty, silently turning this into the omitted-header case — measured,
@@ -63,6 +64,50 @@ public sealed class RoleLessPrincipalTests(IntegrationFixture fixture)
 
         var response = await client.GetAsync(route);
 
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    /// <summary>
+    /// A client that OMITS <c>X-Dev-Roles</c> altogether (issue #227) — the sibling case #217 left
+    /// open. Absence asserts no roles just as surely as a present-but-empty value does, and it is
+    /// also the exact state a header-stripping proxy produces (the failure mode #204 is about).
+    ///
+    /// Nothing is added rather than adding an empty value, because <c>HttpClient</c> drops an empty
+    /// header and the two would be indistinguishable on the wire — which is the same reason
+    /// <c>curl -H "X-Dev-Roles: "</c> cannot reproduce either case.
+    /// </summary>
+    private HttpClient AbsentRolesClient(string subject)
+    {
+        var client = fixture.Factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Dev-Subject", subject);
+        client.DefaultRequestHeaders.Add("X-Dev-Tenant", "dev");
+        return client;
+    }
+
+    [Fact]
+    public async Task AbsentRolesHeader_IsGrantedNothing()
+    {
+        using var client = AbsentRolesClient("it-absent-roles-permissions");
+
+        var me = await client.GetFromJsonAsync<JsonElement>("/api/platform/me");
+        var permissions = me.GetProperty("permissions").EnumerateArray()
+            .Select(p => p.GetString()).ToList();
+
+        // Before the fix this returned ["*"] — dev-auth's system_admin convenience default.
+        Assert.Empty(permissions);
+    }
+
+    [Theory]
+    [InlineData("/api/finance/accounts")]
+    [InlineData("/api/finance/transactions")]
+    [InlineData("/api/finance/overview")]
+    public async Task AbsentRolesHeader_CannotReadTheHousehold(string route)
+    {
+        using var client = AbsentRolesClient("it-absent-roles-reads");
+
+        var response = await client.GetAsync(route);
+
+        // Before the fix this was 200 with the full household.
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
