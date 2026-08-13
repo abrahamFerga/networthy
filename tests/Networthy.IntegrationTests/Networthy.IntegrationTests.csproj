@@ -16,6 +16,17 @@
          short of the real handshake reproduces. -->
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.10" />
     <PackageReference Include="Testcontainers.PostgreSql" Version="4.13.0" />
+    <!-- Transitive pin, not a dependency we use directly (issue #230). Testcontainers 4.13.0 —
+         the newest release as of this commit — resolves SSH.NET 2025.1.0, which carries the High
+         advisory GHSA-q939-rpr3-3284 (ScpClient recursive download allows arbitrary file write
+         via server-controlled SCP filenames; affects <= 2025.1.0, first patched 2026.0.0). That
+         red-lines `Audit .NET dependencies` on every PR in the repo, so nothing can merge.
+         Bumping Testcontainers is the preferred fix and is unavailable — 4.13.0 is already the
+         latest — so this raises the transitive package directly to the patched version instead
+         of suppressing the advisory. REMOVE THIS once a Testcontainers release resolves
+         SSH.NET >= 2026.0.0 on its own; the pin is then dead weight that silently freezes the
+         version. Nothing here calls ScpClient, but the audit is repo-wide and correct to fail. -->
+    <PackageReference Include="SSH.NET" Version="2026.0.0" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
