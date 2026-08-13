@@ -395,6 +395,13 @@ X-Dev-Roles: {{roles}}
 ### NetWorthMath.Combine get_net_worth uses, so the two never disagree): `converted`
 ### shows each rate applied, `excluded` names any currency with no saved rate — left
 ### out of `total` on purpose, never guessed, and never silently.
+### safeToSpend follows the SAME policy for budgets (#214) and carries the same two
+### lists. It is null ONLY when the household has no budgets this month; when budgets
+### exist that cannot be expressed in the household currency, it is an object whose
+### `amount` is null and whose `excluded` names them — so the screen can state the
+### reason instead of claiming "No budgets yet this month" beside a listed budget.
+### To see that state: POST /settings with a different defaultCurrencyCode (below),
+### re-run this, then POST /settings/rates for the budget's currency and re-run again.
 GET {{baseUrl}}/api/finance/overview
 X-Dev-Subject: {{subject}}
 X-Dev-Tenant: {{tenant}}

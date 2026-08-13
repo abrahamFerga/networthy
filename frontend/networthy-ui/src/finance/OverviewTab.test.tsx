@@ -109,6 +109,70 @@ describe("OverviewTab (household command center)", () => {
     expect(screen.getByText(/£500\.00/)).toBeTruthy();
   });
 
+  // Issue #214: with the household default currency moved away from the currency its budgets were
+  // created in, the spending tiles asserted "No budgets yet this month" directly beside a card
+  // listing one. The empty state is only allowed to be claimed when it is TRUE — otherwise the
+  // screen has to say what it could not combine, the way the net-worth tile already does.
+  it("never claims there are no budgets while listing one — it says what it could not combine", async () => {
+    renderOverview({
+      ...payload,
+      currencyCode: "MXN",
+      safeToSpend: {
+        amount: null,
+        currencyCode: "MXN",
+        month: "2026-07",
+        budgetCount: 0,
+        totalTarget: 0,
+        totalSpent: 0,
+        converted: [],
+        excluded: [{ currencyCode: "USD", target: 400, spent: 82.15, budgetCount: 1 }],
+      },
+      budgets: [{ categoryName: "Groceries", spent: 82.15, target: 400, currencyCode: "USD" }],
+    });
+
+    // The budget is listed…
+    expect(await screen.findByText("Groceries")).toBeTruthy();
+    // …so the contradiction must be gone: this copy may not appear beside it.
+    expect(screen.queryByText(/No budgets yet this month/)).toBeNull();
+    expect(screen.queryByText(/No budgets for this month yet/)).toBeNull();
+    // …and the reason is stated, in the same idiom as the net-worth exclusion.
+    expect(screen.getAllByText(/no saved exchange rate/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/\$400\.00 in USD/).length).toBeGreaterThan(0);
+  });
+
+  it("renders the converted figure once the household prices the foreign currency", async () => {
+    renderOverview({
+      ...payload,
+      currencyCode: "MXN",
+      safeToSpend: {
+        amount: 6357,
+        currencyCode: "MXN",
+        month: "2026-07",
+        budgetCount: 1,
+        totalTarget: 8000,
+        totalSpent: 1643,
+        converted: [
+          {
+            currencyCode: "USD",
+            target: 400,
+            spent: 82.15,
+            convertedTarget: 8000,
+            convertedSpent: 1643,
+            rateToDefault: 20,
+            budgetCount: 1,
+          },
+        ],
+        excluded: [],
+      },
+      budgets: [{ categoryName: "Groceries", spent: 82.15, target: 400, currencyCode: "USD" }],
+    });
+
+    expect(await screen.findByText("MX$6,357.00")).toBeTruthy();
+    // Nothing was left out, so nothing is disclaimed — the note appears only when it is earned.
+    expect(screen.queryByText(/no saved exchange rate/)).toBeNull();
+    expect(screen.queryByText(/No budgets yet this month/)).toBeNull();
+  });
+
   it("keeps a fully-funded goal reading as success, never as the over-budget alarm", async () => {
     renderOverview({
       ...payload,
