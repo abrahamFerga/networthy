@@ -40,9 +40,15 @@ dotnet run --project src/Networthy.AppHost
 ```
 
 Brings up Postgres (`plenipo-platform` + `plenipo-audit`), Redis, the API (`networthy-api`), and —
-when `pnpm` is on PATH — the `networthy-ui` Vite dev server, then opens the Aspire dashboard. Take
-the API's external HTTP endpoint from the `networthy-api` resource; that base URL is what every call
-below targets.
+when `pnpm` is on PATH — the `networthy-ui` Vite dev server, then opens the Aspire dashboard. The
+port is assigned dynamically, so **read the base URL, never guess it**:
+
+```bash
+aspire describe networthy-api        # the URLs column is the base every call below targets
+```
+
+Guessing costs more than the lookup: another Plenipo product on this machine will answer a guessed
+port with a cheerful `Healthy` and a completely different module catalog (see Mode B's port note).
 
 **`dotnet run` and `aspire run` are not equivalent.** Both start the stack, but an AppHost launched
 with `dotnet run` is **invisible to the Aspire MCP**, which is the entire agent-readable
@@ -65,26 +71,60 @@ dotnet build Networthy.slnx
 docker rm -f networthy-pg-test 2>$null
 docker run -d --name networthy-pg-test -e POSTGRES_PASSWORD=postgres -p 5432:5432 pgvector/pgvector:pg17
 
-$bin = "src/Networthy.Host/bin/Debug/net10.0"
-$pg  = "Host=127.0.0.1;Port=5432;Database={0};Username=postgres;Password=postgres"
+$proj = "src/Networthy.Host"                  # ContentRoot — the project folder, NOT bin. See below.
+$bin  = "$proj/bin/Debug/net10.0"
+$port = 8194                                  # Networthy's own port. NOT 8094. See below.
+$pg   = "Host=127.0.0.1;Port=5432;Database={0};Username=postgres;Password=postgres"
 $env:ASPNETCORE_ENVIRONMENT = "Development"
-$api = Start-Process dotnet -WorkingDirectory $bin -PassThru -ArgumentList @(
+$api = Start-Process dotnet -WorkingDirectory $proj -PassThru -ArgumentList @(
   "$PWD/$bin/Networthy.Host.dll",
   "--ConnectionStrings:plenipo-platform=$($pg -f 'networthy_platform')",
   "--ConnectionStrings:plenipo-audit=$($pg -f 'networthy_audit')",
-  "--urls=http://127.0.0.1:8094")
+  "--urls=http://127.0.0.1:$port")
 
-1..60 | ForEach-Object { Start-Sleep 2; try { if ((iwr http://127.0.0.1:8094/alive -UseBasicParsing).StatusCode -eq 200) { "ready"; break } } catch {} }
+# Wait for the process, then PROVE IT IS NETWORTHY. /alive cannot tell you that — see the port note.
+# A real `foreach`, NOT `1..60 | ForEach-Object`: `break` inside ForEach-Object is not a loop break,
+# it terminates the whole script, so the cleanup at the bottom never runs — see the leak note below.
+foreach ($i in 1..60) {
+  Start-Sleep 2
+  try { if ((iwr "http://127.0.0.1:$port/alive" -UseBasicParsing).StatusCode -eq 200) { break } } catch {}
+}
+$mods = (iwr "http://127.0.0.1:$port/api/platform/modules" -UseBasicParsing).Content
+if ($mods -notmatch '"id"\s*:\s*"finance"') { throw "Port $port is not Networthy - got: $mods" }
+"ready"
 
 # ... exercise it (§4) ...
 
 Stop-Process -Id $api.Id -Force; docker rm -f networthy-pg-test
 ```
 
-> **The gotcha that costs an hour:** `Start-Process` must set **`-WorkingDirectory` to the bin
-> folder**. Otherwise ASP.NET's ContentRoot never finds `appsettings.Development.json`, the chat
-> provider silently falls back to `None`, and every turn answers
-> `RUN_ERROR "AI provider is not configured"`. Or pass `--Ai:Provider=Mock` explicitly.
+> **`-WorkingDirectory` must be the project folder `src/Networthy.Host`, never the bin folder.**
+> ContentRoot *is* the working directory, and it has to resolve **two** things:
+> `appsettings.Development.json` **and** `wwwroot/`. The bin folder has the first but **not** the
+> second — `wwwroot/` is not copied to the build output — so a host started there serves a perfectly
+> healthy API (`/alive` → 200, `finance` module loaded, AG-UI turns fine) and **404s on `/app`**.
+> That is no web UI at all, which presents as "the whole product is broken" when nothing is broken.
+> The project folder resolves both. If you ever must run from somewhere else, pass
+> `--Ai:Provider=Mock` explicitly, or the chat provider silently falls back to `None` and every turn
+> answers `RUN_ERROR "AI provider is not configured"`.
+
+> **Why the readiness wait is a `foreach` and not `1..60 | ForEach-Object`.** `ForEach-Object` is a
+> cmdlet, not a loop, so a `break` inside it has no loop to break out of and Windows PowerShell
+> terminates the **entire script** instead — silently, with exit code 0. The version of this snippet
+> that used `ForEach-Object` therefore never reached its own last line, so
+> `Stop-Process` / `docker rm -f` never ran and every single run **leaked a live host holding the
+> port**. That is the mechanism behind most "something is already listening / a stale process is
+> answering" reports here, including the sibling-product mix-up below. Verified on PowerShell
+> 5.1.26100: `1..3 | ForEach-Object { break }; 'after'` never prints `after`.
+
+> **Never assume a port, and never use 8094.** `8094` is the Mode B default in *several* Plenipo
+> products' runbooks — `auditworthy` and `casewell` both claim it — so on a machine holding more than
+> one checkout you either fail to bind or, far worse, silently drive a **different product**. A
+> sibling host answers `/alive` with `Healthy` exactly as Networthy does; only
+> `/api/platform/modules` tells them apart, because Networthy publishes `finance` and Auditworthy
+> publishes `compliance`. That is why the snippet gates on the module list rather than on `/alive`:
+> `POST /api/agui/finance` against the wrong host returns `RUN_ERROR "Unknown module"`, which is
+> indistinguishable from a broken chat until you check which product answered.
 
 ### Mode C — the released image (what a self-hoster runs)
 
@@ -340,8 +380,12 @@ means the diagnosis is wrong, not the fix.
 
 | Symptom | Cause / fix |
 |---|---|
-| `RUN_ERROR "AI provider is not configured"` | ContentRoot didn't load dev appsettings — set `-WorkingDirectory` to the bin folder, or pass `--Ai:Provider=Mock` |
-| `RUN_ERROR "Unknown module"` | the module id is `finance` |
+| `RUN_ERROR "AI provider is not configured"` | ContentRoot didn't load dev appsettings — set `-WorkingDirectory` to the **project** folder `src/Networthy.Host`, or pass `--Ai:Provider=Mock` |
+| `RUN_ERROR "Unknown module"` | either the module id is not `finance`, **or you are talking to a different Plenipo product** — check `GET /api/platform/modules` before blaming the chat |
+| **The whole UI is missing — `/app` 404s, but the API answers fine** | `-WorkingDirectory` was the bin folder, which has no `wwwroot/`. Use the project folder `src/Networthy.Host` (§2 Mode B) |
+| `/alive` says `Healthy` but nothing behaves like Networthy | a sibling product (Auditworthy, Casewell) is on that port — they all defaulted to `8094`. Confirm with `/api/platform/modules` → must list `finance` |
+| A Mode B script exits 0 partway through, skipping its own cleanup and leaving the host running | `break` inside `1..N \| ForEach-Object` terminates the whole script — it is a cmdlet, not a loop. Use a real `foreach` loop (§2 Mode B) |
+| Port already in use on a fresh Mode B run | a previous run leaked its host — the `ForEach-Object` trap above. `Get-Process Networthy.Host \| Stop-Process -Force`, then use the fixed snippet |
 | No `TOOL_CALL_START` in a chat test | the Mock routes by name token — your prompt must contain the tool's name words |
 | A chat-driven write "didn't happen" | the Mock filled a required string with `"example"` and the tool rejected it. Assert the platform contract, not the row |
 | Aspire: containers up, API never starts, stack hangs after the banner | stale Postgres data volume with a different baked-in password. `docker volume ls`, then `docker volume rm <name>` — dev data is throwaway |

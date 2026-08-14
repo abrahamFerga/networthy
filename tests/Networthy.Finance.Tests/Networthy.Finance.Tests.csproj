@@ -18,4 +18,10 @@
     <ProjectReference Include="..\..\src\Networthy.Connectors.Plaid\Networthy.Connectors.Plaid.csproj" />
   </ItemGroup>
 
+  <!-- RUNBOOK §2's launch snippets are asserted for real (RunbookModeBGuardTests), so the file
+       under test is the one at the repo root, not a copy that can drift from it. -->
+  <ItemGroup>
+    <Content Include="..\..\RUNBOOK.md" Link="RUNBOOK.md" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
