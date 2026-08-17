@@ -14,7 +14,7 @@
     <!-- A real SignalR client, so /hubs/agent is exercised over an actual WebSocket rather than
          simulated: issue #172 was a defect in the upgrade request's authentication, which nothing
          short of the real handshake reproduces. -->
-    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.10" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.11" />
     <PackageReference Include="Testcontainers.PostgreSql" Version="4.13.0" />
     <!-- Transitive pin, not a dependency we use directly (issue #230). Testcontainers 4.13.0 —
          the newest release as of this commit — resolves SSH.NET 2025.1.0, which carries the High
