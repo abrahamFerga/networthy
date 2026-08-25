@@ -30,9 +30,18 @@ minimumReleaseAgeExclude:
 
 # Keep transitive test-runner copies on patched builds too. Vitest accepts Vite 6 but pnpm can
 # otherwise retain an older compatible Vite 5 snapshot from the previous lockfile.
+#
+# nanoid is pulled in only transitively, by postcss — which reaches us down eleven paths
+# (@vitejs/plugin-react>vite>postcss, autoprefixer>postcss, and postcss direct). GHSA-2v37-7h3g-55p8
+# rates <3.3.18 high: a custom generator can loop indefinitely when size is zero. postcss's range is
+# ^3.3.x, so nothing here needs a major bump — 3.3.18 is the patched build inside the range every
+# consumer already asks for, and an override is what pulls all eleven paths onto it at once.
+# This is an override rather than an auditConfig waiver deliberately: a waiver is for an advisory
+# with no fixed release, and this one has a fix.
 overrides:
   vite: 6.4.3
   esbuild: 0.25.12
+  nanoid: 3.3.18
 
 # Waived advisories: three react-router 6.x GHSAs with NO fixed 6.x release — the open-redirect
 # pair is patched only in 7.18+, and the 6.30.5 the XSS advisory names is unpublished. This app
