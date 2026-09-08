@@ -870,10 +870,9 @@ public sealed class FinanceModule : IModule
                 Columns =
                 [
                     new("fileName", "Statement"),
-                    // TODO(plenipo#66): make this column's value navigable once TabColumn can
-                    // declare a link — today the reviewer can read the destination account but has
-                    // to find it on the Accounts tab by hand.
-                    new("accountName", "Posts into"),
+                    // The destination account is somewhere to GO: approving this batch posts money
+                    // into it, so the reviewer can open it before deciding (plenipo#66, alpha.29).
+                    new("accountName", "Posts into") { LinkTemplate = "/finance/accounts" },
                     new("createdAt", "Imported"),
                     new("lineCount", "Lines"), new("totals", "Totals (−/+)"),
                     new("status", "Status"),
@@ -1739,18 +1738,16 @@ public sealed class FinanceModule : IModule
                     }
                 }
 
-                // TODO(plenipo#65): drop the shouting once a detail section can declare
-                // tone = "warning" / "danger". The shell renders every section in the same grey, so
-                // an extraction failure and a table of transaction rows are typographically
-                // identical — and the reviewer's next click posts money into a ledger. Severity has
-                // nowhere to live but the heading string until the platform ships tone.
+                // Severity is carried by the section's tone (plenipo#65, alpha.29), not by shouting
+                // in the heading: the reviewer's next click posts money into a ledger, so an
+                // extraction failure must not be typographically identical to a table of rows.
                 if (batch.Status == "failed")
                 {
-                    sections.Insert(0, new { heading = "⚠ EXTRACTION FAILED — NOTHING WAS IMPORTED", text = batch.FailureReason });
+                    sections.Insert(0, new { heading = "Extraction failed — nothing was imported", tone = "danger", text = batch.FailureReason });
                 }
                 else if (batch.ReviewWarning is { Length: > 0 } warning)
                 {
-                    sections.Insert(0, new { heading = "⚠ REVIEW WARNING — CHECK BEFORE APPROVING", text = warning });
+                    sections.Insert(0, new { heading = "Review warning — check before approving", tone = "warning", text = warning });
                 }
                 if (batch.Status == "needs-account")
                 {
