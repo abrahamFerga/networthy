@@ -1,0 +1,8 @@
+{
+  "//": "A commit a human's own push produced: `ci.yml` ran normally. Also carries one FAILURE, deliberately — `ensure-base-checked` must not dispatch here even though the base is red, because whether the base is green is `merge-gate.mjs`'s question, not this script's. Dispatching on a red base would re-run CI every fifteen minutes forever.",
+  "total_count": 2,
+  "check_runs": [
+    { "name": "Build & test", "status": "completed", "conclusion": "success" },
+    { "name": "safe_outputs", "status": "completed", "conclusion": "failure" }
+  ]
+}
