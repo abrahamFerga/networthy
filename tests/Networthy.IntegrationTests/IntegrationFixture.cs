@@ -44,7 +44,11 @@ public sealed class IntegrationFixture : PlenipoHostFixture<Program>
         WriteTool: "create_account",
         NarrowRole: "household-member",
         ReadEndpoints: ["/api/finance/transactions", "/api/finance/budgets"],
-        WritePrompt: WriteTurn);
+        WritePrompt: WriteTurn)
+    {
+        // The starter taxonomy every household gets on first read; the tenancy pack asserts those rows are the tenant's own (plenipo#208).
+        SeededReadEndpoints = ["/api/finance/categories"],
+    };
 
     /// <summary>
     /// The turn the kit's approval invariants (S02–S06) send to park <c>create_account</c>.
