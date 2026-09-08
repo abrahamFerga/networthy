@@ -1,6 +1,4 @@
 // @vitest-environment jsdom
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -8,20 +6,17 @@ import { TransactionsTab } from "./TransactionsTab";
 import type { ModuleTabProps } from "@plenipo/ui";
 
 /**
- * The shipped shim itself, not a copy of it — editing or deleting the file moves these tests.
- * Read from disk rather than imported: vitest runs with CSS processing off, so a `?raw` import
- * of a stylesheet resolves to an empty string and would silently assert nothing.
- */
-const shimCss = readFileSync(join(process.cwd(), "src", "table-scroll-shim.css"), "utf8");
-
-/**
- * Issue #152. Both halves of this file are about ONE screen contract: a household member must be
+ * Issue #152. Every test in this file is about ONE screen contract: a household member must be
  * able to reach every column of a ledger the shell rendered, at any viewport width.
  *
- * The rendering is entirely @plenipo/ui's — our tabs only choose a `dataEndpoint` and compose
- * `GenericTab` — so these tests assert against the shell's real DOM on purpose. If the shell
- * changes the wrapper it stops matching, and that is the signal to unwind the shim rather than a
- * false green.
+ * The rendering is entirely @plenipo/ui's (our tabs only choose a `dataEndpoint` and compose
+ * `GenericTab`), so these tests assert against the shell's real DOM on purpose.
+ *
+ * This used to be a shim guard. @plenipo/ui wrapped its tables in `overflow-hidden`, which clips
+ * both axes, and `src/table-scroll-shim.css` re-opened the horizontal one. plenipo#112 fixed it at
+ * the source in @plenipo/ui 0.1.0-alpha.29 and the shim is deleted, so what is asserted now is the
+ * contract the product actually cares about rather than the presence of our patch: with no
+ * stylesheet of ours installed at all, the box the shell wraps its table in scrolls itself.
  */
 
 const tab: ModuleTabProps["tab"] = {
@@ -89,19 +84,39 @@ function installViewport(initialWidth: number) {
 }
 
 /**
- * The two rules that decide whether an overflowing column is reachable, in the order they ship:
- * Tailwind's own `.overflow-hidden` utility (generated into the app bundle because
- * tailwind.config.js scans @plenipo/ui's dist), then our shim, read from the file that is
- * actually imported by main.tsx — so deleting or weakening it turns these tests red.
+ * Tailwind's overflow utilities, longhand: jsdom's CSSOM does not expand the `overflow` shorthand
+ * into overflow-x/overflow-y, and it ships no utility CSS of its own, so the class names the shell
+ * renders mean nothing until the matching declarations exist. Tailwind generates these into the app
+ * bundle because tailwind.config.js scans @plenipo/ui's dist.
  */
-function installStylesheet() {
+const TAILWIND_OVERFLOW: Record<string, string> = {
+  "overflow-auto": "overflow-x:auto;overflow-y:auto",
+  "overflow-hidden": "overflow-x:hidden;overflow-y:hidden",
+  "overflow-clip": "overflow-x:clip;overflow-y:clip",
+  "overflow-visible": "overflow-x:visible;overflow-y:visible",
+  "overflow-scroll": "overflow-x:scroll;overflow-y:scroll",
+  "overflow-x-auto": "overflow-x:auto",
+  "overflow-x-hidden": "overflow-x:hidden",
+  "overflow-x-clip": "overflow-x:clip",
+  "overflow-x-scroll": "overflow-x:scroll",
+  "overflow-y-auto": "overflow-y:auto",
+  "overflow-y-hidden": "overflow-y:hidden",
+  "overflow-y-clip": "overflow-y:clip",
+  "overflow-y-scroll": "overflow-y:scroll",
+};
+
+/**
+ * Installs the Tailwind overflow rules for exactly the utilities the given element carries, and
+ * nothing else: no shim, no stylesheet of ours. That asymmetry is the point. If @plenipo/ui ever
+ * goes back to clipping, this emits `overflow-x: hidden` from the shell's own class list and the
+ * assertion below goes red, instead of passing on a rule the shell no longer asks for.
+ */
+function installTailwindOverflowRules(element: Element) {
   const style = document.createElement("style");
-  style.textContent = [
-    // Tailwind ships `.overflow-hidden{overflow:hidden}`; written out longhand because jsdom's
-    // CSSOM does not expand the shorthand into overflow-x/overflow-y.
-    ".overflow-hidden{overflow-x:hidden;overflow-y:hidden}",
-    shimCss,
-  ].join("\n");
+  style.textContent = Array.from(element.classList)
+    .filter((name) => name in TAILWIND_OVERFLOW)
+    .map((name) => `.${name}{${TAILWIND_OVERFLOW[name]}}`)
+    .join("\n");
   document.head.appendChild(style);
   return style;
 }
@@ -153,18 +168,19 @@ describe("the shell's ledger table stays reachable (#152)", () => {
   });
 
   it("lets the table's own box scroll, so a column past its right edge is never unreachable", async () => {
-    injected.push(installStylesheet());
     installViewport(1680);
     renderTransactions();
     await screen.findByText("AMZN Mktp US*2K4LM9XY3");
 
     const table = document.querySelector("table");
     const wrapper = table?.parentElement;
-    // Pins the shell DOM the shim targets: if GenericTab stops wrapping its table this way, the
-    // shim is dead code and this fails loudly instead of silently protecting nothing.
-    expect(wrapper?.classList.contains("overflow-hidden")).toBe(true);
+    expect(wrapper).toBeTruthy();
 
-    // `hidden` clips with no scrollbar and no page-level scroll — the columns are simply gone.
+    injected.push(installTailwindOverflowRules(wrapper!));
+
+    // The whole contract in one line: the table's own box scrolls, so the column past its right
+    // edge is reachable. `hidden` clips with no scrollbar and no page-level scroll to fall back
+    // on, and the columns are simply gone at every width the card layout does not cover.
     expect(getComputedStyle(wrapper!).overflowX).toBe("auto");
   });
 

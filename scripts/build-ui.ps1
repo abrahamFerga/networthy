@@ -56,14 +56,27 @@ finally {
     Remove-Item Env:VITE_API_BASE -ErrorAction SilentlyContinue
 }
 
-# Tripwire: a bundle carrying the library's localhost:8080 dev fallback means the published
-# @plenipo/ui dist was built without VITE_API_BASE="" — fail loudly instead of shipping a dead
-# app (every API call would leave the host's origin).
-$leaked = Get-ChildItem (Join-Path $networthyUi "dist\assets\*.js") |
-    Select-String -Pattern "localhost:8080" -List
-if ($leaked) {
-    throw "networthy-ui bundle contains the localhost:8080 API fallback — the published @plenipo/ui " +
+# Tripwire: the published @plenipo/ui dist bakes its API base in at LIBRARY build time, and for
+# this repo it must be the empty, same-origin one — Networthy.Host serves the app and the API from
+# one origin, so any absolute base would send every call off the host and leave a dead app.
+#
+# Asserted on the configuration the bundle actually performs, not on the presence of the string
+# "localhost:8080". That string match was the check until @plenipo/ui 0.1.0-alpha.29, which split
+# the client into @plenipo/client; the fallback now lives in THAT package's prebuilt dist as
+# `normalizeApiBase(raw) => (raw ?? "http://localhost:8080")`, so the literal ships in every
+# correct bundle as an unreachable default and the old rule failed a build that was fine. The two
+# checks below are strictly stronger: the first fails if the bundle never configures a same-origin
+# base at all (which the string match could not see), the second if it configures an absolute one
+# — the actual failure the tripwire was written for.
+$assets = Get-ChildItem (Join-Path $networthyUi "dist\assets\*.js")
+if (-not ($assets | Select-String -Pattern 'baseUrl:\s*""' -List)) {
+    throw "networthy-ui bundle never configures a same-origin API base — the published @plenipo/ui " +
         "library was built without VITE_API_BASE=`"`"; fix the Plenipo release (publish.yml) or re-pin."
+}
+$absolute = $assets | Select-String -Pattern 'baseUrl:\s*"https?:' -List
+if ($absolute) {
+    throw "networthy-ui bundle configures an ABSOLUTE API base ($($absolute.Matches[0].Value)) — every " +
+        "API call would leave the host's origin. Rebuild @plenipo/ui with VITE_API_BASE=`"`"."
 }
 
 $targets = @(
