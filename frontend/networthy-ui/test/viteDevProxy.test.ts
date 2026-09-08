@@ -100,17 +100,45 @@ describe("the dev-server proxy's identity rewrite", () => {
     expect(byEvent.get("proxyReqWs")).toBe(byEvent.get("proxyReq"));
   });
 
-  it("rewrites a full cookie into all four X-Dev-* header VALUES", async () => {
+  it("rewrites a full cookie into all five X-Dev-* header VALUES", async () => {
     // Round 3 pinned only the four header NAMES, via `toContain('proxyReq.setHeader("X-Dev-…",')`
     // over the config's source text. That stayed green under a value swap — setHeader("X-Dev-Email",
     // name) — which is the same silent break as a rename. These are the values.
+    //
+    // #204 made this an exact-set assertion over FIVE headers rather than four: the set is the
+    // contract, and `toEqual` is what makes a header quietly disappearing fail here.
     const rewrite = await rewriteListener();
-    expect(headersFor(rewrite, cookie("maria|household-member|Maria Ruiz|maria@example.test"))).toEqual({
+    expect(headersFor(rewrite, cookie("maria|household-member|Maria Ruiz|maria@example.test|acme"))).toEqual({
       "X-Dev-Subject": "maria",
+      "X-Dev-Tenant": "acme",
       "X-Dev-Roles": "household-member",
       "X-Dev-Name": "Maria Ruiz",
       "X-Dev-Email": "maria@example.test",
     });
+  });
+
+  it("rewrites the tenant field into X-Dev-Tenant", async () => {
+    // #204. `devIdentity.ts`'s HEADERS list stamps FIVE headers; this proxy rewrote four, and
+    // there was no fifth cookie field for it to read. The consequence is narrow but real: the
+    // cookie-only workflow documented in vite.config.ts's own header comment — set the cookie in
+    // the console, reload — cannot express a tenant at all, so X-Dev-Tenant stays whatever the
+    // published @plenipo/ui shell hard-codes ("dev") and every request lands in that one tenant.
+    // Tenant isolation is a platform invariant, so the dev tool that cannot say "the other tenant"
+    // is exactly the tool you reach for to reproduce a cross-tenant bug.
+    const rewrite = await rewriteListener();
+    expect(headersFor(rewrite, cookie("ana|household-admin|Ana Ruiz|ana@example.test|acme"))["X-Dev-Tenant"]).toBe(
+      "acme",
+    );
+  });
+
+  it("defaults X-Dev-Tenant to dev for a cookie written before the tenant field existed", async () => {
+    // The field is APPENDED, so `split("|")` yields `undefined` for a cookie already in someone's
+    // browser. That must land on the same default the client's makeIdentity uses ("dev") rather
+    // than stamping the literal string "undefined" — which the API's Dev scheme would trust as a
+    // tenant name and silently isolate the session into a tenant that does not exist.
+    const rewrite = await rewriteListener();
+    expect(headersFor(rewrite, cookie("maria|household-member|Maria|maria@example.test"))["X-Dev-Tenant"]).toBe("dev");
+    expect(headersFor(rewrite, cookie("newcomer"))["X-Dev-Tenant"]).toBe("dev");
   });
 
   it("keeps an empty roles field empty instead of substituting one", async () => {
@@ -126,6 +154,7 @@ describe("the dev-server proxy's identity rewrite", () => {
     const rewrite = await rewriteListener();
     expect(headersFor(rewrite, cookie("newcomer"))).toEqual({
       "X-Dev-Subject": "newcomer",
+      "X-Dev-Tenant": "dev",
       "X-Dev-Roles": "",
       "X-Dev-Name": "newcomer",
       "X-Dev-Email": "newcomer@dev.local",
