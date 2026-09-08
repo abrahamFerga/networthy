@@ -1,9 +1,13 @@
 {
   "extraKnownMarketplaces": {
-    "plenipo-agents": { "source": { "source": "github", "repo": "abrahamFerga/plenipo-agents" } },
+    "plenipo-agents": {
+      "source": { "source": "github", "repo": "abrahamFerga/plenipo-agents" },
+      "autoUpdate": true
+    },
     "dotnet-agent-skills": { "source": { "source": "github", "repo": "dotnet/skills" } },
     "anthropic-agent-skills": { "source": { "source": "github", "repo": "anthropics/skills" } }
   },
+  "model": "claude-sonnet-5",
   "enabledPlugins": {
     "plenipo@plenipo-agents": true,
     "harness@plenipo-agents": true,

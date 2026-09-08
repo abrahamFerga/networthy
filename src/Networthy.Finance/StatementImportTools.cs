@@ -59,11 +59,17 @@ public sealed class StatementImportTools(
     /// OCR run; the review tab and the notification bell carry the outcome there. The chat tool
     /// wraps this same core with a bounded wait, because chat's outcome channel IS the tool result.
     /// </summary>
-    public async Task<string> QueueStatementImport(
+    /// <remarks>
+    /// Returns the outcome rather than only its prose: an HTTP caller has a status line to keep
+    /// honest, and a refusal that reads as 200 makes every client that branches on
+    /// <c>response.ok</c> report an import that never happened (#188). Chat's <see cref="ImportStatement"/>
+    /// still gets the bare prose — a tool result has no status line, so the words are the outcome.
+    /// </remarks>
+    public async Task<StatementImportQueueResult> QueueStatementImport(
         string fileId, string? accountName = null, CancellationToken cancellationToken = default)
     {
-        var (_, message) = await QueueImportAsync(fileId, accountName, cancellationToken);
-        return message;
+        var (batch, message) = await QueueImportAsync(fileId, accountName, cancellationToken);
+        return new StatementImportQueueResult(batch?.Id, message);
     }
 
     private async Task<(StatementImportBatch? Batch, string Message)> QueueImportAsync(
@@ -822,4 +828,15 @@ public sealed class StatementImportTools(
         json is null
             ? []
             : JsonSerializer.Deserialize<List<ExtractedLine>>(json, JsonSerializerOptions.Web) ?? [];
+}
+
+/// <summary>
+/// What a queue-only import actually did. <see cref="BatchId"/> is null when nothing was queued —
+/// an unusable file id, a file the store does not hold, or a named account that does not exist —
+/// and <see cref="Message"/> then carries the reason in the same words the chat tool uses.
+/// </summary>
+public readonly record struct StatementImportQueueResult(Guid? BatchId, string Message)
+{
+    /// <summary>True only when a batch was created and its extraction job enqueued.</summary>
+    public bool Queued => BatchId is not null;
 }

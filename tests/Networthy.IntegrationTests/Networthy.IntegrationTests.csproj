@@ -10,14 +10,18 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.10" />
+    <!-- The platform's conformance kit: the Testcontainers host fixture, the AG-UI parser, the
+         golden-eval runner, and the spine/manifest/tenancy/red-team invariant packs, all at the
+         platform version. It brings Microsoft.AspNetCore.Mvc.Testing, Testcontainers.PostgreSql
+         4.15.0, xunit — and SSH.NET 2026.0.0, the GHSA-q939-rpr3-3284 pin issue #230 used to
+         carry here by hand. None of those may be re-pinned locally: a direct reference below the
+         kit's floor is an NU1605 downgrade, and one above it silently forks the harness. -->
+    <PackageReference Include="Plenipo.Testing" Version="$(PlenipoVersion)" />
     <!-- A real SignalR client, so /hubs/agent is exercised over an actual WebSocket rather than
          simulated: issue #172 was a defect in the upgrade request's authentication, which nothing
          short of the real handshake reproduces. -->
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.10" />
-    <PackageReference Include="Testcontainers.PostgreSql" Version="4.13.0" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
-    <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
   </ItemGroup>
 
@@ -25,9 +29,13 @@
     <ProjectReference Include="..\..\src\Networthy.Host\Networthy.Host.csproj" />
   </ItemGroup>
 
-  <!-- Golden-conversation evals are data, not code: they must reach the test output. -->
+  <!-- Golden-conversation eval cases are data, not code, and the kit's buildTransitive targets
+       copy Evals/cases/*.json to the test output for PlenipoGoldenEvals to discover. -->
+
+  <!-- The committed request catalog is asserted against the real routing table (issue #178),
+       so the file under test is the one at the repo root, not a copy that can drift from it. -->
   <ItemGroup>
-    <Content Include="Evals\cases\*.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\networthy.http" Link="networthy.http" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
