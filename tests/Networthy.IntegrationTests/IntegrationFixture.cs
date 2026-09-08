@@ -1,11 +1,4 @@
-using Plenipo.Infrastructure.Context;
-using Plenipo.Infrastructure.Persistence;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
-using Testcontainers.PostgreSql;
-using Xunit;
+using Plenipo.Testing;
 
 namespace Networthy.IntegrationTests;
 
@@ -13,98 +6,70 @@ namespace Networthy.IntegrationTests;
 /// The real host on a throwaway Postgres: platform + finance migrations run, the dev tenant and
 /// category taxonomy seed, the job processor and hosted services start. Everything is real
 /// except the AI provider (Mock) — the same keyless posture the Plenipo platform's own suite uses.
+/// <para>
+/// The container, the <see cref="PlenipoHostFixture{TProgram}.Factory"/>, the dev-auth clients and
+/// the tenant helpers all come from the platform's <c>Plenipo.Testing</c> conformance kit, which
+/// ships at <c>PlenipoVersion</c> — so upgrading the platform upgrades the harness and the
+/// invariants together, instead of leaving this product on a copy that silently drifts. All this
+/// class owns is the <see cref="Contract"/>: what the kit needs to know about Networthy to run the
+/// platform's invariants against THIS host.
+/// </para>
+/// <para>
+/// The class name is deliberately unchanged: every suite in this project takes an
+/// <c>IntegrationFixture</c> by constructor, and the value of adopting the kit is in what it now
+/// derives from, not in a rename.
+/// </para>
 /// </summary>
-public sealed class IntegrationFixture : IAsyncLifetime
+public sealed class IntegrationFixture : PlenipoHostFixture<Program>
 {
-    private PostgreSqlContainer? _postgres;
+    /// <summary>
+    /// Networthy's conformance subject, read from the finance manifest and Program.cs's role model
+    /// — never invented:
+    /// <list type="bullet">
+    ///   <item><c>summarize_spending</c> is a read: no <c>RequiresApproval</c>, and every household
+    ///     role holds it.</item>
+    ///   <item><c>create_account</c> is the approval-gated write the product's own approval tests
+    ///     already use — it is declared <c>RequiresApproval = true</c> and household-member does not
+    ///     hold it.</item>
+    ///   <item><c>household-member</c> is the narrow role: it may chat and read, but holds neither
+    ///     <c>tools.finance.create_account</c> nor <c>chat.approvals.manage</c> (Program.cs says so
+    ///     in as many words — "a member can be gated but may not clear another member's gate").</item>
+    ///   <item>Transactions and budgets are the tenant-scoped reads a second household must see
+    ///     nothing on, on top of the module's own data tabs, which the kit probes automatically.</item>
+    /// </list>
+    /// </summary>
+    public override ProductContract Contract { get; } = new(
+        ModuleId: "finance",
+        ReadTool: "summarize_spending",
+        WriteTool: "create_account",
+        NarrowRole: "household-member",
+        ReadEndpoints: ["/api/finance/transactions", "/api/finance/budgets"],
+        WritePrompt: WriteTurn);
 
-    public WebApplicationFactory<Program> Factory { get; private set; } = default!;
+    /// <summary>
+    /// The turn the kit's approval invariants (S02–S06) send to park <c>create_account</c>.
+    /// <para>
+    /// The kit's default — the tool name spelled out — routes correctly but leaves the Mock
+    /// provider to synthesise <c>type</c>, and its generic placeholder for a required string is
+    /// the literal <c>"example"</c>. <c>AccountTools.CreateAccount</c> refuses that
+    /// (<c>'example' is not an account type</c>), so the park succeeds and the RELEASE comes back
+    /// 422 — S03 failing on a tool refusal rather than on anything about the approval gate.
+    /// </para>
+    /// <para>
+    /// The Mock's documented escape hatch is quoted spans, which fill a tool's required string
+    /// parameters in declaration order: the first becomes <c>name</c>, the second <c>type</c>. So
+    /// this turn asks for a real account of a real type, and the invariant gets to be about the
+    /// gate. The unquoted words still carry the routing: <c>create</c> + <c>account</c>.
+    /// </para>
+    /// </summary>
+    private const string WriteTurn =
+        "Please create account 'Kit Conformance Reserve' 'savings' for me, using a tool.";
 
-    public async Task InitializeAsync()
-    {
-        Environment.SetEnvironmentVariable("TESTCONTAINERS_RYUK_DISABLED", "true");
-
-        // pgvector for the platform's RAG migration, pinned to the same major the AppHost and
-        // compose image ship — a product should not test against a Postgres it does not run.
-        _postgres = new PostgreSqlBuilder("pgvector/pgvector:pg17")
-            .WithDatabase("plenipo_platform")
-            .WithUsername("postgres")
-            .WithPassword("postgres")
-            .Build();
-        await _postgres.StartAsync();
-
-        Environment.SetEnvironmentVariable("ConnectionStrings__plenipo-platform", _postgres.GetConnectionString());
-        Environment.SetEnvironmentVariable("ConnectionStrings__plenipo-audit", _postgres.GetConnectionString());
-
-        Factory = new NetworthyAppFactory();
-
-        // First request boots the host (migrations + seeding); the authenticated call makes the
-        // request enricher provision the dev-tenant user that AuthorizedScopeAsync relies on.
-        using var warmup = AdminClient();
-        (await warmup.GetAsync("/alive")).EnsureSuccessStatusCode();
-        (await warmup.GetAsync("/api/platform/modules")).EnsureSuccessStatusCode();
-    }
-
-    public async Task DisposeAsync()
-    {
-        Environment.SetEnvironmentVariable("ConnectionStrings__plenipo-platform", null);
-        Environment.SetEnvironmentVariable("ConnectionStrings__plenipo-audit", null);
-
-        if (Factory is not null)
-        {
-            await Factory.DisposeAsync();
-        }
-
-        if (_postgres is not null)
-        {
-            await _postgres.DisposeAsync();
-        }
-    }
-
-    /// <summary>An authorized HTTP client for the dev tenant's admin.</summary>
-    public HttpClient AdminClient()
-    {
-        var client = Factory.CreateClient();
-        client.DefaultRequestHeaders.Add("X-Dev-Subject", "it-admin");
-        client.DefaultRequestHeaders.Add("X-Dev-Tenant", "dev");
-        client.DefaultRequestHeaders.Add("X-Dev-Roles", "system_admin");
-        return client;
-    }
-
-    /// <summary>An authorized HTTP client for the dev tenant carrying one arbitrary role — how
-    /// RBAC gets proven (narrower role, assert the 403) and how the eval runner picks per-case
-    /// roles. Per-role subjects, so each role exercises its own provisioned user.</summary>
-    public HttpClient ClientFor(string role)
-    {
-        var client = Factory.CreateClient();
-        client.DefaultRequestHeaders.Add("X-Dev-Subject", $"it-{role}");
-        client.DefaultRequestHeaders.Add("X-Dev-Tenant", "dev");
-        client.DefaultRequestHeaders.Add("X-Dev-Roles", role);
-        return client;
-    }
-
-    /// <summary>A DI scope with tenant + user + permissions populated — how module tools run
-    /// after the platform's auth/approval pipeline has done its part.</summary>
-    public async Task<(IServiceScope Scope, Guid TenantId, Guid UserId)> AuthorizedScopeAsync()
-    {
-        var scope = Factory.Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<PlatformDbContext>();
-        var context = scope.ServiceProvider.GetRequiredService<RequestContext>();
-        var tenant = await db.Tenants.FirstAsync(t => t.Slug == "dev");
-        context.SetTenant(tenant.Id);
-        var user = await db.Users.IgnoreQueryFilters().FirstAsync(u => u.TenantId == tenant.Id);
-        context.SetUser(user.Id, user.Subject, user.DisplayName);
-        context.SetPermissions(["*"]);
-        return (scope, tenant.Id, user.Id);
-    }
-
-    private sealed class NetworthyAppFactory : WebApplicationFactory<Program>
-    {
-        protected override void ConfigureWebHost(Microsoft.AspNetCore.Hosting.IWebHostBuilder builder)
-        {
-            builder.UseEnvironment("Development");
-        }
-    }
+    /// <summary>
+    /// pgvector on the SAME major the AppHost and the compose file ship — a product should not test
+    /// against a Postgres it does not run. The kit defaults to pg16.
+    /// </summary>
+    protected override string PostgresImage => "pgvector/pgvector:pg17";
 }
 
 [CollectionDefinition("api")]

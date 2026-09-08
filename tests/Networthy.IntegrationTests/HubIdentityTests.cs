@@ -39,7 +39,9 @@ public sealed class HubIdentityTests(IntegrationFixture fixture)
 
     /// <summary>
     /// The dev-auth default principal the buggy path fell back to (DevAuthenticationHandler:
-    /// subject "dev-user", tenant "dev", roles absent ⇒ system_admin).
+    /// subject "dev-user", tenant "dev"). The roles half of that escalation is closed separately by
+    /// <c>Auth:Dev:RolesWhenAbsent</c> in appsettings.Development.json; the tenant half is what
+    /// these tests watch.
     /// </summary>
     private const string FallbackSubject = "dev-user";
     private const string FallbackTenant = "dev";
@@ -174,7 +176,8 @@ public sealed class HubIdentityTests(IntegrationFixture fixture)
     /// same escalation, through the door that was just closed.
     ///
     /// Asserted through the hub rather than on the helper, because the helper is not what enforces
-    /// it. Red without <c>DevHubIdentityShim.NoRoles</c>: the turn gates <c>set_goal</c>.
+    /// it. This was the <c>DevHubIdentityShim.NoRoles</c> guard until alpha.29; the platform's own
+    /// dev-auth now resolves the caller on hub paths, so the assertion stays and the shim is gone.
     /// </summary>
     [Fact]
     public async Task AnEmptyRolesQueryParameter_IsRoleLess_NotSystemAdmin()
