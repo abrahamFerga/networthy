@@ -24,7 +24,8 @@ allowBuilds:
 # itself; what it costs is a permanently red frontend pipeline. Revisit if either package ever
 # grows a runtime import.
 minimumReleaseAgeExclude:
-  - '@plenipo/ui@0.1.0-alpha.28'
+  - '@plenipo/ui@0.1.0-alpha.29'
+  - '@plenipo/client@0.1.0-alpha.29'
   - 'baseline-browser-mapping'
   - 'electron-to-chromium'
 

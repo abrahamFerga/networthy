@@ -65,12 +65,12 @@ public sealed class ReviewDetailActionsTests(IntegrationFixture fixture)
 
         using var admin = fixture.AdminClient();
         var detail = await admin.GetFromJsonAsync<JsonElement>($"/api/finance/imports/{batch.Id}/detail");
-        // The heading SHOUTS while TODO(plenipo#65) stands: the shell renders every detail section
-        // in the same grey, so severity has nowhere to live but this string. When the platform
-        // ships section tone, this becomes a plain "Review warning" plus tone = "warning" — and
-        // PlatformShimGuardTests is what goes red to say so.
+        // Severity rides the section's tone (plenipo#65, shipped in alpha.29), not a shouted
+        // heading: the shell styles "warning" distinctly, so the reviewer sees the severity of
+        // what they are about to approve without the string having to carry it.
         var warningSection = detail.GetProperty("sections")[0];
-        Assert.Contains("REVIEW WARNING", warningSection.GetProperty("heading").GetString());
+        Assert.Contains("Review warning", warningSection.GetProperty("heading").GetString());
+        Assert.Equal("warning", warningSection.GetProperty("tone").GetString());
         Assert.Contains("did not reconcile", warningSection.GetProperty("text").GetString());
 
         var rows = await admin.GetFromJsonAsync<JsonElement>("/api/finance/imports/batches");
