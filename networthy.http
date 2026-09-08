@@ -3,10 +3,15 @@
 # -----------------------------------------------------------------------------
 # Exercise a running Networthy from your IDE (VS Code "REST Client", JetBrains
 # HTTP Client, etc.). Start it first — see RUNBOOK.md §2:
-#   dotnet run --project src/Networthy.AppHost   (Aspire; take the networthy-api
-#                                                 URL from the dashboard)
+#   dotnet run --project src/Networthy.AppHost   (Aspire; read the networthy-api
+#                                                 URL from `aspire describe
+#                                                 networthy-api` — never guess it)
 #   docker compose up -d                         (compose → http://localhost:8080)
-#   RUNBOOK §2 Mode B                            (headless → http://127.0.0.1:8094)
+#   RUNBOOK §2 Mode B                            (headless → http://127.0.0.1:8194)
+#
+# Whatever base you use, confirm it is Networthy before trusting a failure:
+# GET {{baseUrl}}/api/platform/modules must list "finance". Sibling Plenipo
+# products answer /alive with Healthy too, and several default to port 8094.
 #
 # Auth: in Development the API accepts dev-auth headers (X-Dev-*) that stand in
 # for a real OIDC token (RUNBOOK §3). system_admin holds *; Networthy's own
