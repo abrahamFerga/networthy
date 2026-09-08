@@ -110,19 +110,20 @@ if (!app.Environment.IsDevelopment())
 }
 
 // Defense-in-depth for both embedded SPAs and every API response. The only inline script is the
-// static theme bootstrap in the app/admin index pages; pinning its SHA-256 keeps arbitrary inline
-// script blocked. As of Plenipo alpha.22 both SPAs emit that bootstrap byte-identically, so a
-// single hash covers both pages (earlier releases needed one hash each, because the two HTML
-// templates differed in surrounding whitespace).
-// Re-pin whenever scripts/build-ui.ps1 or update-platform.ps1 regenerates the index pages —
-// a stale hash silently blocks the bootstrap in the browser, which no backend test will catch.
-// Recompute: node -e '...' hashing each index.html's inline <script> body (see docs/HOSTED.md).
+// theme bootstrap the platform stamps into the app/admin index pages, and as of Plenipo alpha.29
+// every <script> the platform serves carries a PER-REQUEST NONCE (the shell is no-store so the
+// nonce can never be cached). Ask the platform for this request's nonce and admit exactly that —
+// arbitrary inline script stays blocked, and unlike the 'sha256-…' pin this survived nothing: any
+// platform change to the shell's HTML silently white-screened the app in the browser, which no
+// backend test could catch (plenipo#197). Never reintroduce a hash literal here; the
+// Plenipo.Testing kit's S15 invariant asserts the served nonce is one this policy admits.
 app.Use(async (context, next) =>
 {
     var headers = context.Response.Headers;
+    var nonce = PlenipoCsp.NonceFor(context);
     headers["Content-Security-Policy"] =
         "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; " +
-        "form-action 'self'; script-src 'self' 'sha256-+m9pIRNuKx9R4L5EDpgWAnYpvljdrRZ3jeEG7FXszAE='; " +
+        $"form-action 'self'; script-src 'self' 'nonce-{nonce}'; " +
         "style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'";
     headers["X-Content-Type-Options"] = "nosniff";
     headers["X-Frame-Options"] = "DENY";
@@ -138,26 +139,9 @@ app.Use(async (context, next) =>
     await next();
 });
 
-// #172: give the SignalR chat transport the caller's real identity in dev. MUST stay ahead of
-// RunPlenipoPlatformAsync(), which is where the platform's UseAuthentication() lives — see
-// DevHubIdentityShim.
-app.UseDevHubIdentityShim();
-
-// #227: a request that OMITS X-Dev-Roles asserts no roles, and must be granted nothing — the
-// sibling of the present-but-empty case #217 closed. MUST stay AFTER UseDevHubIdentityShim (which
-// promotes the hub-path query identity into headers) and ahead of RunPlenipoPlatformAsync() —
-// see DevRolesDefaultShim.
-app.UseDevRolesDefaultShim();
-
 // Straighten out AI seams in the frozen platform package (default-model saves, the unfiltered
 // model catalog, and deployment-only provider reporting) — see PlenipoAiShims.
 app.UsePlenipoAiShims();
-
-// #150: scope GET /api/chat/approvals to the conversation the caller asked for. The platform's
-// list endpoint has no conversationId parameter to bind, so it answers with the household's whole
-// queue and a caller reading one thread is handed another thread's parked write. Narrows only —
-// see ApprovalScopeShim. MUST stay ahead of RunPlenipoPlatformAsync(), which maps that endpoint.
-app.UseApprovalScopeShim();
 
 await app.RunPlenipoPlatformAsync();
 

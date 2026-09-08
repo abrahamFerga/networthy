@@ -24,8 +24,9 @@ public sealed class RoleLessPrincipalTests(IntegrationFixture fixture)
     /// A client whose <c>X-Dev-Roles</c> is PRESENT but asserts no role — how a real IdP presents
     /// an unscoped principal. Omitting the header entirely reaches the same place by a different
     /// road (see <see cref="AbsentRolesClient"/>): dev-auth reads absence as its system_admin
-    /// convenience default, and <c>DevRolesDefaultShim</c> is what closes that. Both cases are
-    /// tested here because only one of them is governed by <c>Auth:DefaultRole</c>.
+    /// convenience default, and <c>Auth:Dev:RolesWhenAbsent</c> — set to <c>""</c> in
+    /// appsettings.Development.json since alpha.29 — is what closes that. Both cases are tested
+    /// here because they are governed by different settings and have already diverged once.
     ///
     /// The value is a single space, not <c>""</c>, and that is load-bearing: HttpClient drops a
     /// header whose value is empty, silently turning this into the omitted-header case — measured,
