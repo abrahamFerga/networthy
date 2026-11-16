@@ -2,7 +2,7 @@
 # finance module + Plaid connector + the embedded branded web UI. Build context is the
 # repository root:
 #   docker build -t networthy .
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:11.0 AS build
 WORKDIR /src
 
 # Restore from the vendored feed first, projects-only, for layer caching.
