@@ -17,7 +17,7 @@ RUN dotnet restore src/Networthy.Host/Networthy.Host.csproj
 COPY src/ src/
 RUN dotnet publish src/Networthy.Host/Networthy.Host.csproj -c Release -o /app/publish /p:UseAppHost=false
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
+FROM mcr.microsoft.com/dotnet/aspnet:11.0 AS final
 WORKDIR /app
 EXPOSE 8080
 ENV ASPNETCORE_HTTP_PORTS=8080
